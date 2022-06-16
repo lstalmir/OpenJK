@@ -35,6 +35,7 @@ option(BuildPortableVersion "Build portable version (does not read or write file
 
 option(BuildMPEngine "Whether to create projects for the MP client (openjk.exe)" ON)
 option(BuildMPRdVanilla "Whether to create projects for the MP default renderer (rd-vanilla_x86.dll)" ON)
+option(BuildMPRdVulkan "Whether to create projects for the MP Vulkan renderer (rd-vulkan_x86.dll)" OFF)
 option(BuildMPDed "Whether to create projects for the MP dedicated server (openjkded.exe)" ON)
 option(BuildMPGame "Whether to create projects for the MP server-side gamecode (jampgamex86.dll)" ON)
 option(BuildMPCGame "Whether to create projects for the MP clientside gamecode (cgamex86.dll)" ON)
@@ -42,10 +43,12 @@ option(BuildMPUI "Whether to create projects for the MP UI code (uix86.dll)" ON)
 option(BuildSPEngine "Whether to create projects for the SP engine (openjk_sp.exe)" ON)
 option(BuildSPGame "Whether to create projects for the SP gamecode (jagamex86.dll)" ON)
 option(BuildSPRdVanilla "Whether to create projects for the SP default renderer (rdsp-vanilla_x86.dll)" ON)
+option(BuildSPRdVulkan "Whether to create projects for the SP Vulkan renderer (rdsp-vulkan_x86.dll)" OFF)
 
 option(BuildJK2SPEngine "Whether to create projects for the jk2 SP engine (openjo_sp.exe)" OFF)
 option(BuildJK2SPGame "Whether to create projects for the jk2 sp gamecode mod (jk2gamex86.dll)" OFF)
 option(BuildJK2SPRdVanilla "Whether to create projects for the jk2 sp renderer (rdjosp-vanilla_x86.dll)" OFF)
+option(BuildJK2SPRdVulkan "Whether to create projects for the jk2 sp Vulkan renderer (rdjosp-vulkan_x86.dll)" ON)
 
 option(BuildTests "Whether to build automatic unit tests (requires Boost)" OFF)
 
@@ -148,8 +151,10 @@ endif()
 set(SPEngine "openjk_sp.${Architecture}")
 set(SPGame "jagame${Architecture}")
 set(SPRDVanillaRenderer "rdsp-vanilla_${Architecture}")
+set(PSRDVulkanRnderer "rdsp-vulkan_${Architecture}")
 set(MPEngine "openjk.${Architecture}")
 set(MPVanillaRenderer "rd-vanilla_${Architecture}")
+set(MPVulkanRnderer "rd-vulkan_${Architecture}")
 set(MPDed "openjkded.${Architecture}")
 set(MPGame "jampgame${Architecture}")
 set(MPCGame "cgame${Architecture}")
@@ -157,6 +162,7 @@ set(MPUI "ui${Architecture}")
 set(JK2SPEngine "openjo_sp.${Architecture}")
 set(JK2SPGame "jospgame${Architecture}")
 set(JK2SPVanillaRenderer "rdjosp-vanilla_${Architecture}")
+set(JK2SPVulkanRenderer "rdjosp-vulkan_${Architecture}")
 set(AssetsPk3 "openjk-${Architecture}.pk3")
 # Library names
 set(MPBotLib "botlib")
@@ -372,6 +378,8 @@ endif()
 
 # Always use bundled minizip (sets MINIZIP_{LIBRARIES,INCLUDE_DIR})
 add_subdirectory(lib/minizip)
+# Always use bundled Compressonator
+add_subdirectory(lib/compressonator)
 
 # Add projects
 add_subdirectory(${SPDir})
