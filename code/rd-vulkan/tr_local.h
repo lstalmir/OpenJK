@@ -26,6 +26,8 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 
 #include "../qcommon/q_shared.h"
 #include "../qcommon/qfiles.h"
+#include "../Ratl/pool_vs.h"
+#include "../Ratl/vector_vs.h"
 #include "tr_common.h"
 #include "tr_public.h"
 #include "mdx_format.h"
@@ -120,12 +122,15 @@ typedef struct buffer_s {
 
 	VmaAllocation		allocation;
 	VmaAllocationInfo	allocationInfo;
+
+	VkMemoryPropertyFlags memoryPropertyFlags;
+
 } buffer_t;
 
 typedef struct image_s {
 	char				imgName[MAX_QPATH];		// game path, including extension
-	int					frameUsed;			// for texture usage in frame statistics
-	word				width, height;				// source image
+	int					frameUsed;				// for texture usage in frame statistics
+	word				width, height;			// source image
 //	int					imgfileSize;
 
 	VkImage				tex;
@@ -134,6 +139,7 @@ typedef struct image_s {
 	VmaAllocation		allocation;
 
 	VkFormat			internalFormat;
+
 	VkSamplerAddressMode wrapClampMode;
 
 	VkImageLayout		layout;
@@ -144,7 +150,6 @@ typedef struct image_s {
 	bool				allowPicmip;
 	short				iLastLevelUsedOn;
 
-	buffer_t			uploadBuffer;
 } image_t;
 
 
@@ -918,17 +923,29 @@ typedef struct {
 
 
 #define MAX_OUTIMAGES 4
+#define MIN_UPLOADBUFFER_SIZE 65536
+
+typedef struct {
+	buffer_t				*buffer;
+	int						offset;
+	int						age;
+} uploadBuffer_t;
 
 // the renderer front end should never modify vkstate_t
 typedef struct {
 	VkInstance				instance;
-	VkPhysicalDevice		adapter;
+	VkPhysicalDevice		physicalDevice;
 	VkDevice				device;
+
+	VkQueue					queue;
+	uint32_t				queueFamilyIndex;
 
 	VmaAllocator			allocator;
 
 	VkSurfaceKHR			surface;
 	VkSwapchainKHR			swapchain;
+
+	VkDescriptorPool		descriptorPool;
 
 	uint32_t				imgcount;
 	image_t					images[MAX_OUTIMAGES];
@@ -939,8 +956,14 @@ typedef struct {
 	VkFence					fences[MAX_OUTIMAGES];
 	VkSemaphore				semaphores[MAX_OUTIMAGES];
 
+	ratl::pool_vs<uploadBuffer_t, 48>	uploadBuffers;
+	ratl::vector_vs<int, 12>			frameUploadBuffers[MAX_OUTIMAGES]; // upload buffers used in each frame
+
 	int						resnum;
 	uint32_t				imagenum;
+
+	char					physicalDeviceName[VK_MAX_DESCRIPTION_SIZE];
+	char					physicalDeviceDriverVersion[32];
 
 } vkstate_t;
 
@@ -1022,21 +1045,41 @@ typedef struct {
 
 	image_t					*screenImage; //reserve us a gl texnum to use with RF_DISTORTION
 
-	// Handle to the Glow Effect pipeline.
-	VkPipeline				glowPipeline;
-	VkPipelineLayout		glowPipelineLayout;
+	// samplers
+	VkSampler				wrapModeSampler;
+	VkSampler				clampModeSampler;
 
-	// Handle to the Glow Effect Pixel Shader. - AReis
-	GLuint					glowPShader;
+	VkRenderPass			postProcessPass;
+	image_t					*postProcessImage;
+	VkFramebuffer			postProcessFramebuffer;
+	
+	// A rectangular texture representing the normally rendered scene.
+	image_t					*sceneImage;
+	VkFramebuffer			sceneFramebuffer;
+
+	VkRenderPass			sceneRenderPass;
+	
+	// Handles to the Glow Effect resources.
+	VkPipeline				glowBlurPipeline;
+	VkPipelineLayout		glowBlurPipelineLayout;
+	VkDescriptorSet			glowBlurDescriptorSet;
+	VkDescriptorSetLayout	glowBlurDescriptorSetLayout;
+
+	VkPipeline				glowCombinePipeline;
+	VkPipelineLayout		glowCombinePipelineLayout;
+	VkDescriptorSet			glowCombineDescriptorSet;
+	VkDescriptorSetLayout	glowCombineDescriptorSetLayout;
 
 	// Image the glowing objects are rendered to. - AReis
-	GLuint					screenGlow;
+	image_t					*glowImage;
+	VkFramebuffer			glowFramebuffer;
 
-	// A rectangular texture representing the normally rendered scene.
-	GLuint					sceneImage;
+	VkRenderPass			glowRenderPass;
 
 	// Image used to downsample and blur scene to.	- AReis
-	GLuint					blurImage;
+	image_t					*glowBlurImage;
+	VkFramebuffer			glowBlurFramebuffer;
+
 
 	shader_t				*defaultShader;
 	shader_t				*shadowShader;
@@ -1115,12 +1158,17 @@ void	 R_Images_Clear(void);
 void	 R_Images_DeleteLightMaps(void);
 void	 R_Images_DeleteImage(image_t *pImage);
 
+int		 R_Buffers_StartIteration(void);
+buffer_t *R_Buffers_GetNextIteration(void);
+void	 R_Buffers_Clear(void);
+void	 R_Buffers_DeleteBuffer(buffer_t *pBuffer);
+
 
 extern backEndState_t	backEnd;
 extern trGlobals_t	tr;
 extern glconfig_t	glConfig;		// outside of TR since it shouldn't be cleared during ref re-init
 extern vkstate_t	vkState;		// outside of TR since it shouldn't be cleared during ref re-init
-extern vkcontext_t	vkContext;
+extern vkcontext_t	vkCtx;
 extern window_t		window;
 
 
@@ -1300,7 +1348,11 @@ void R_RotateForEntity( const trRefEntity_t *ent, const viewParms_t *viewParms, 
 /*
 ** Vulkan wrapper/helper functions
 */
+void VK_TextureMode( const char* string );
+uploadBuffer_t *VK_GetUploadBuffer( int uploadSize );
+void VK_PrepareUploadBuffers( void );
 void VK_UploadImage( image_t *im, const byte *pic, int width, int height, int mip );
+void VK_UploadBuffer( buffer_t *buffer, const byte *data, int size, int offset );
 void VK_SetImageLayout( image_t *im, VkImageLayout dstLayout, VkAccessFlags dstAccess );
 
 
@@ -1364,14 +1416,18 @@ void		RE_RegisterModels_StoreShaderRequest(const char *psModelFileName, const ch
 void		RE_RegisterModels_Info_f(void);
 qboolean	RE_RegisterImages_LevelLoadEnd(void);
 void		RE_RegisterImages_Info_f(void);
+void		RE_RegisterBuffers_Info_f( void );
 
 
 model_t		*R_AllocModel( void );
 
 void    	R_Init( void );
-image_t		*R_FindImageFile( const char *name, qboolean mipmap, qboolean allowPicmip, qboolean allowTC, int glWrapClampMode );
+image_t		*R_FindImageFile( const char *name, qboolean mipmap, qboolean allowPicmip, qboolean allowTC, VkSamplerAddressMode wrapClampMode );
 
-image_t		*R_CreateImage( const char *name, const byte *pic, int width, int height, VkFormat format, qboolean mipmap, qboolean allowPicmip, qboolean allowTC, VkSamplerAddressMode wrapClampMode);
+image_t		*R_CreateImage( const char *name, const byte *pic, int width, int height, VkFormat format, qboolean mipmap, qboolean allowPicmip, qboolean allowTC, VkSamplerAddressMode wrapClampMode );
+image_t		*R_CreateTransientImage( const char *name, int width, int height, VkFormat format, VkSamplerAddressMode wrapClampMode );
+
+buffer_t	*R_CreateBuffer( int size, VkBufferUsageFlags usage, VkMemoryPropertyFlags requiredFlags );
 
 qboolean	R_GetModeInfo( int *width, int *height, int mode );
 
@@ -1379,6 +1435,7 @@ void		R_SetColorMappings( void );
 void		R_GammaCorrect( byte *buffer, int bufSize );
 
 void	R_ImageList_f( void );
+void	R_BufferList_f( void );
 void	R_SkinList_f( void );
 void	R_FontList_f( void );
 void	R_ScreenShot_f( void );
@@ -1388,6 +1445,8 @@ void	R_InitFogTable( void );
 float	R_FogFactor( float s, float t );
 void	R_InitImages( void );
 void	R_DeleteTextures( void );
+void	R_InitBuffers( void );
+void	R_DeleteBuffers( void );
 float	R_SumOfUsedImages( qboolean bUseFormat );
 void	R_InitSkins( void );
 skin_t	*R_GetSkinByHandle( qhandle_t hSkin );
@@ -1411,9 +1470,9 @@ void		R_InitShaders( void );
 void		R_ShaderList_f( void );
 
 //
-// tr_arb.c
+// tr_spv.c
 //
-void ARB_InitGlowShaders( void );
+void SPV_InitGlowShaders( void );
 
 
 /*
@@ -1445,7 +1504,7 @@ typedef struct stageVars
 
 struct shaderCommands_s
 {
-	glIndex_t	indexes[SHADER_MAX_INDEXES] QALIGN(16);
+	uint32_t	indexes[SHADER_MAX_INDEXES] QALIGN(16);
 	vec4_t		xyz[SHADER_MAX_VERTEXES] QALIGN(16);
 	vec4_t		normal[SHADER_MAX_VERTEXES] QALIGN(16);
 	vec2_t		texCoords[SHADER_MAX_VERTEXES][NUM_TEX_COORDS] QALIGN(16);

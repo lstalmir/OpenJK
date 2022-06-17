@@ -1255,7 +1255,7 @@ static qboolean ParseStage( shaderStage_t *stage, const char **text )
 					(qboolean)!shader.noMipMaps,
 					(qboolean)!shader.noPicMip,
 					(qboolean)!shader.noTC,
-					GL_REPEAT );
+					VK_SAMPLER_ADDRESS_MODE_REPEAT );
 				if ( !stage->bundle[0].image )
 				{
 					ri.Printf( PRINT_WARNING, "WARNING: R_FindImageFile could not find '%s' in shader '%s'\n", token, shader.name );
@@ -1280,7 +1280,7 @@ static qboolean ParseStage( shaderStage_t *stage, const char **text )
 				(qboolean)!shader.noMipMaps,
 				(qboolean)!shader.noPicMip,
 				(qboolean)!shader.noTC,
-				GL_CLAMP );
+				VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE );
 			if ( !stage->bundle[0].image )
 			{
 				ri.Printf( PRINT_WARNING, "WARNING: R_FindImageFile could not find '%s' in shader '%s'\n", token, shader.name );
@@ -1321,7 +1321,7 @@ static qboolean ParseStage( shaderStage_t *stage, const char **text )
 						(qboolean)!shader.noMipMaps,
 						(qboolean)!shader.noPicMip,
 						(qboolean)!shader.noTC,
-						bClamp?GL_CLAMP:GL_REPEAT);
+						bClamp ? VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE : VK_SAMPLER_ADDRESS_MODE_REPEAT );
 					if ( !images[num] )
 					{
 						ri.Printf( PRINT_WARNING, "WARNING: R_FindImageFile could not find '%s' in shader '%s'\n", token, shader.name );
@@ -1961,7 +1961,7 @@ static void ParseSkyParms( const char **text ) {
 	if ( strcmp( token, "-" ) ) {
 		for (i=0 ; i<6 ; i++) {
 			Com_sprintf( pathname, sizeof(pathname), "%s_%s", token, suf[i] );
-			shader.sky->outerbox[i] = R_FindImageFile( ( char * ) pathname, qtrue, qtrue, (qboolean)!shader.noTC, GL_CLAMP );
+			shader.sky->outerbox[i] = R_FindImageFile( ( char * ) pathname, qtrue, qtrue, (qboolean)!shader.noTC, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE );
 			if ( !shader.sky->outerbox[i] ) {
 				if (i) {
 					shader.sky->outerbox[i] = shader.sky->outerbox[i-1];//not found, so let's use the previous image
@@ -3382,7 +3382,7 @@ static inline const int *R_FindLightmap( const int *lightmapIndex )
 
 	// attempt to load an external lightmap
 	Com_sprintf( fileName, sizeof(fileName), "%s/" EXTERNAL_LIGHTMAP, tr.worldDir, *lightmapIndex );
-	image = R_FindImageFile( fileName, qfalse, qfalse, (qboolean)(r_ext_compressed_lightmaps->integer != 0), GL_CLAMP );
+	image = R_FindImageFile( fileName, qfalse, qfalse, (qboolean)(r_ext_compressed_lightmaps->integer != 0), VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE );
 	if( image == NULL )
 	{
 		return lightmapsVertex;
@@ -3491,7 +3491,7 @@ shader_t *R_FindShader( const char *name, const int *lightmapIndex, const byte *
 	// if not defined in the in-memory shader descriptions,
 	// look for a single TGA, BMP, or PCX
 	//
-	image = R_FindImageFile( name, mipRawImage, mipRawImage, qtrue, mipRawImage ? GL_REPEAT : GL_CLAMP );
+	image = R_FindImageFile( name, mipRawImage, mipRawImage, qtrue, mipRawImage ? VK_SAMPLER_ADDRESS_MODE_REPEAT : VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE );
 	if ( !image ) {
 		if (strncmp(name, "levelshots", 10 )  && strcmp(name, "*off"))
 		{	//hide these warnings
@@ -3851,7 +3851,7 @@ static void CreateInternalShaders( void ) {
 	tr.distortionShader = FinishShader();
 	shader.defaultShader = true;
 
-	ARB_InitGlowShaders();
+	SPV_InitGlowShaders();
 }
 
 static void CreateExternalShaders( void ) {

@@ -435,9 +435,9 @@ static void RE_Blit(float fX0, float fY0, float fX1, float fY1, float fX2, float
 	imageBlit.dstSubresource.baseArrayLayer = 0;
 	imageBlit.dstSubresource.layerCount = 1;
 
-	vkCmdBlitImage( VK_GetCommandBuffer(),
-		pSrcImage->teximage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-		pDstImage->teximage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+	vkCmdBlitImage( vkCtx.cmdbuffer,
+		pSrcImage->tex, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+		pDstImage->tex, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
 		1, );
 
 	GL_Bind( pImage );
@@ -523,7 +523,7 @@ qboolean RE_ProcessDissolve(void)
 //			GLdouble glD;
 //			qglGetDoublev(GL_DEPTH_CLEAR_VALUE,&glD);
 //			qglClearColor(0,0,0,1);
-			vkCmdClearAttachments( VK_GetCommandBuffer(), 1, )
+			vkCmdClearAttachments( vkCtx.cmdbuffer, 1, )
 			qglClearDepth(1.0f);
 			qglClear( GL_DEPTH_BUFFER_BIT );
 
@@ -895,15 +895,15 @@ qboolean RE_InitDissolve(qboolean bForceCircularExtroWipe)
 												&Dissolve.iUploadHeight	// int *piHeight
 												);
 
-			Dissolve.pImage = R_CreateImage("*DissolveImage",		// const char *name
-											pbScreenSprite,			// const byte *pic
-											Dissolve.iUploadWidth,	// int width
-											Dissolve.iUploadHeight,	// int height
+			Dissolve.pImage = R_CreateImage("*DissolveImage",						// const char *name
+											pbScreenSprite,							// const byte *pic
+											Dissolve.iUploadWidth,					// int width
+											Dissolve.iUploadHeight,					// int height
 											GL_RGBA,
-											qfalse,					// qboolean mipmap
-											qfalse,					// qboolean allowPicmip
-											qfalse,					// qboolean allowTC
-											GL_CLAMP				// int glWrapClampMode
+											qfalse,									// qboolean mipmap
+											qfalse,									// qboolean allowPicmip
+											qfalse,									// qboolean allowTC
+											VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE	// VkSamplerAdderssMode wrapClampMode
 											);
 
 
@@ -911,15 +911,15 @@ qboolean RE_InitDissolve(qboolean bForceCircularExtroWipe)
 			for (int j=0; j<8*8*4; j+=4)	// itu?
 				bBlack[j+3]=255;		//
 
-			Dissolve.pBlack = R_CreateImage( "*DissolveBlack",	// const char *name
-											bBlack,				// const byte *pic
-											8,					// int width
-											8,					// int height
+			Dissolve.pBlack = R_CreateImage( "*DissolveBlack",						// const char *name
+											bBlack,									// const byte *pic
+											8,										// int width
+											8,										// int height
 											GL_RGBA,
-											qfalse,				// qboolean mipmap
-											qfalse,				// qboolean allowPicmip
-											qfalse,				// qboolean allowTC
-											GL_CLAMP			// int glWrapClampMode
+											qfalse,									// qboolean mipmap
+											qfalse,									// qboolean allowPicmip
+											qfalse,									// qboolean allowTC
+											VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE	// VkSamplerAdderssMode wrapClampMode
 											);
 
 			if (pbReSampleBuffer)
@@ -962,12 +962,12 @@ qboolean RE_InitDissolve(qboolean bForceCircularExtroWipe)
 			//	will be instant.  Downside: every level has one extra 256x256 texture.
 	 		// Trying to decipher these comments - looks like no problem taking this out. I want the RAM.
 			{
-					Dissolve.pDissolve = R_FindImageFile(	"gfx/2d/iris_mono_rev",		// const char *name
-															qfalse,						// qboolean mipmap
-															qfalse,						// qboolean allowPicmip
-															qfalse,						// qboolean allowTC
-															GL_CLAMP					// int glWrapClampMode
-														);
+				Dissolve.pDissolve = R_FindImageFile(	"gfx/2d/iris_mono_rev",					// const char *name
+														qfalse,									// qboolean mipmap
+														qfalse,									// qboolean allowPicmip
+														qfalse,									// qboolean allowTC
+														VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE	// VkSamplerAdderssMode wrapClampMode
+													);
 			}
 
 			extern cvar_t *com_buildScript;
@@ -975,17 +975,17 @@ qboolean RE_InitDissolve(qboolean bForceCircularExtroWipe)
 			{
 				// register any/all of the possible CASE statements below...
 				//
-				Dissolve.pDissolve = R_FindImageFile(	"gfx/2d/iris_mono",			// const char *name
-														qfalse,						// qboolean mipmap
-														qfalse,						// qboolean allowPicmip
-														qfalse,						// qboolean allowTC
-														GL_CLAMP					// int glWrapClampMode
+				Dissolve.pDissolve = R_FindImageFile(	"gfx/2d/iris_mono",						// const char *name
+														qfalse,									// qboolean mipmap
+														qfalse,									// qboolean allowPicmip
+														qfalse,									// qboolean allowTC
+														VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE	// VkSamplerAdderssMode wrapClampMode
 													);
-				Dissolve.pDissolve = R_FindImageFile(	"textures/common/dissolve",	// const char *name
-														qfalse,						// qboolean mipmap
-														qfalse,						// qboolean allowPicmip
-														qfalse,						// qboolean allowTC
-														GL_REPEAT					// int glWrapClampMode
+				Dissolve.pDissolve = R_FindImageFile(	"textures/common/dissolve",				// const char *name
+														qfalse,									// qboolean mipmap
+														qfalse,									// qboolean allowPicmip
+														qfalse,									// qboolean allowTC
+														VK_SAMPLER_ADDRESS_MODE_REPEAT			// VkSamplerAdderssMode wrapClampMode
 													);
 			}
 
@@ -993,33 +993,33 @@ qboolean RE_InitDissolve(qboolean bForceCircularExtroWipe)
 			{
 				case eDISSOLVE_CIRCULAR_IN:
 				{
-					Dissolve.pDissolve = R_FindImageFile(	"gfx/2d/iris_mono_rev",		// const char *name
-															qfalse,						// qboolean mipmap
-															qfalse,						// qboolean allowPicmip
-															qfalse,						// qboolean allowTC
-															GL_CLAMP					// int glWrapClampMode
+					Dissolve.pDissolve = R_FindImageFile(	"gfx/2d/iris_mono_rev",					// const char *name
+															qfalse,									// qboolean mipmap
+															qfalse,									// qboolean allowPicmip
+															qfalse,									// qboolean allowTC
+															VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE	// VkSamplerAdderssMode wrapClampMode
 														);
 				}
 				break;
 
 				case eDISSOLVE_CIRCULAR_OUT:
 				{
-					Dissolve.pDissolve = R_FindImageFile(	"gfx/2d/iris_mono",			// const char *name
-															qfalse,						// qboolean mipmap
-															qfalse,						// qboolean allowPicmip
-															qfalse,						// qboolean allowTC
-															GL_CLAMP					// int glWrapClampMode
+					Dissolve.pDissolve = R_FindImageFile(	"gfx/2d/iris_mono",						// const char *name
+															qfalse,									// qboolean mipmap
+															qfalse,									// qboolean allowPicmip
+															qfalse,									// qboolean allowTC
+															VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE	// VkSamplerAdderssMode wrapClampMode
 														);
 				}
 				break;
 
 				default:
 				{
-					Dissolve.pDissolve = R_FindImageFile(	"textures/common/dissolve",	// const char *name
-															qfalse,						// qboolean mipmap
-															qfalse,						// qboolean allowPicmip
-															qfalse,						// qboolean allowTC
-															GL_REPEAT					// int glWrapClampMode
+					Dissolve.pDissolve = R_FindImageFile(	"textures/common/dissolve",		// const char *name
+															qfalse,							// qboolean mipmap
+															qfalse,							// qboolean allowPicmip
+															qfalse,							// qboolean allowTC
+															VK_SAMPLER_ADDRESS_MODE_REPEAT	// VkSamplerAdderssMode wrapClampMode
 														);
 				}
 				break;

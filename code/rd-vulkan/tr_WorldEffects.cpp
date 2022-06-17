@@ -1033,22 +1033,16 @@ public:
 
 		// Create The Image
 		//------------------
-		mImage = R_FindImageFile(texturePath, qfalse, qfalse, qfalse, GL_CLAMP);
+		mImage = R_FindImageFile(texturePath, qfalse, qfalse, qfalse, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE);
 		if (!mImage)
 		{
 			Com_Error(ERR_DROP, "CParticleCloud: Could not texture %s", texturePath);
 		}
 
-		GL_Bind(mImage);
-
-
-
 		// Create The Particles
 		//----------------------
 		mParticleCount	= count;
 		mParticles		= new WFXParticle[mParticleCount];
-
-
 
 		WFXParticle*	part=0;
 		for (int particleNum=0; particleNum<mParticleCount; particleNum++)

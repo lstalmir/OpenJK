@@ -350,16 +350,40 @@ for each RE_EndFrame
 ====================
 */
 void RE_BeginFrame( stereoFrame_t stereoFrame ) {
+	VkResult res;
 	drawBufferCommand_t	*cmd;
 
 	if ( !tr.registered ) {
 		return;
 	}
-	glState.finishCalled = qfalse;
 
 	tr.frameCount++;
 	tr.frameSceneNum = 0;
 
+	// move to the next resource
+	vkState.resnum = (vkState.resnum + 1) % vkState.imgcount;
+	vkCtx.cmdbuffer = vkState.cmdbuffers[vkState.resnum];
+	vkCtx.semaphore = vkState.semaphores[vkState.resnum];
+
+	res = vkAcquireNextImageKHR(
+		vkState.device, vkState.swapchain, 0, vkCtx.semaphore, VK_NULL_HANDLE, &vkState.imagenum );
+
+	if (res != VK_SUCCESS) {
+		Com_Error( ERR_FATAL, "RE_BeginFrame: failed to acquire next swapchain image (%d)\n", res );
+	}
+
+	// wait until the resources are available
+	res = vkWaitForFences( vkState.device, 1, &vkState.fences[vkState.resnum], VK_FALSE, UINT64_MAX );
+	if (res != VK_SUCCESS) {
+		Com_Error( ERR_FATAL, "RE_BeginFrame: failed to wait for resource availability (%d)\n", res );
+	}
+
+	vkResetFences( vkState.device, 1, &vkState.fences[vkState.resnum] );
+
+	// free the upload buffers for this frame to the pool
+	VK_PrepareUploadBuffers();
+
+#if 0
 	//
 	// do overdraw measurement
 	//
@@ -397,13 +421,14 @@ void RE_BeginFrame( stereoFrame_t stereoFrame ) {
 			r_measureOverdraw->modified = qfalse;
 		}
 	}
+#endif
 
 	//
 	// texturemode stuff
 	//
 	if ( r_textureMode->modified || r_ext_texture_filter_anisotropic->modified) {
 		R_IssuePendingRenderCommands();
-		GL_TextureMode( r_textureMode->string );
+		VK_TextureMode( r_textureMode->string );
 		r_textureMode->modified = qfalse;
 		r_ext_texture_filter_anisotropic->modified = qfalse;
 	}
@@ -420,12 +445,7 @@ void RE_BeginFrame( stereoFrame_t stereoFrame ) {
 
     // check for errors
     if ( !r_ignoreGLErrors->integer ) {
-        int	err;
-
 		R_IssuePendingRenderCommands();
-        if ( ( err = qglGetError() ) != GL_NO_ERROR ) {
-            Com_Error( ERR_FATAL, "RE_BeginFrame() - glGetError() failed (0x%x)!\n", err );
-        }
     }
 
 	//
@@ -439,9 +459,9 @@ void RE_BeginFrame( stereoFrame_t stereoFrame ) {
 
 	if ( glConfig.stereoEnabled ) {
 		if ( stereoFrame == STEREO_LEFT ) {
-			cmd->buffer = (int)GL_BACK_LEFT;
+			cmd->buffer = 0;
 		} else if ( stereoFrame == STEREO_RIGHT ) {
-			cmd->buffer = (int)GL_BACK_RIGHT;
+			cmd->buffer = 1;
 		} else {
 			Com_Error( ERR_FATAL, "RE_BeginFrame: Stereo is enabled, but stereoFrame was %i", stereoFrame );
 		}
@@ -453,7 +473,7 @@ void RE_BeginFrame( stereoFrame_t stereoFrame ) {
 //			cmd->buffer = (int)GL_FRONT;
 //		} else
 		{
-			cmd->buffer = (int)GL_BACK;
+			cmd->buffer = 0;
 		}
 	}
 }

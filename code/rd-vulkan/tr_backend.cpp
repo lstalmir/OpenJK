@@ -116,7 +116,7 @@ void VK_SetImageLayout( image_t *im, VkImageLayout dstLayout, VkAccessFlags dstA
 		imageMemoryBarrier.subresourceRange.levelCount = VK_REMAINING_MIP_LEVELS;
 
 		vkCmdPipelineBarrier(
-			vkContext.cmdbuffer,
+			vkCtx.cmdbuffer,
 			VK_GetPipelineStageFlagsForAccess( imageMemoryBarrier.srcAccessMask ),
 			VK_GetPipelineStageFlagsForAccess( imageMemoryBarrier.dstAccessMask ),
 			VK_DEPENDENCY_BY_REGION_BIT,
@@ -128,71 +128,6 @@ void VK_SetImageLayout( image_t *im, VkImageLayout dstLayout, VkAccessFlags dstA
 		im->layout = dstLayout;
 		im->access = dstAccess;
 	}
-}
-
-
-/*
-** GL_Bind
-*/
-void GL_Bind( image_t *image ) {
-	int texnum;
-
-	if( !image ) {
-		ri.Printf( PRINT_WARNING, "GL_Bind: NULL image\n" );
-		texnum = tr.defaultImage->gl.texnum;
-	}
-	else {
-		texnum = image->gl.texnum;
-	}
-
-	if( r_nobind->integer && tr.dlightImage ) { // performance evaluation option
-		texnum = tr.dlightImage->gl.texnum;
-	}
-
-	if( glState.currenttextures[glState.currenttmu] != texnum ) {
-		image->frameUsed = tr.frameCount;
-		glState.currenttextures[glState.currenttmu] = texnum;
-		qglBindTexture( GL_TEXTURE_2D, texnum );
-	}
-}
-
-/*
-** GL_SelectTexture
-*/
-void GL_SelectTexture( int unit ) {
-	if( glState.currenttmu == unit ) {
-		return;
-	}
-
-	if( unit == 0 ) {
-		qglActiveTextureARB( GL_TEXTURE0_ARB );
-		GLimp_LogComment( "glActiveTextureARB( GL_TEXTURE0_ARB )\n" );
-		qglClientActiveTextureARB( GL_TEXTURE0_ARB );
-		GLimp_LogComment( "glClientActiveTextureARB( GL_TEXTURE0_ARB )\n" );
-	}
-	else if( unit == 1 ) {
-		qglActiveTextureARB( GL_TEXTURE1_ARB );
-		GLimp_LogComment( "glActiveTextureARB( GL_TEXTURE1_ARB )\n" );
-		qglClientActiveTextureARB( GL_TEXTURE1_ARB );
-		GLimp_LogComment( "glClientActiveTextureARB( GL_TEXTURE1_ARB )\n" );
-	}
-	else if( unit == 2 ) {
-		qglActiveTextureARB( GL_TEXTURE2_ARB );
-		GLimp_LogComment( "glActiveTextureARB( GL_TEXTURE2_ARB )\n" );
-		qglClientActiveTextureARB( GL_TEXTURE2_ARB );
-		GLimp_LogComment( "glClientActiveTextureARB( GL_TEXTURE2_ARB )\n" );
-	}
-	else if( unit == 3 ) {
-		qglActiveTextureARB( GL_TEXTURE3_ARB );
-		GLimp_LogComment( "glActiveTextureARB( GL_TEXTURE3_ARB )\n" );
-		qglClientActiveTextureARB( GL_TEXTURE3_ARB );
-		GLimp_LogComment( "glClientActiveTextureARB( GL_TEXTURE3_ARB )\n" );
-	}
-	else {
-		Com_Error( ERR_DROP, "GL_SelectTexture: unit = %i", unit );
-	}
-
-	glState.currenttmu = unit;
 }
 
 
@@ -446,7 +381,7 @@ RB_Hyperspace
 A player has predicted a teleport, but hasn't arrived yet
 ================
 */
-static void RB_Hyperspace( void ) {
+static void RB_Hyperspace( VkClearColorValue* clearColor ) {
 	float c;
 
 	if( !backEnd.isHyperspace ) {
@@ -454,8 +389,10 @@ static void RB_Hyperspace( void ) {
 	}
 
 	c = ( backEnd.refdef.time & 255 ) / 255.0f;
-	qglClearColor( c, c, c, 1 );
-	qglClear( GL_COLOR_BUFFER_BIT );
+	clearColor->float32[0] = c;
+	clearColor->float32[1] = c;
+	clearColor->float32[2] = c;
+	clearColor->float32[3] = 1;
 
 	backEnd.isHyperspace = qtrue;
 }
@@ -482,24 +419,32 @@ to actually render the visible surfaces for this view
 =================
 */
 static void RB_BeginDrawingView( void ) {
-	int clearBits = GL_DEPTH_BUFFER_BIT;
+	VkClearValue clearValues[2] = {};
+	VkClearDepthStencilValue* depthStencilClearValue = &clearValues[0].depthStencil;
+	VkClearColorValue* colorClearValue = &clearValues[1].color;
+	VkRenderPassBeginInfo passBeginInfo = {};
 
-	// sync with gl if needed
-	if( r_finish->integer == 1 && !glState.finishCalled ) {
-		qglFinish();
-		glState.finishCalled = qtrue;
-	}
-	if( r_finish->integer == 0 ) {
-		glState.finishCalled = qtrue;
+	passBeginInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+	passBeginInfo.renderPass = tr.sceneRenderPass;
+	passBeginInfo.framebuffer = tr.sceneFramebuffer;
+	passBeginInfo.renderArea.extent.width = tr.sceneImage->width;
+	passBeginInfo.renderArea.extent.height = tr.sceneImage->height;
+	passBeginInfo.clearValueCount = 1;	// clear only depth-stencil by default
+	passBeginInfo.pClearValues = clearValues;
+
+	depthStencilClearValue->depth = 1.f;
+	depthStencilClearValue->stencil = 0;
+
+	if (g_bRenderGlowingObjects) {
+		passBeginInfo.renderPass = tr.glowRenderPass;
+		passBeginInfo.framebuffer = tr.glowFramebuffer;
 	}
 
 	// we will need to change the projection matrix before drawing
 	// 2D images again
 	backEnd.projection2D = qfalse;
 
-	//
 	// set the modelview matrix for the viewer
-	//
 	SetViewportAndScissor();
 
 	// ensures that depth writes are enabled for the depth clear
@@ -507,7 +452,6 @@ static void RB_BeginDrawingView( void ) {
 
 	// clear relevant buffers
 	if( r_measureOverdraw->integer || r_shadows->integer == 2 || tr_stencilled ) {
-		clearBits |= GL_STENCIL_BUFFER_BIT;
 		tr_stencilled = false;
 	}
 
@@ -515,14 +459,20 @@ static void RB_BeginDrawingView( void ) {
 		if( backEnd.refdef.rdflags & RDF_SKYBOXPORTAL ) {								// portal scene, clear whatever is necessary
 			if( r_fastsky->integer || ( backEnd.refdef.rdflags & RDF_NOWORLDMODEL ) ) { // fastsky: clear color
 				// try clearing first with the portal sky fog color, then the world fog color, then finally a default
-				clearBits |= GL_COLOR_BUFFER_BIT;
 				if( tr.world && tr.world->globalFog != -1 ) {
 					const fog_t *fog = &tr.world->fogs[tr.world->globalFog];
-					qglClearColor( fog->parms.color[0], fog->parms.color[1], fog->parms.color[2], 1.0f );
+					colorClearValue->float32[0] = fog->parms.color[0];
+					colorClearValue->float32[1] = fog->parms.color[1];
+					colorClearValue->float32[2] = fog->parms.color[2];
+					colorClearValue->float32[3] = 1.0f;
 				}
 				else {
-					qglClearColor( 0.3f, 0.3f, 0.3f, 1.0 );
+					colorClearValue->float32[0] = 0.3f;
+					colorClearValue->float32[1] = 0.3f;
+					colorClearValue->float32[2] = 0.3f;
+					colorClearValue->float32[3] = 1.0f;
 				}
+				passBeginInfo.clearValueCount = 2;
 			}
 		}
 	}
@@ -530,42 +480,40 @@ static void RB_BeginDrawingView( void ) {
 		if( r_fastsky->integer && !( backEnd.refdef.rdflags & RDF_NOWORLDMODEL ) && !g_bRenderGlowingObjects ) {
 			if( tr.world && tr.world->globalFog != -1 ) {
 				const fog_t *fog = &tr.world->fogs[tr.world->globalFog];
-				qglClearColor( fog->parms.color[0], fog->parms.color[1], fog->parms.color[2], 1.0f );
+				colorClearValue->float32[0] = fog->parms.color[0];
+				colorClearValue->float32[1] = fog->parms.color[1];
+				colorClearValue->float32[2] = fog->parms.color[2];
+				colorClearValue->float32[3] = 1.0f;
 			}
 			else {
-				qglClearColor( 0.3f, 0.3f, 0.3f, 1 ); // FIXME: get color of sky
+				// FIXME: get color of sky
+				colorClearValue->float32[0] = 0.3f;
+				colorClearValue->float32[1] = 0.3f;
+				colorClearValue->float32[2] = 0.3f;
+				colorClearValue->float32[3] = 1.0f;
 			}
-			clearBits |= GL_COLOR_BUFFER_BIT; // FIXME: only if sky shaders have been used
+			passBeginInfo.clearValueCount = 2;
 		}
 	}
 
 	if( !( backEnd.refdef.rdflags & RDF_NOWORLDMODEL ) && ( r_DynamicGlow->integer && !g_bRenderGlowingObjects ) ) {
 		if( tr.world && tr.world->globalFog != -1 ) { // this is because of a bug in multiple scenes I think, it needs to clear for the second scene but it doesn't normally.
 			const fog_t *fog = &tr.world->fogs[tr.world->globalFog];
-
-			qglClearColor( fog->parms.color[0], fog->parms.color[1], fog->parms.color[2], 1.0f );
-			clearBits |= GL_COLOR_BUFFER_BIT;
+			colorClearValue->float32[0] = fog->parms.color[0];
+			colorClearValue->float32[1] = fog->parms.color[1];
+			colorClearValue->float32[2] = fog->parms.color[2];
+			colorClearValue->float32[3] = 1.0f;
+			passBeginInfo.clearValueCount = 2;
 		}
-	}
-	// If this pass is to just render the glowing objects, don't clear the depth buffer since
-	// we're sharing it with the main scene (since the main scene has already been rendered). -AReis
-	if( g_bRenderGlowingObjects ) {
-		clearBits &= ~GL_DEPTH_BUFFER_BIT;
-	}
-
-	if( clearBits ) {
-		qglClear( clearBits );
 	}
 
 	if( ( backEnd.refdef.rdflags & RDF_HYPERSPACE ) ) {
-		RB_Hyperspace();
+		RB_Hyperspace( colorClearValue );
 		return;
 	}
 	else {
 		backEnd.isHyperspace = qfalse;
 	}
-
-	glState.faceCulling = -1; // force face culling to set next time
 
 	// we will only draw a sun if there was sky rendered in this view
 	backEnd.skyRenderedThisView = qfalse;
@@ -592,6 +540,8 @@ static void RB_BeginDrawingView( void ) {
 	else {
 		qglDisable( GL_CLIP_PLANE0 );
 	}
+
+	vkCmdBeginRenderPass(vkCtx.cmdbuffer, &passBeginInfo, VK_SUBPASS_CONTENTS_INLINE);
 }
 
 // used by RF_DISTORTION
@@ -677,10 +627,6 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 	trRefEntity_t *curEnt;
 	postRender_t *pRender;
 	bool didShadowPass = false;
-
-	if( g_bRenderGlowingObjects ) { // only shadow on initial passes
-		didShadowPass = true;
-	}
 
 	// save original time for entity shader offsets
 	originalTime = backEnd.refdef.floatTime;
@@ -858,6 +804,8 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 		RB_DistortionFill();
 	}
 
+	vkCmdEndRenderPass(vkCtx.cmdbuffer);
+
 	// render distortion surfs (or anything else that needs to be post-rendered)
 	if( g_numPostRenders > 0 ) {
 		int lastPostEnt = -1;
@@ -935,12 +883,6 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 			rb_surfaceTable[*pRender->drawSurf->surface]( pRender->drawSurf->surface );
 			RB_EndSurface();
 		}
-	}
-
-	// go back to the world modelview matrix
-	qglLoadMatrixf( backEnd.viewParms.world.modelMatrix );
-	if( depthRange ) {
-		qglDepthRange( 0, 1 );
 	}
 
 #if 0
@@ -1480,13 +1422,9 @@ void RB_ShowImages( void ) {
 	float x, y, w, h;
 	// int		start, end;
 
-	if( !backEnd.projection2D ) {
-		RB_SetGL2D();
-	}
-
-	qglFinish();
-
 	// start = ri.Milliseconds();
+
+	VK_SetImageLayout(vkCtx.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_ACCESS_TRANSFER_WRITE_BIT);
 
 	int i = 0;
 	//	int iNumImages =
@@ -1503,21 +1441,33 @@ void RB_ShowImages( void ) {
 			h *= image->height / 512.0;
 		}
 
-		GL_Bind( image );
-		qglBegin( GL_QUADS );
-		qglTexCoord2f( 0, 0 );
-		qglVertex2f( x, y );
-		qglTexCoord2f( 1, 0 );
-		qglVertex2f( x + w, y );
-		qglTexCoord2f( 1, 1 );
-		qglVertex2f( x + w, y + h );
-		qglTexCoord2f( 0, 1 );
-		qglVertex2f( x, y + h );
-		qglEnd();
+		VkImageBlit blitRegion = {};
+
+		blitRegion.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+		blitRegion.srcSubresource.layerCount = 1;
+		blitRegion.srcOffsets[1].x = image->width;
+		blitRegion.srcOffsets[1].y = image->height;
+		blitRegion.srcOffsets[1].z = 1;
+
+		blitRegion.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+		blitRegion.dstSubresource.layerCount = 1;
+		blitRegion.dstOffsets[0].x = x;
+		blitRegion.dstOffsets[0].y = y;
+		blitRegion.dstOffsets[1].x = x + w;
+		blitRegion.dstOffsets[1].y = y + h;
+		blitRegion.dstOffsets[1].z = 1;
+
+		VK_SetImageLayout(image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_ACCESS_TRANSFER_READ_BIT);
+		vkCmdBlitImage(vkCtx.cmdbuffer,
+			image->tex,
+			VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+			vkCtx.image->tex,
+			VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+			1, &blitRegion,
+			VK_FILTER_LINEAR);
+
 		i++;
 	}
-
-	qglFinish();
 
 	// end = ri.Milliseconds();
 	// ri.Printf( PRINT_ALL, "%i msec to draw all images\n", end - start );
@@ -1546,6 +1496,7 @@ const void *RB_SwapBuffers( const void *data ) {
 
 	cmd = (const swapBuffersCommand_t *)data;
 
+#if 0
 	// we measure overdraw by reading back the stencil buffer and
 	// counting up the number of increments that have happened
 	if( r_measureOverdraw->integer ) {
@@ -1563,10 +1514,7 @@ const void *RB_SwapBuffers( const void *data ) {
 		backEnd.pc.c_overDraw += sum;
 		R_Free( stencilReadback );
 	}
-
-	if( !glState.finishCalled ) {
-		qglFinish();
-	}
+#endif
 
 	GLimp_LogComment( "***************** RB_SwapBuffers *****************\n\n\n" );
 
@@ -1646,68 +1594,11 @@ void RB_ExecuteRenderCommands( const void *data ) {
 	}
 }
 
-// What Pixel Shader type is currently active (regcoms or fragment programs).
-GLuint g_uiCurrentPixelShaderType = 0x0;
-
-// Begin using a Pixel Shader.
-void BeginPixelShader( GLuint uiType, GLuint uiID ) {
-	switch( uiType ) {
-	// Using Register Combiners, so call the Display List that stores it.
-	case GL_REGISTER_COMBINERS_NV: {
-		// Just in case...
-		if( !qglCombinerParameterfvNV )
-			return;
-
-		// Call the list with the regcom in it.
-		qglEnable( GL_REGISTER_COMBINERS_NV );
-		qglCallList( uiID );
-
-		g_uiCurrentPixelShaderType = GL_REGISTER_COMBINERS_NV;
-	}
-		return;
-
-	// Using Fragment Programs, so call the program.
-	case GL_FRAGMENT_PROGRAM_ARB: {
-		// Just in case...
-		if( !qglGenProgramsARB )
-			return;
-
-		qglEnable( GL_FRAGMENT_PROGRAM_ARB );
-		qglBindProgramARB( GL_FRAGMENT_PROGRAM_ARB, uiID );
-
-		g_uiCurrentPixelShaderType = GL_FRAGMENT_PROGRAM_ARB;
-	}
-		return;
-	}
-}
-
-// Stop using a Pixel Shader and return states to normal.
-void EndPixelShader() {
-	if( g_uiCurrentPixelShaderType == 0x0 )
-		return;
-
-	qglDisable( g_uiCurrentPixelShaderType );
-}
-
 // Hack variable for deciding which kind of texture rectangle thing to do (for some
 // reason it acts different on radeon! It's against the spec!).
 extern bool g_bTextureRectangleHack;
 
 static inline void RB_BlurGlowTexture() {
-	qglDisable( GL_CLIP_PLANE0 );
-	GL_Cull( CT_TWO_SIDED );
-
-	// Go into orthographic 2d mode.
-	qglMatrixMode( GL_PROJECTION );
-	qglPushMatrix();
-	qglLoadIdentity();
-	qglOrtho( 0, backEnd.viewParms.viewportWidth, backEnd.viewParms.viewportHeight, 0, -1, 1 );
-	qglMatrixMode( GL_MODELVIEW );
-	qglPushMatrix();
-	qglLoadIdentity();
-
-	GL_State( GLS_DEPTHTEST_DISABLE );
-
 	/////////////////////////////////////////////////////////
 	// Setup vertex and pixel programs.
 	/////////////////////////////////////////////////////////
@@ -1717,63 +1608,38 @@ static inline void RB_BlurGlowTexture() {
 	float fBlurDistribution = r_DynamicGlowIntensity->value * 0.25f;
 	float fBlurWeight[4] = { fBlurDistribution, fBlurDistribution, fBlurDistribution, 1.0f };
 
-	// Enable and set the Vertex Program.
-	qglEnable( GL_VERTEX_PROGRAM_ARB );
-	qglBindProgramARB( GL_VERTEX_PROGRAM_ARB, tr.glowVShader );
+	// Begin the post-process render pass.
+	VkRenderPassBeginInfo beginInfo = {};
+	beginInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+	beginInfo.renderPass = tr.postProcessPass;
+	beginInfo.renderArea.extent.width = tr.glowImage->width;
+	beginInfo.renderArea.extent.height = tr.glowImage->height;
+	beginInfo.framebuffer = tr.glowBlurFramebuffer;
 
-	// Apply Pixel Shaders.
-	if( qglCombinerParameterfvNV ) {
-		BeginPixelShader( GL_REGISTER_COMBINERS_NV, tr.glowPShader );
-
-		// Pass the blur weight to the regcom.
-		qglCombinerParameterfvNV( GL_CONSTANT_COLOR0_NV, (float *)&fBlurWeight );
-	}
-	else if( qglProgramEnvParameter4fARB ) {
-		BeginPixelShader( GL_FRAGMENT_PROGRAM_ARB, tr.glowPShader );
-
-		// Pass the blur weight to the Fragment Program.
-		qglProgramEnvParameter4fARB( GL_FRAGMENT_PROGRAM_ARB, 0, fBlurWeight[0], fBlurWeight[1], fBlurWeight[2], fBlurWeight[3] );
-	}
-
-	/////////////////////////////////////////////////////////
-	// Set the blur texture to the 4 texture stages.
-	/////////////////////////////////////////////////////////
-
-	// How much to offset each texel by.
-	float fTexelWidthOffset = 0.1f, fTexelHeightOffset = 0.1f;
-
-	GLuint uiTex = tr.screenGlow;
-
-	qglActiveTextureARB( GL_TEXTURE3_ARB );
-	qglEnable( GL_TEXTURE_RECTANGLE_ARB );
-	qglBindTexture( GL_TEXTURE_RECTANGLE_ARB, uiTex );
-
-	qglActiveTextureARB( GL_TEXTURE2_ARB );
-	qglEnable( GL_TEXTURE_RECTANGLE_ARB );
-	qglBindTexture( GL_TEXTURE_RECTANGLE_ARB, uiTex );
-
-	qglActiveTextureARB( GL_TEXTURE1_ARB );
-	qglEnable( GL_TEXTURE_RECTANGLE_ARB );
-	qglBindTexture( GL_TEXTURE_RECTANGLE_ARB, uiTex );
-
-	qglActiveTextureARB( GL_TEXTURE0_ARB );
-	qglDisable( GL_TEXTURE_2D );
-	qglEnable( GL_TEXTURE_RECTANGLE_ARB );
-	qglBindTexture( GL_TEXTURE_RECTANGLE_ARB, uiTex );
+	vkCmdBeginRenderPass(vkCtx.cmdbuffer, &beginInfo, VK_SUBPASS_CONTENTS_INLINE);
+	vkCmdBindPipeline(vkCtx.cmdbuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, tr.glowBlurPipeline);
+	vkCmdBindDescriptorSets(vkCtx.cmdbuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, tr.glowBlurPipelineLayout, 0, 1, &tr.glowBlurDescriptorSet, 0, NULL);
+	vkCmdPushConstants(vkCtx.cmdbuffer, tr.glowBlurPipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(fBlurWeight), fBlurWeight);
 
 	/////////////////////////////////////////////////////////
 	// Draw the blur passes (each pass blurs it more, increasing the blur radius ).
 	/////////////////////////////////////////////////////////
+
+	// How much to offset each texel by.
+	float fTexelWidthOffset = 0.1f, fTexelHeightOffset = 0.1f;
 
 	// int iTexWidth = backEnd.viewParms.viewportWidth, iTexHeight = backEnd.viewParms.viewportHeight;
 	int iTexWidth = glConfig.vidWidth, iTexHeight = glConfig.vidHeight;
 
 	for( int iNumBlurPasses = 0; iNumBlurPasses < r_DynamicGlowPasses->integer; iNumBlurPasses++ ) {
 		// Load the Texel Offsets into the Vertex Program.
-		qglProgramEnvParameter4fARB( GL_VERTEX_PROGRAM_ARB, 0, -fTexelWidthOffset, -fTexelWidthOffset, 0.0f, 0.0f );
-		qglProgramEnvParameter4fARB( GL_VERTEX_PROGRAM_ARB, 1, -fTexelWidthOffset, fTexelWidthOffset, 0.0f, 0.0f );
-		qglProgramEnvParameter4fARB( GL_VERTEX_PROGRAM_ARB, 2, fTexelWidthOffset, -fTexelWidthOffset, 0.0f, 0.0f );
-		qglProgramEnvParameter4fARB( GL_VERTEX_PROGRAM_ARB, 3, fTexelWidthOffset, fTexelWidthOffset, 0.0f, 0.0f );
+		float fTexelOffsets[16] = {
+			-fTexelWidthOffset, -fTexelWidthOffset, 0.0f, 0.0f,
+			-fTexelWidthOffset, fTexelWidthOffset, 0.0f, 0.0f,
+			fTexelWidthOffset, -fTexelWidthOffset, 0.0f, 0.0f,
+			fTexelWidthOffset, fTexelWidthOffset, 0.0f, 0.0f };
+
+		vkCmdPushConstants(vkCtx.cmdbuffer, tr.glowBlurPipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(fTexelOffsets), fTexelOffsets);
 
 		// After first pass put the tex coords to the viewport size.
 		if( iNumBlurPasses == 1 ) {
@@ -1806,6 +1672,8 @@ static inline void RB_BlurGlowTexture() {
 		}
 
 		// Draw the fullscreen quad.
+		vkCmdDraw(vkCtx.cmdbuffer, 3, 1, 0, 0);
+
 		qglBegin( GL_QUADS );
 		qglMultiTexCoord2fARB( GL_TEXTURE0_ARB, 0, iTexHeight );
 		qglVertex2f( 0, 0 );
@@ -1832,105 +1700,26 @@ static inline void RB_BlurGlowTexture() {
 		fTexelHeightOffset += r_DynamicGlowDelta->value;
 	}
 
-	// Disable multi-texturing.
-	qglActiveTextureARB( GL_TEXTURE3_ARB );
-	qglDisable( GL_TEXTURE_RECTANGLE_ARB );
-
-	qglActiveTextureARB( GL_TEXTURE2_ARB );
-	qglDisable( GL_TEXTURE_RECTANGLE_ARB );
-
-	qglActiveTextureARB( GL_TEXTURE1_ARB );
-	qglDisable( GL_TEXTURE_RECTANGLE_ARB );
-
-	qglActiveTextureARB( GL_TEXTURE0_ARB );
-	qglDisable( GL_TEXTURE_RECTANGLE_ARB );
-	qglEnable( GL_TEXTURE_2D );
-
-	qglDisable( GL_VERTEX_PROGRAM_ARB );
-	EndPixelShader();
-
-	qglMatrixMode( GL_PROJECTION );
-	qglPopMatrix();
-	qglMatrixMode( GL_MODELVIEW );
-	qglPopMatrix();
-
-	qglDisable( GL_BLEND );
-	glState.currenttmu = 0; // this matches the last one we activated
+	vkCmdEndRenderPass(vkCtx.cmdbuffer);
 }
 
 // Draw the glow blur over the screen additively.
 static inline void RB_DrawGlowOverlay() {
-	qglDisable( GL_CLIP_PLANE0 );
-	GL_Cull( CT_TWO_SIDED );
 
-	// Go into orthographic 2d mode.
-	qglMatrixMode( GL_PROJECTION );
-	qglPushMatrix();
-	qglLoadIdentity();
-	qglOrtho( 0, glConfig.vidWidth, glConfig.vidHeight, 0, -1, 1 );
-	qglMatrixMode( GL_MODELVIEW );
-	qglPushMatrix();
-	qglLoadIdentity();
+	// Begin the post-process render pass.
+	VkRenderPassBeginInfo beginInfo = {};
+	beginInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+	beginInfo.renderPass = tr.postProcessPass;
+	beginInfo.renderArea.extent.width = tr.postProcessImage->width;
+	beginInfo.renderArea.extent.height = tr.postProcessImage->height;
+	beginInfo.framebuffer = tr.postProcessFramebuffer;
 
-	GL_State( GLS_DEPTHTEST_DISABLE );
-
-	qglDisable( GL_TEXTURE_2D );
-	qglEnable( GL_TEXTURE_RECTANGLE_ARB );
-
-	// For debug purposes.
-	if( r_DynamicGlow->integer != 2 ) {
-		// Render the normal scene texture.
-		qglBindTexture( GL_TEXTURE_RECTANGLE_ARB, tr.sceneImage );
-		qglBegin( GL_QUADS );
-		qglColor4f( 1.0f, 1.0f, 1.0f, 1.0f );
-		qglTexCoord2f( 0, glConfig.vidHeight );
-		qglVertex2f( 0, 0 );
-
-		qglTexCoord2f( 0, 0 );
-		qglVertex2f( 0, glConfig.vidHeight );
-
-		qglTexCoord2f( glConfig.vidWidth, 0 );
-		qglVertex2f( glConfig.vidWidth, glConfig.vidHeight );
-
-		qglTexCoord2f( glConfig.vidWidth, glConfig.vidHeight );
-		qglVertex2f( glConfig.vidWidth, 0 );
-		qglEnd();
-	}
-
-	// One and Inverse Src Color give a very soft addition, while one one is a bit stronger. With one one we can
-	// use additive blending through multitexture though.
-	if( r_DynamicGlowSoft->integer ) {
-		qglBlendFunc( GL_ONE, GL_ONE_MINUS_SRC_COLOR );
-	}
-	else {
-		qglBlendFunc( GL_ONE, GL_ONE );
-	}
-	qglEnable( GL_BLEND );
+	vkCmdBeginRenderPass(vkCtx.cmdbuffer, &beginInfo, VK_SUBPASS_CONTENTS_INLINE);
+	vkCmdBindPipeline(vkCtx.cmdbuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, tr.glowCombinePipeline);
+	vkCmdBindDescriptorSets(vkCtx.cmdbuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, tr.glowCombinePipelineLayout, 0, 1, &tr.glowCombineDescriptorSet, 0, NULL);
 
 	// Now additively render the glow texture.
-	qglBindTexture( GL_TEXTURE_RECTANGLE_ARB, tr.blurImage );
-	qglBegin( GL_QUADS );
-	qglColor4f( 1.0f, 1.0f, 1.0f, 1.0f );
-	qglTexCoord2f( 0, r_DynamicGlowHeight->integer );
-	qglVertex2f( 0, 0 );
+	vkCmdDraw(vkCtx.cmdbuffer, 3, 1, 0, 0);
 
-	qglTexCoord2f( 0, 0 );
-	qglVertex2f( 0, glConfig.vidHeight );
-
-	qglTexCoord2f( r_DynamicGlowWidth->integer, 0 );
-	qglVertex2f( glConfig.vidWidth, glConfig.vidHeight );
-
-	qglTexCoord2f( r_DynamicGlowWidth->integer, r_DynamicGlowHeight->integer );
-	qglVertex2f( glConfig.vidWidth, 0 );
-	qglEnd();
-
-	qglDisable( GL_TEXTURE_RECTANGLE_ARB );
-	qglEnable( GL_TEXTURE_2D );
-	qglBlendFunc( GL_SRC_COLOR, GL_ONE_MINUS_SRC_COLOR );
-	qglDisable( GL_BLEND );
-
-	qglMatrixMode( GL_PROJECTION );
-	qglPopMatrix();
-	qglMatrixMode( GL_MODELVIEW );
-	qglPopMatrix();
+	vkCmdEndRenderPass(vkCtx.cmdbuffer);
 }

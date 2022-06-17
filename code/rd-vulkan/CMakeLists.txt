@@ -100,12 +100,10 @@ if(BuildSPRdVulkan OR BuildJK2SPRdVulkan)
 
 	# main files
 	set(SPRDVulkanMainFiles
-		"${SPDir}/rd-vulkan/glext.h"
-		"${SPDir}/rd-vulkan/qgl.h"
 		"${SPDir}/rd-vulkan/qvk.h"
-		"${SPDir}/rd-vulkan/tr_arb.cpp"
 		"${SPDir}/rd-vulkan/tr_backend.cpp"
 		"${SPDir}/rd-vulkan/tr_bsp.cpp"
+		"${SPDir}/rd-vulkan/tr_buffer.cpp"
 		"${SPDir}/rd-vulkan/tr_cmds.cpp"
 		"${SPDir}/rd-vulkan/tr_curve.cpp"
 		"${SPDir}/rd-vulkan/tr_draw.cpp"
@@ -127,6 +125,7 @@ if(BuildSPRdVulkan OR BuildJK2SPRdVulkan)
 		"${SPDir}/rd-vulkan/tr_shadows.cpp"
 		"${SPDir}/rd-vulkan/tr_skin.cpp"
 		"${SPDir}/rd-vulkan/tr_sky.cpp"
+		"${SPDir}/rd-vulkan/tr_spv.cpp"
 		"${SPDir}/rd-vulkan/tr_stl.cpp"
 		"${SPDir}/rd-vulkan/tr_stl.h"
 		"${SPDir}/rd-vulkan/tr_subs.cpp"

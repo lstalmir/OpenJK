@@ -432,7 +432,7 @@ Autosprite2Deform
 Autosprite2 will pivot a rectangular quad along the center of its long axis
 =====================
 */
-static const glIndex_t edgeVerts[6][2] = {
+static const uint32_t edgeVerts[6][2] = {
 	{ 0, 1 },
 	{ 0, 2 },
 	{ 0, 3 },

@@ -188,74 +188,115 @@ cvar_t *r_environmentMapping;
 cvar_t *r_screenshotJpegQuality;
 
 
-bool g_bTextureRectangleHack = false;
+#define MAX_EXTENSIONS 16
+
+typedef struct {
+	// data read from the driver
+	uint32_t					supportedExtensionCount;
+	VkExtensionProperties		*supportedExtensions;
+
+	// filled during initialization
+	uint32_t					enabledExtensionCount;
+	const char					*enabledExtensions[MAX_EXTENSIONS];
+} vkinstance_initContext_t;
+
+typedef struct {
+	// data read from the driver
+	VkPhysicalDevice			physicalDevice;
+	VkPhysicalDeviceProperties	physicalDeviceProperties;
+	VkPhysicalDeviceFeatures	supportedDeviceFeatures;
+	uint32_t					supportedExtensionCount;
+	VkExtensionProperties		*supportedExtensions;
+	uint32_t					supportedDeviceQueueFamilyCount;
+	VkQueueFamilyProperties		*supportedDeviceQueueFamilies;
+
+	// filled during initialization
+	VkPhysicalDeviceFeatures	enabledDeviceFeatures;
+	uint32_t					enabledExtensionCount;
+	const char					*enabledExtensions[MAX_EXTENSIONS];
+} vkdevice_initContext_t;
+
 
 void RE_SetLightStyle( int style, int color );
 
 void R_Splash() {
-	image_t *pImage = R_FindImageFile( "menu/splash", qfalse, qfalse, qfalse, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE );
+	VK_SetImageLayout(vkCtx.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_ACCESS_TRANSFER_WRITE_BIT);
 
-	if( !pImage ) {
-		VK_SetImageLayout( vkContext.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_ACCESS_TRANSFER_WRITE_BIT );
-
+	image_t *image = R_FindImageFile( "menu/splash", qfalse, qfalse, qfalse, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE );
+	if( !image) {
 		// Can't find the splash image so just clear to black
 		VkClearColorValue clearColorValue = { 0, 0, 0, 1 };
-		VkImageSubresourceRange clearRange = {
-			VK_IMAGE_ASPECT_COLOR_BIT,
-			0, VK_REMAINING_ARRAY_LAYERS,
-			0, VK_REMAINING_MIP_LEVELS
-		};
+		VkImageSubresourceRange clearRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
 
 		vkCmdClearColorImage(
-			vkContext.cmdbuffer,
-			vkContext.image->tex,
-			vkContext.image->layout,
+			vkCtx.cmdbuffer,
+			vkCtx.image->tex,
+			vkCtx.image->layout,
 			&clearColorValue,
 			1, &clearRange );
 	}
 
 	else {
-		extern void RB_SetGL2D( void );
-		RB_SetGL2D();
-
-		GL_Bind( pImage );
-		GL_State( GLS_SRCBLEND_ONE | GLS_DSTBLEND_ZERO );
-
 		const int width = 640;
 		const int height = 480;
-		const float x1 = 320 - width / 2;
-		const float x2 = 320 + width / 2;
-		const float y1 = 240 - height / 2;
-		const float y2 = 240 + height / 2;
 
-		qglBegin( GL_TRIANGLE_STRIP );
-		qglTexCoord2f( 0, 0 );
-		qglVertex2f( x1, y1 );
-		qglTexCoord2f( 1, 0 );
-		qglVertex2f( x2, y1 );
-		qglTexCoord2f( 0, 1 );
-		qglVertex2f( x1, y2 );
-		qglTexCoord2f( 1, 1 );
-		qglVertex2f( x2, y2 );
-		qglEnd();
+		VkImageBlit blitRegion = {};
+
+		blitRegion.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+		blitRegion.srcSubresource.layerCount = 1;
+		blitRegion.srcOffsets[1].x = image->width;
+		blitRegion.srcOffsets[1].y = image->height;
+		blitRegion.srcOffsets[1].z = 1;
+
+		blitRegion.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+		blitRegion.dstSubresource.layerCount = 1;
+		blitRegion.dstOffsets[1].x = width;
+		blitRegion.dstOffsets[1].y = height;
+		blitRegion.dstOffsets[1].z = 1;
+
+		VK_SetImageLayout(image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_ACCESS_TRANSFER_READ_BIT);
+		vkCmdBlitImage(vkCtx.cmdbuffer,
+			image->tex,
+			VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+			vkCtx.image->tex,
+			VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+			1, &blitRegion,
+			VK_FILTER_LINEAR);
 	}
 
 	ri.WIN_Present( &window );
 }
 
-static void VKimp_InitTextureCompression( const VkPhysicalDeviceFeatures &supportedFeatures ) {
+static const char* VK_GetVendorString(uint32_t vendorID) {
+	switch (vendorID) {
+	case 0x8086: return "Intel";
+	case 0x10DE: return "NVIDIA";
+	case 0x1022: return "AMD";
+	case 0x5143: return "Qualcomm";
+	case 0x13B5: return "ARM";
+	case VK_VENDOR_ID_VIV: return "VIV";
+	case VK_VENDOR_ID_VSI: return "VSI";
+	case VK_VENDOR_ID_KAZAN: return "KAZAN";
+	case VK_VENDOR_ID_CODEPLAY: return "CODEPLAY";
+	case VK_VENDOR_ID_MESA: return "MESA";
+	case VK_VENDOR_ID_POCL: return "POCL";
+	}
+	return "Unknown";
+}
+
+static void VK_InitTextureCompression( const vkdevice_initContext_t *ctx ) {
 	bool textureCompressionSupported = false;
 
 	// Check if block compression feature is supported.
-	if( supportedFeatures.textureCompressionBC == VK_TRUE ) {
+	if( ctx->supportedDeviceFeatures.textureCompressionBC == VK_TRUE ) {
 		textureCompressionSupported = true;
 	}
 
 	// Check if DXT1 and DXT5 texture formats are supported.
 	else {
 		VkFormatProperties dxt1FormatProperties, dxt5FormatProperties;
-		vkGetPhysicalDeviceFormatProperties( vkState.adapter, VK_FORMAT_BC1_RGBA_UNORM_BLOCK, &dxt1FormatProperties );
-		vkGetPhysicalDeviceFormatProperties( vkState.adapter, VK_FORMAT_BC3_UNORM_BLOCK, &dxt5FormatProperties );
+		vkGetPhysicalDeviceFormatProperties( ctx->physicalDevice, VK_FORMAT_BC1_RGBA_UNORM_BLOCK, &dxt1FormatProperties );
+		vkGetPhysicalDeviceFormatProperties( ctx->physicalDevice, VK_FORMAT_BC3_UNORM_BLOCK, &dxt5FormatProperties );
 
 		// Required usage flags for compressed textures.
 		const VkFormatFeatureFlags textureFeatureFlags = VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT | VK_FORMAT_FEATURE_TRANSFER_DST_BIT;
@@ -294,49 +335,53 @@ static void VKimp_InitTextureCompression( const VkPhysicalDeviceFeatures &suppor
 
 /*
 ===============
-GLimp_InitExtensions
+VK_InitExtensions
 ===============
 */
+#define REQUIRED 1
+
+template <typename _initContext_t>
+static bool VK_ExtensionSupported( const _initContext_t *ctx, const char* name ) {
+	for( uint32_t i = 0; i < ctx->supportedExtensionCount; ++i ) {
+		if( Q_stricmp( ctx->supportedExtensions[i].extensionName, name ) == 0 )
+			return true;
+	}
+	return false;
+}
+
+template <typename _initContext_t>
+static bool VK_EnableExtension( _initContext_t *ctx, const char *name, int flags = 0 ) {
+	bool extensionEnabled = false;
+	if( VK_ExtensionSupported( ctx, name ) && ctx->enabledExtensionCount < MAX_EXTENSIONS ) {
+		ctx->enabledExtensions[ctx->enabledExtensionCount] = name;
+		ctx->enabledExtensionCount++;
+		extensionEnabled = true;
+	}
+	if( !extensionEnabled && (flags & REQUIRED) ) {
+		Com_Error( ERR_FATAL, "VK_EnableExtension: required extension %s not supported\n", name );
+	}
+	return extensionEnabled;
+}
+
 extern bool g_bDynamicGlowSupported;
-static void VKimp_InitExtensions( void ) {
+static void VK_InitDeviceExtensions( vkdevice_initContext_t* ctx ) {
 	bool enableOptionalExtensions = true;
 	if( !r_allowExtensions->integer ) {
-		Com_Printf( "*** IGNORING OPTIONAL VULKAN EXTENSIONS ***\n" );
-		g_bDynamicGlowSupported = false;
-		ri.Cvar_Set( "r_DynamicGlow", "0" );
 		enableOptionalExtensions = false;
 	}
 
-	Com_Printf( "Initializing Vulkan extensions\n" );
+	Com_Printf( "Initializing Vulkan device extensions\n" );
 
-	VkPhysicalDeviceFeatures physicalDeviceFeatures;
-	vkGetPhysicalDeviceFeatures( vkState.adapter, &physicalDeviceFeatures );
-	VkPhysicalDeviceProperties physicalDeviceProperties;
-	vkGetPhysicalDeviceProperties( vkState.adapter, &physicalDeviceProperties );
+	// required extensions
+	VK_EnableExtension( ctx, VK_KHR_SWAPCHAIN_EXTENSION_NAME, REQUIRED );
 
 	// Select our tc scheme
-	VKimp_InitTextureCompression( physicalDeviceFeatures );
+	VK_InitTextureCompression( ctx );
 
-	// GL_EXT_texture_env_add
-	glConfig.textureEnvAddAvailable = qfalse;
-	if( ri.GL_ExtensionSupported( "GL_EXT_texture_env_add" ) ) {
-		if( r_ext_texture_env_add->integer ) {
-			glConfig.textureEnvAddAvailable = qtrue;
-			Com_Printf( "...using GL_EXT_texture_env_add\n" );
-		}
-		else {
-			glConfig.textureEnvAddAvailable = qfalse;
-			Com_Printf( "...ignoring GL_EXT_texture_env_add\n" );
-		}
-	}
-	else {
-		Com_Printf( "...GL_EXT_texture_env_add not found\n" );
-	}
-
-	// GL_EXT_texture_filter_anisotropic
+	// samplerAnisotropy
 	glConfig.maxTextureFilterAnisotropy = 0;
-	if( physicalDeviceFeatures.samplerAnisotropy ) {
-		glConfig.maxTextureFilterAnisotropy = physicalDeviceProperties.limits.maxSamplerAnisotropy;
+	if( ctx->supportedDeviceFeatures.samplerAnisotropy ) {
+		glConfig.maxTextureFilterAnisotropy = ctx->physicalDeviceProperties.limits.maxSamplerAnisotropy;
 		Com_Printf( "...VkPhysicalDeviceFeatures::samplerAnisotropy available\n" );
 
 		if( r_ext_texture_filter_anisotropic->integer > 1 ) {
@@ -354,175 +399,32 @@ static void VKimp_InitExtensions( void ) {
 		Com_Printf( "...VkPhysicalDeviceFeatures::samplerAnisotropy not supported\n" );
 		ri.Cvar_Set( "r_ext_texture_filter_anisotropic_avail", "0" );
 	}
+}
 
-	// GL_ARB_multitexture
-	qglMultiTexCoord2fARB = NULL;
-	qglActiveTextureARB = NULL;
-	qglClientActiveTextureARB = NULL;
-	if( ri.GL_ExtensionSupported( "GL_ARB_multitexture" ) ) {
-		if( r_ext_multitexture->integer ) {
-			qglMultiTexCoord2fARB = (PFNGLMULTITEXCOORD2FARBPROC)ri.GL_GetProcAddress( "glMultiTexCoord2fARB" );
-			qglActiveTextureARB = (PFNGLACTIVETEXTUREARBPROC)ri.GL_GetProcAddress( "glActiveTextureARB" );
-			qglClientActiveTextureARB = (PFNGLCLIENTACTIVETEXTUREARBPROC)ri.GL_GetProcAddress( "glClientActiveTextureARB" );
-
-			if( qglActiveTextureARB ) {
-				qglGetIntegerv( GL_MAX_TEXTURE_UNITS_ARB, &glConfig.maxActiveTextures );
-
-				if( glConfig.maxActiveTextures > 1 ) {
-					Com_Printf( "...using GL_ARB_multitexture\n" );
-				}
-				else {
-					qglMultiTexCoord2fARB = NULL;
-					qglActiveTextureARB = NULL;
-					qglClientActiveTextureARB = NULL;
-					Com_Printf( "...not using GL_ARB_multitexture, < 2 texture units\n" );
-				}
-			}
-		}
-		else {
-			Com_Printf( "...ignoring GL_ARB_multitexture\n" );
-		}
-	}
-	else {
-		Com_Printf( "...GL_ARB_multitexture not found\n" );
+static void VK_InitInstanceExtensions( vkinstance_initContext_t *ctx ) {
+	bool enableOptionalExtensions = true;
+	if( !r_allowExtensions->integer ) {
+		Com_Printf( "*** IGNORING OPTIONAL VULKAN EXTENSIONS ***\n" );
+		enableOptionalExtensions = false;
 	}
 
-	// GL_EXT_compiled_vertex_array
-	qglLockArraysEXT = NULL;
-	qglUnlockArraysEXT = NULL;
-	if( ri.GL_ExtensionSupported( "GL_EXT_compiled_vertex_array" ) ) {
-		if( r_ext_compiled_vertex_array->integer ) {
-			Com_Printf( "...using GL_EXT_compiled_vertex_array\n" );
-			qglLockArraysEXT = (PFNGLLOCKARRAYSEXTPROC)ri.GL_GetProcAddress( "glLockArraysEXT" );
-			qglUnlockArraysEXT = (PFNGLUNLOCKARRAYSEXTPROC)ri.GL_GetProcAddress( "glUnlockArraysEXT" );
-			if( !qglLockArraysEXT || !qglUnlockArraysEXT ) {
-				Com_Error( ERR_FATAL, "bad getprocaddress" );
-			}
-		}
-		else {
-			Com_Printf( "...ignoring GL_EXT_compiled_vertex_array\n" );
-		}
-	}
-	else {
-		Com_Printf( "...GL_EXT_compiled_vertex_array not found\n" );
-	}
+	Com_Printf("Initializing Vulkan instance extensions\n");
 
-	bool bNVRegisterCombiners = false;
-	// Register Combiners.
-	if( ri.GL_ExtensionSupported( "GL_NV_register_combiners" ) ) {
-		// NOTE: This extension requires multitexture support (over 2 units).
-		if( glConfig.maxActiveTextures >= 2 ) {
-			bNVRegisterCombiners = true;
-			// Register Combiners function pointer address load.	- AReis
-			// NOTE: VV guys will _definetly_ not be able to use regcoms. Pixel Shaders are just as good though :-)
-			// NOTE: Also, this is an nVidia specific extension (of course), so fragment shaders would serve the same purpose
-			// if we needed some kind of fragment/pixel manipulation support.
-			qglCombinerParameterfvNV = (PFNGLCOMBINERPARAMETERFVNVPROC)ri.GL_GetProcAddress( "glCombinerParameterfvNV" );
-			qglCombinerParameterivNV = (PFNGLCOMBINERPARAMETERIVNVPROC)ri.GL_GetProcAddress( "glCombinerParameterivNV" );
-			qglCombinerParameterfNV = (PFNGLCOMBINERPARAMETERFNVPROC)ri.GL_GetProcAddress( "glCombinerParameterfNV" );
-			qglCombinerParameteriNV = (PFNGLCOMBINERPARAMETERINVPROC)ri.GL_GetProcAddress( "glCombinerParameteriNV" );
-			qglCombinerInputNV = (PFNGLCOMBINERINPUTNVPROC)ri.GL_GetProcAddress( "glCombinerInputNV" );
-			qglCombinerOutputNV = (PFNGLCOMBINEROUTPUTNVPROC)ri.GL_GetProcAddress( "glCombinerOutputNV" );
-			qglFinalCombinerInputNV = (PFNGLFINALCOMBINERINPUTNVPROC)ri.GL_GetProcAddress( "glFinalCombinerInputNV" );
-			qglGetCombinerInputParameterfvNV = (PFNGLGETCOMBINERINPUTPARAMETERFVNVPROC)ri.GL_GetProcAddress( "glGetCombinerInputParameterfvNV" );
-			qglGetCombinerInputParameterivNV = (PFNGLGETCOMBINERINPUTPARAMETERIVNVPROC)ri.GL_GetProcAddress( "glGetCombinerInputParameterivNV" );
-			qglGetCombinerOutputParameterfvNV = (PFNGLGETCOMBINEROUTPUTPARAMETERFVNVPROC)ri.GL_GetProcAddress( "glGetCombinerOutputParameterfvNV" );
-			qglGetCombinerOutputParameterivNV = (PFNGLGETCOMBINEROUTPUTPARAMETERIVNVPROC)ri.GL_GetProcAddress( "glGetCombinerOutputParameterivNV" );
-			qglGetFinalCombinerInputParameterfvNV = (PFNGLGETFINALCOMBINERINPUTPARAMETERFVNVPROC)ri.GL_GetProcAddress( "glGetFinalCombinerInputParameterfvNV" );
-			qglGetFinalCombinerInputParameterivNV = (PFNGLGETFINALCOMBINERINPUTPARAMETERIVNVPROC)ri.GL_GetProcAddress( "glGetFinalCombinerInputParameterivNV" );
-
-			// Validate the functions we need.
-			if( !qglCombinerParameterfvNV || !qglCombinerParameterivNV || !qglCombinerParameterfNV || !qglCombinerParameteriNV || !qglCombinerInputNV ||
-				!qglCombinerOutputNV || !qglFinalCombinerInputNV || !qglGetCombinerInputParameterfvNV || !qglGetCombinerInputParameterivNV ||
-				!qglGetCombinerOutputParameterfvNV || !qglGetCombinerOutputParameterivNV || !qglGetFinalCombinerInputParameterfvNV || !qglGetFinalCombinerInputParameterivNV ) {
-				bNVRegisterCombiners = false;
-				qglCombinerParameterfvNV = NULL;
-				qglCombinerParameteriNV = NULL;
-				Com_Printf( "...GL_NV_register_combiners failed\n" );
-			}
-		}
-		else {
-			bNVRegisterCombiners = false;
-			Com_Printf( "...ignoring GL_NV_register_combiners\n" );
-		}
-	}
-	else {
-		bNVRegisterCombiners = false;
-		Com_Printf( "...GL_NV_register_combiners not found\n" );
-	}
-
-	// NOTE: Vertex and Fragment Programs are very dependant on each other - this is actually a
-	// good thing! So, just check to see which we support (one or the other) and load the shared
-	// function pointers. ARB rocks!
-
-	// Vertex Programs.
-	bool bARBVertexProgram = false;
-	if( ri.GL_ExtensionSupported( "GL_ARB_vertex_program" ) ) {
-		bARBVertexProgram = true;
-	}
-	else {
-		bARBVertexProgram = false;
-		Com_Printf( "...GL_ARB_vertex_program not found\n" );
-	}
-
-	// Fragment Programs.
-	bool bARBFragmentProgram = false;
-	if( ri.GL_ExtensionSupported( "GL_ARB_fragment_program" ) ) {
-		bARBFragmentProgram = true;
-	}
-	else {
-		bARBFragmentProgram = false;
-		Com_Printf( "...GL_ARB_fragment_program not found\n" );
-	}
-
-	// Figure out which texture rectangle extension to use.
-	bool bTexRectSupported = false;
-	if( Q_stricmpn( glConfig.vendor_string, "ATI Technologies", 16 ) == 0 && Q_stricmpn( glConfig.version_string, "1.3.3", 5 ) == 0 && glConfig.version_string[5] < '9' ) // 1.3.34 and 1.3.37 and 1.3.38 are broken for sure, 1.3.39 is not
-	{
-		g_bTextureRectangleHack = true;
-	}
-
-	if( ri.GL_ExtensionSupported( "GL_NV_texture_rectangle" ) || ri.GL_ExtensionSupported( "GL_EXT_texture_rectangle" ) ) {
-		bTexRectSupported = true;
-	}
-
-// Find out how many general combiners they have.
-#define GL_MAX_GENERAL_COMBINERS_NV 0x854D
-	GLint iNumGeneralCombiners = 0;
-	if( bNVRegisterCombiners )
-		qglGetIntegerv( GL_MAX_GENERAL_COMBINERS_NV, &iNumGeneralCombiners );
-
-	// Only allow dynamic glows/flares if they have the hardware
-	if( bTexRectSupported && bARBVertexProgram && qglActiveTextureARB && glConfig.maxActiveTextures >= 4 &&
-		( ( bNVRegisterCombiners && iNumGeneralCombiners >= 2 ) || bARBFragmentProgram ) ) {
-		g_bDynamicGlowSupported = true;
-		// this would overwrite any achived setting gwg
-		// ri.Cvar_Set( "r_DynamicGlow", "1" );
-	}
-	else {
-		g_bDynamicGlowSupported = false;
-		ri.Cvar_Set( "r_DynamicGlow", "0" );
-	}
-
-#if !defined( __APPLE__ )
-	qglStencilOpSeparate = (PFNGLSTENCILOPSEPARATEPROC)ri.GL_GetProcAddress( "glStencilOpSeparate" );
-	if( qglStencilOpSeparate ) {
-		glConfig.doStencilShadowsInOneDrawcall = qtrue;
-	}
-#else
-	glConfig.doStencilShadowsInOneDrawcall = qtrue;
-#endif
+	// required extensions
+	VK_EnableExtension( ctx, VK_KHR_SURFACE_EXTENSION_NAME, REQUIRED );
+	VK_EnableExtension( ctx, SURFACE_EXTENSION_NAME, REQUIRED );
 }
 
 /*
-** InitOpenGL
+** InitVulkan
 **
-** This function is responsible for initializing a valid OpenGL subsystem.  This
+** This function is responsible for initializing a valid Vulkan subsystem.  This
 ** is done by calling GLimp_Init (which gives us a working OGL subsystem) then
 ** setting variables, checking GL constants, and reporting the gfx system config
 ** to the user.
 */
-static void InitOpenGL( void ) {
+static void InitVulkan( void ) {
+	VkResult res;
 	//
 	// initialize OS specific portions of the renderer
 	//
@@ -535,77 +437,135 @@ static void InitOpenGL( void ) {
 	//
 
 	if( glConfig.vidWidth == 0 ) {
-		windowDesc_t windowDesc = { GRAPHICS_API_OPENGL };
-		memset( &glConfig, 0, sizeof( glConfig ) );
+		vkinstance_initContext_t* instInitCtx;
+		vkdevice_initContext_t* devInitCtx;
 
-		window = ri.WIN_Init( &windowDesc, &glConfig );
+		windowDesc_t windowDesc = { GRAPHICS_API_GENERIC };
+		memset(&glConfig, 0, sizeof(glConfig));
 
-		// get our config strings
-		glConfig.vendor_string = (const char *)qglGetString( GL_VENDOR );
-		glConfig.renderer_string = (const char *)qglGetString( GL_RENDERER );
-		glConfig.version_string = (const char *)qglGetString( GL_VERSION );
-		glConfig.extensions_string = (const char *)qglGetString( GL_EXTENSIONS );
+		window = ri.WIN_Init(&windowDesc, &glConfig);
 
-		// OpenGL driver constants
-		qglGetIntegerv( GL_MAX_TEXTURE_SIZE, &glConfig.maxTextureSize );
+		// initialize the instance
+		instInitCtx = (vkinstance_initContext_t*)R_Malloc(sizeof(vkinstance_initContext_t), TAG_ALL, qtrue);
 
-		// stubbed or broken drivers may have reported 0...
-		glConfig.maxTextureSize = Q_max( 0, glConfig.maxTextureSize );
+		VkApplicationInfo appInfo = {};
+		appInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
+		appInfo.apiVersion = VK_API_VERSION_1_2;
+
+		// get number of supported instance extensions, allocate a buffer and read the extensions
+		vkEnumerateInstanceExtensionProperties(NULL, &instInitCtx->supportedExtensionCount, NULL);
+		instInitCtx->supportedExtensions = (VkExtensionProperties*)R_Malloc(sizeof(VkExtensionProperties) * instInitCtx->supportedExtensionCount, TAG_ALL);
+		res = vkEnumerateInstanceExtensionProperties(NULL, &instInitCtx->supportedExtensionCount, instInitCtx->supportedExtensions);
+		if (res != VK_SUCCESS) {
+			Com_Error(ERR_FATAL, "InitVulkan: failed to query supported Vulkan instance extensions (%d)\n", res);
+		}
 
 		// initialize extensions
-		GLimp_InitExtensions();
+		VK_InitInstanceExtensions( instInitCtx );
 
-		// set default state
-		GL_SetDefaultState();
+		// create the instance
+		VkInstanceCreateInfo instanceCreateInfo = {};
+		instanceCreateInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
+		instanceCreateInfo.pApplicationInfo = &appInfo;
+		instanceCreateInfo.enabledExtensionCount = instInitCtx->enabledExtensionCount;
+		instanceCreateInfo.ppEnabledExtensionNames = instInitCtx->enabledExtensions;
+
+		res = vkCreateInstance( &instanceCreateInfo, NULL, &vkState.instance );
+		if (res != VK_SUCCESS) {
+			Com_Error(ERR_FATAL, "InitVulkan: failed to create Vulkan instance (%d)\n", res);
+		}
+
+		// get the physical device
+		uint32_t physicalDeviceCount = 1;
+		res = vkEnumeratePhysicalDevices( vkState.instance, &physicalDeviceCount, &vkState.physicalDevice );
+		if (res != VK_SUCCESS && res != VK_INCOMPLETE) {
+			Com_Error(ERR_FATAL, "InitVulkan: failed to get the primary physical device (%d)\n", res);
+		}
+
+		R_Free(instInitCtx->supportedExtensions);
+		R_Free(instInitCtx);
+
+		// initialize the device
+		devInitCtx = (vkdevice_initContext_t*)R_Malloc(sizeof(vkdevice_initContext_t), TAG_ALL, qtrue);
+		devInitCtx->physicalDevice = vkState.physicalDevice;
+
+		vkGetPhysicalDeviceFeatures(devInitCtx->physicalDevice, &devInitCtx->supportedDeviceFeatures);
+		vkGetPhysicalDeviceProperties(devInitCtx->physicalDevice, &devInitCtx->physicalDeviceProperties);
+
+		// get number of supported device queue families, allocate a buffer and read the properties
+		vkGetPhysicalDeviceQueueFamilyProperties(devInitCtx->physicalDevice, &devInitCtx->supportedDeviceQueueFamilyCount, NULL);
+		devInitCtx->supportedDeviceQueueFamilies = (VkQueueFamilyProperties*)R_Malloc(sizeof(VkQueueFamilyProperties) * devInitCtx->supportedDeviceQueueFamilyCount, TAG_ALL);
+		vkGetPhysicalDeviceQueueFamilyProperties(devInitCtx->physicalDevice, &devInitCtx->supportedDeviceQueueFamilyCount, devInitCtx->supportedDeviceQueueFamilies);
+
+		// get number of supported device extensions, allocate a buffer and read the extensions
+		vkEnumerateDeviceExtensionProperties(devInitCtx->physicalDevice, NULL, &devInitCtx->supportedExtensionCount, NULL);
+		devInitCtx->supportedExtensions = (VkExtensionProperties*)R_Malloc(sizeof(VkExtensionProperties) * devInitCtx->supportedExtensionCount, TAG_ALL);
+		res = vkEnumerateDeviceExtensionProperties(devInitCtx->physicalDevice, NULL, &devInitCtx->supportedExtensionCount, devInitCtx->supportedExtensions);
+		if( res != VK_SUCCESS ) {
+			Com_Error( ERR_FATAL, "InitVulkan: failed to query supported Vulkan device extensions (%d)\n", res );
+		}
+
+		// get our config strings
+		Q_strncpyz(vkState.physicalDeviceName, devInitCtx->physicalDeviceProperties.deviceName, ARRAY_LEN(vkState.physicalDeviceName));
+		sprintf(vkState.physicalDeviceDriverVersion, "%u.%u.%u",
+			VK_API_VERSION_MAJOR(devInitCtx->physicalDeviceProperties.driverVersion),
+			VK_API_VERSION_MINOR(devInitCtx->physicalDeviceProperties.driverVersion),
+			VK_API_VERSION_PATCH(devInitCtx->physicalDeviceProperties.driverVersion));
+
+		glConfig.vendor_string = VK_GetVendorString( devInitCtx->physicalDeviceProperties.vendorID );
+		glConfig.renderer_string = vkState.physicalDeviceName;
+		glConfig.version_string = vkState.physicalDeviceDriverVersion;
+		glConfig.extensions_string = NULL;
+
+		// Vulkan driver constants
+		glConfig.maxTextureSize = devInitCtx->physicalDeviceProperties.limits.maxImageDimension2D;
+
+		// initialize extensions
+		VK_InitDeviceExtensions( devInitCtx );
+
+		// setup the default command queue
+		float queuePriority = 1.f;
+		VkDeviceQueueCreateInfo queueCreateInfo = {};
+		queueCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+
+		for( uint32_t i = 0; i < devInitCtx->supportedDeviceQueueFamilyCount; ++i ) {
+			const VkQueueFamilyProperties* queueFamily = &devInitCtx->supportedDeviceQueueFamilies[i];
+
+			VkBool32 queueSupportsPresentation = VK_FALSE;
+			res = vkGetPhysicalDeviceSurfaceSupportKHR( devInitCtx->physicalDevice, i, vkState.surface, &queueSupportsPresentation );
+
+			if( queueFamily->queueFlags & VK_QUEUE_GRAPHICS_BIT && res == VK_SUCCESS && queueSupportsPresentation ) {
+				queueCreateInfo.queueFamilyIndex = i;
+				queueCreateInfo.queueCount = 1;
+				queueCreateInfo.pQueuePriorities = &queuePriority;
+				break;
+			}
+		}
+
+		if( queueCreateInfo.queueCount == 0 ) {
+			Com_Error( ERR_FATAL, "InitVulkan: suitable command queue family not found\n" );
+		}
+
+		// create the device
+		VkDeviceCreateInfo deviceCreateInfo = {};
+		deviceCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
+		deviceCreateInfo.pEnabledFeatures = &devInitCtx->enabledDeviceFeatures;
+		deviceCreateInfo.enabledExtensionCount = devInitCtx->enabledExtensionCount;
+		deviceCreateInfo.ppEnabledExtensionNames = devInitCtx->enabledExtensions;
+		deviceCreateInfo.queueCreateInfoCount = 1;
+		deviceCreateInfo.pQueueCreateInfos = &queueCreateInfo;
+
+		res = vkCreateDevice( vkState.physicalDevice, &deviceCreateInfo, NULL, &vkState.device );
+		if( res != VK_SUCCESS ) {
+			Com_Error( ERR_FATAL, "InitVulkan: failed to create Vulkan device (%d)\n", res );
+		}
+
 		R_Splash(); // get something on screen asap
-	}
-	else {
-		// set default state
-		GL_SetDefaultState();
-	}
-}
 
-/*
-==================
-GL_CheckErrors
-==================
-*/
-void GL_CheckErrors( void ) {
-	int err;
-	char s[64];
-
-	err = qglGetError();
-	if( err == GL_NO_ERROR ) {
-		return;
+		R_Free(devInitCtx->supportedExtensions);
+		R_Free(devInitCtx->supportedDeviceQueueFamilies);
+		R_Free(devInitCtx);
 	}
-	if( r_ignoreGLErrors->integer ) {
-		return;
-	}
-	switch( err ) {
-	case GL_INVALID_ENUM:
-		strcpy( s, "GL_INVALID_ENUM" );
-		break;
-	case GL_INVALID_VALUE:
-		strcpy( s, "GL_INVALID_VALUE" );
-		break;
-	case GL_INVALID_OPERATION:
-		strcpy( s, "GL_INVALID_OPERATION" );
-		break;
-	case GL_STACK_OVERFLOW:
-		strcpy( s, "GL_STACK_OVERFLOW" );
-		break;
-	case GL_STACK_UNDERFLOW:
-		strcpy( s, "GL_STACK_UNDERFLOW" );
-		break;
-	case GL_OUT_OF_MEMORY:
-		strcpy( s, "GL_OUT_OF_MEMORY" );
-		break;
-	default:
-		Com_sprintf( s, sizeof( s ), "%i", err );
-		break;
-	}
-
-	Com_Error( ERR_FATAL, "GL_CheckErrors: %s", s );
 }
 
 /*
@@ -956,53 +916,6 @@ void R_ScreenShot_f( void ) {
 //============================================================================
 
 /*
-** GL_SetDefaultState
-*/
-void GL_SetDefaultState( void ) {
-	qglClearDepth( 1.0f );
-
-	qglCullFace( GL_FRONT );
-
-	qglColor4f( 1, 1, 1, 1 );
-
-	// initialize downstream texture unit if we're running
-	// in a multitexture environment
-	if( qglActiveTextureARB ) {
-		GL_SelectTexture( 1 );
-		GL_TextureMode( r_textureMode->string );
-		GL_TexEnv( GL_MODULATE );
-		qglDisable( GL_TEXTURE_2D );
-		GL_SelectTexture( 0 );
-	}
-
-	qglEnable( GL_TEXTURE_2D );
-	GL_TextureMode( r_textureMode->string );
-	GL_TexEnv( GL_MODULATE );
-
-	qglShadeModel( GL_SMOOTH );
-	qglDepthFunc( GL_LEQUAL );
-
-	// the vertex array is always enabled, but the color and texture
-	// arrays are enabled and disabled around the compiled vertex array call
-	qglEnableClientState( GL_VERTEX_ARRAY );
-
-	//
-	// make sure our GL state vector is set correctly
-	//
-	glState.glStateBits = GLS_DEPTHTEST_DISABLE | GLS_DEPTHMASK_TRUE;
-
-	qglPolygonMode( GL_FRONT_AND_BACK, GL_FILL );
-	qglDepthMask( GL_TRUE );
-	qglDisable( GL_DEPTH_TEST );
-	qglEnable( GL_SCISSOR_TEST );
-	qglDisable( GL_CULL_FACE );
-	qglDisable( GL_BLEND );
-	qglDisable( GL_ALPHA_TEST );
-	qglBlendFunc( GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA );
-}
-
-
-/*
 ================
 R_PrintLongString
 
@@ -1069,9 +982,9 @@ void GfxInfo_f( void ) {
 	int fullscreen = ri.Cvar_VariableIntegerValue( "r_fullscreen" );
 	int noborder = ri.Cvar_VariableIntegerValue( "r_noborder" );
 
-	ri.Printf( PRINT_ALL, "\nGL_VENDOR: %s\n", glConfig.vendor_string );
-	ri.Printf( PRINT_ALL, "GL_RENDERER: %s\n", glConfig.renderer_string );
-	ri.Printf( PRINT_ALL, "GL_VERSION: %s\n", glConfig.version_string );
+	ri.Printf( PRINT_ALL, "\nVendor: %s\n", glConfig.vendor_string );
+	ri.Printf( PRINT_ALL, "Device: %s\n", glConfig.renderer_string );
+	ri.Printf( PRINT_ALL, "Driver: %s\n", glConfig.version_string );
 	R_PrintLongString( glConfig.extensions_string );
 	Com_Printf( "\n" );
 	ri.Printf( PRINT_ALL, "GL_MAX_TEXTURE_SIZE: %d\n", glConfig.maxTextureSize );
@@ -1103,12 +1016,14 @@ void GfxInfo_f( void ) {
 		ri.Printf( PRINT_ALL, "rendering primitives: " );
 		primitives = r_primitives->integer;
 		if( primitives == 0 ) {
+#if 0
 			if( qglLockArraysEXT ) {
 				primitives = 2;
 			}
 			else {
 				primitives = 1;
 			}
+#endif
 		}
 		if( primitives == -1 ) {
 			ri.Printf( PRINT_ALL, "none\n" );
@@ -1129,8 +1044,6 @@ void GfxInfo_f( void ) {
 	ri.Printf( PRINT_ALL, "texture bits: %d\n", r_texturebits->integer );
 	if( r_texturebitslm->integer > 0 )
 		ri.Printf( PRINT_ALL, "lightmap texture bits: %d\n", r_texturebitslm->integer );
-	ri.Printf( PRINT_ALL, "multitexture: %s\n", enablestrings[qglActiveTextureARB != 0] );
-	ri.Printf( PRINT_ALL, "compiled vertex arrays: %s\n", enablestrings[qglLockArraysEXT != 0] );
 	ri.Printf( PRINT_ALL, "texenv add: %s\n", enablestrings[glConfig.textureEnvAddAvailable != 0] );
 	ri.Printf( PRINT_ALL, "compressed textures: %s\n", enablestrings[glConfig.textureCompression != TC_NONE] );
 	ri.Printf( PRINT_ALL, "compressed lightmaps: %s\n", enablestrings[( r_ext_compressed_lightmaps->integer != 0 && glConfig.textureCompression != TC_NONE )] );
@@ -1279,6 +1192,7 @@ void R_ReloadFonts_f( void );
 
 static consoleCommand_t commands[] = {
 	{ "imagelist", R_ImageList_f },
+	{ "bufferlist", R_BufferList_f },
 	{ "shaderlist", R_ShaderList_f },
 	{ "skinlist", R_SkinList_f },
 	{ "fontlist", R_FontList_f },
@@ -1557,7 +1471,7 @@ void R_Init( void ) {
 		byteAlias_t *ba = (byteAlias_t *)&color;
 		RE_SetLightStyle( i, ba->i );
 	}
-	InitOpenGL();
+	InitVulkan();
 
 	R_InitImages();
 	R_InitShaders();
@@ -1565,10 +1479,6 @@ void R_Init( void ) {
 	R_ModelInit();
 	R_InitWorldEffects();
 	R_InitFonts();
-
-	err = qglGetError();
-	if( err != GL_NO_ERROR )
-		ri.Printf( PRINT_ALL, "glGetError() = 0x%x\n", err );
 
 	RestoreGhoul2InfoArray();
 	// print info
@@ -1588,20 +1498,34 @@ void RE_Shutdown( qboolean destroyWindow, qboolean restarting ) {
 		ri.Cmd_RemoveCommand( commands[i].cmd );
 
 	if( r_DynamicGlow && r_DynamicGlow->integer ) {
-		// Release the Glow Vertex Shader.
-		if( tr.glowPipeline ) {
-			vkDestroyPipeline( vkState.device, tr.glowPipeline, nullptr );
-			vkDestroyPipelineLayout( vkState.device, tr.glowPipelineLayout, nullptr );
-		}
+		if( tr.glowBlurPipeline )
+			vkDestroyPipeline(vkState.device, tr.glowBlurPipeline, NULL);
+		if( tr.glowBlurPipelineLayout )
+			vkDestroyPipelineLayout(vkState.device, tr.glowBlurPipelineLayout, NULL);
+		if (tr.glowBlurDescriptorSet)
+			vkFreeDescriptorSets(vkState.device, vkState.descriptorPool, 1, &tr.glowBlurDescriptorSet);
+		if (tr.glowBlurDescriptorSetLayout)
+			vkDestroyDescriptorSetLayout(vkState.device, tr.glowBlurDescriptorSetLayout, NULL);
 
-		// Release the scene glow texture.
-		qglDeleteTextures( 1, &tr.screenGlow );
+		if( tr.glowCombinePipeline )
+			vkDestroyPipeline(vkState.device, tr.glowCombinePipeline, NULL);
+		if (tr.glowCombinePipelineLayout)
+			vkDestroyPipelineLayout(vkState.device, tr.glowCombinePipelineLayout, NULL);
+		if (tr.glowCombineDescriptorSet)
+			vkFreeDescriptorSets(vkState.device, vkState.descriptorPool, 1, &tr.glowCombineDescriptorSet);
+		if (tr.glowCombineDescriptorSetLayout)
+			vkDestroyDescriptorSetLayout(vkState.device, tr.glowCombineDescriptorSetLayout, NULL);
 
-		// Release the scene texture.
-		qglDeleteTextures( 1, &tr.sceneImage );
+		if (tr.glowBlurFramebuffer)
+			vkDestroyFramebuffer(vkState.device, tr.glowBlurFramebuffer, NULL);
+		if (tr.glowFramebuffer)
+			vkDestroyFramebuffer(vkState.device, tr.glowFramebuffer, NULL);
 
-		// Release the blur texture.
-		qglDeleteTextures( 1, &tr.blurImage );
+		if (tr.glowRenderPass)
+			vkDestroyRenderPass(vkState.device, tr.glowRenderPass, NULL);
+
+		R_Images_DeleteImage(tr.glowBlurImage);
+		R_Images_DeleteImage(tr.glowImage);
 	}
 
 	R_ShutdownWorldEffects();
@@ -1610,6 +1534,7 @@ void RE_Shutdown( qboolean destroyWindow, qboolean restarting ) {
 		R_IssuePendingRenderCommands();
 		if( destroyWindow ) {
 			R_DeleteTextures(); // only do this for vid_restart now, not during things like map load
+			R_DeleteBuffers();
 
 			if( restarting ) {
 				SaveGhoul2InfoArray();

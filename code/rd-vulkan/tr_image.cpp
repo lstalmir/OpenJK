@@ -35,9 +35,6 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 static byte s_intensitytable[256];
 static unsigned char s_gammatable[256];
 
-int gl_filter_min = GL_LINEAR_MIPMAP_NEAREST;
-int gl_filter_max = GL_LINEAR;
-
 #define FILE_HASH_SIZE 1024 // actually, the shader code needs this (from another module, great).
 // static	image_t*		hashTable[FILE_HASH_SIZE];
 
@@ -59,12 +56,12 @@ typedef struct {
 } textureMode_t;
 
 textureMode_t modes[] = {
-	{ "VK_NEAREST", VK_FILTER_NEAREST, VK_FILTER_NEAREST, VK_SAMPLER_MIPMAP_MODE_NEAREST },
-	{ "VK_LINEAR", VK_FILTER_LINEAR, VK_FILTER_LINEAR, VK_SAMPLER_MIPMAP_MODE_LINEAR },
-	{ "VK_NEAREST_MIPMAP_NEAREST", VK_FILTER_NEAREST, VK_FILTER_NEAREST, VK_SAMPLER_MIPMAP_MODE_NEAREST },
-	{ "VK_LINEAR_MIPMAP_NEAREST", VK_FILTER_LINEAR, VK_FILTER_LINEAR, VK_SAMPLER_MIPMAP_MODE_NEAREST },
-	{ "VK_NEAREST_MIPMAP_LINEAR", VK_FILTER_LINEAR, VK_FILTER_LINEAR, VK_SAMPLER_MIPMAP_MODE_LINEAR },
-	{ "VK_LINEAR_MIPMAP_LINEAR", VK_FILTER_LINEAR, VK_FILTER_LINEAR, VK_SAMPLER_MIPMAP_MODE_LINEAR }
+	{ "GL_NEAREST", VK_FILTER_NEAREST, VK_FILTER_NEAREST, VK_SAMPLER_MIPMAP_MODE_NEAREST },
+	{ "GL_LINEAR", VK_FILTER_LINEAR, VK_FILTER_LINEAR, VK_SAMPLER_MIPMAP_MODE_LINEAR },
+	{ "GL_NEAREST_MIPMAP_NEAREST", VK_FILTER_NEAREST, VK_FILTER_NEAREST, VK_SAMPLER_MIPMAP_MODE_NEAREST },
+	{ "GL_LINEAR_MIPMAP_NEAREST", VK_FILTER_LINEAR, VK_FILTER_LINEAR, VK_SAMPLER_MIPMAP_MODE_NEAREST },
+	{ "GL_NEAREST_MIPMAP_LINEAR", VK_FILTER_LINEAR, VK_FILTER_LINEAR, VK_SAMPLER_MIPMAP_MODE_LINEAR },
+	{ "GL_LINEAR_MIPMAP_LINEAR", VK_FILTER_LINEAR, VK_FILTER_LINEAR, VK_SAMPLER_MIPMAP_MODE_LINEAR }
 };
 
 static const size_t numTextureModes = ARRAY_LEN( modes );
@@ -116,12 +113,13 @@ char *GenerateImageMappingName( const char *name ) {
 
 /*
 ===============
-GL_TextureMode
+VK_TextureMode
 ===============
 */
-void GL_TextureMode( const char *string ) {
+void VK_TextureMode( const char *string ) {
 	size_t i;
 	image_t *glt;
+	VkResult res;
 
 	for( i = 0; i < numTextureModes; i++ ) {
 		if( !Q_stricmp( modes[i].name, string ) ) {
@@ -137,89 +135,187 @@ void GL_TextureMode( const char *string ) {
 		return;
 	}
 
-	gl_filter_min = modes[i].minimize;
-	gl_filter_max = modes[i].maximize;
+	textureMode_t* mode = &modes[i];
 
 	// If the level they requested is less than possible, set the max possible...
 	if( r_ext_texture_filter_anisotropic->value > glConfig.maxTextureFilterAnisotropy ) {
 		ri.Cvar_SetValue( "r_ext_texture_filter_anisotropic", glConfig.maxTextureFilterAnisotropy );
 	}
 
-	// change all the existing mipmap texture objects
-	//	int iNumImages =
-	R_Images_StartIteration();
-	while( ( glt = R_Images_GetNextIteration() ) != NULL ) {
-		if( glt->mipmap ) {
-			GL_Bind( glt );
-			qglTexParameterf( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, gl_filter_min );
-			qglTexParameterf( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, gl_filter_max );
+	float anisotropy = r_ext_texture_filter_anisotropic->value;
 
-			if( glConfig.maxTextureFilterAnisotropy > 0 ) {
-				if( r_ext_texture_filter_anisotropic->integer > 1 ) {
-					qglTexParameterf( GL_TEXTURE_2D, GL_TEXTURE_MAX_ANISOTROPY_EXT, r_ext_texture_filter_anisotropic->value );
-				}
-				else {
-					qglTexParameterf( GL_TEXTURE_2D, GL_TEXTURE_MAX_ANISOTROPY_EXT, 1.0f );
-				}
-			}
+	// destroy the old samplers
+	if (tr.wrapModeSampler)
+		vkDestroySampler(vkState.device, tr.wrapModeSampler, NULL);
+	if (tr.clampModeSampler)
+		vkDestroySampler(vkState.device, tr.clampModeSampler, NULL);
+
+	// create the new sampler objects
+	VkSamplerCreateInfo samplerCreateInfo = {};
+	samplerCreateInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+	samplerCreateInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+	samplerCreateInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+	samplerCreateInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+	samplerCreateInfo.minFilter = mode->minimize;
+	samplerCreateInfo.magFilter = mode->maximize;
+	samplerCreateInfo.mipmapMode = mode->mipmap;
+	samplerCreateInfo.anisotropyEnable = (anisotropy > 0.f);
+	samplerCreateInfo.maxAnisotropy = anisotropy;
+	samplerCreateInfo.borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_BLACK;
+	samplerCreateInfo.maxLod = FLT_MAX;
+
+	res = vkCreateSampler(vkState.device, &samplerCreateInfo, NULL, &tr.wrapModeSampler);
+	if (res != VK_SUCCESS) {
+		Com_Error(ERR_FATAL, "VK_TextureMode: failed to create a wrap mode sampler (%d)\n", res);
+	}
+
+	samplerCreateInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+	samplerCreateInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+	samplerCreateInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+
+	res = vkCreateSampler(vkState.device, &samplerCreateInfo, NULL, &tr.clampModeSampler);
+	if (res != VK_SUCCESS) {
+		Com_Error(ERR_FATAL, "VK_TextureMode: failed to create a clamp mode sampler (%d)\n", res);
+	}
+}
+
+
+/*
+===============
+VK_GetInternalFormat
+
+===============
+*/
+static VkFormat VK_GetInternalFormat(const byte* data, int width, int height, qboolean isLightmap, qboolean allowTC) {
+	int samples;
+	int i, c;
+	float rMax = 0, gMax = 0, bMax = 0;
+	byte* scan;
+
+	//
+	// scan the texture for each channel's max values
+	// and verify if the alpha channel is being used or not
+	//
+	c = width * height;
+	scan = ((byte*)data);
+	samples = 3;
+	for (i = 0; i < c; i++) {
+		if (scan[i * 4 + 0] > rMax) {
+			rMax = scan[i * 4 + 0];
+		}
+		if (scan[i * 4 + 1] > gMax) {
+			gMax = scan[i * 4 + 1];
+		}
+		if (scan[i * 4 + 2] > bMax) {
+			bMax = scan[i * 4 + 2];
+		}
+		if (scan[i * 4 + 3] != 255) {
+			samples = 4;
+			break;
 		}
 	}
+
+	// select proper internal format
+	if (samples == 3) {
+		if (glConfig.textureCompression == TC_S3TC_DXT && allowTC) { // Compress purely color - no alpha
+			if (r_texturebits->integer == 16) {
+				return VK_FORMAT_BC1_RGB_UNORM_BLOCK; // this format cuts to 16 bit
+			}
+			else { // if we aren't using 16 bit then, use 32 bit compression
+				return VK_FORMAT_BC3_UNORM_BLOCK;
+			}
+		}
+		else if (isLightmap && r_texturebitslm->integer > 0) {
+			// Allow different bit depth when we are a lightmap
+			if (r_texturebitslm->integer == 16) {
+				return VK_FORMAT_R5G6B5_UNORM_PACK16;
+			}
+			else if (r_texturebitslm->integer == 32) {
+				return VK_FORMAT_R8G8B8_UNORM;
+			}
+		}
+		else if (r_texturebits->integer == 16) {
+			return VK_FORMAT_R5G6B5_UNORM_PACK16;
+		}
+		return VK_FORMAT_R8G8B8_UNORM;
+	}
+	else if (samples == 4) {
+		if (glConfig.textureCompression == TC_S3TC_DXT && allowTC) { // Compress both alpha and color
+			if (r_texturebits->integer == 16) {
+				return VK_FORMAT_BC1_RGBA_UNORM_BLOCK; // this format cuts to 16 bit
+			}
+			else { // if we aren't using 16 bit then, use 32 bit compression
+				return VK_FORMAT_BC3_UNORM_BLOCK;
+			}
+		}
+		else if (r_texturebits->integer == 16) {
+			return VK_FORMAT_R4G4B4A4_UNORM_PACK16;
+		}
+		return VK_FORMAT_R8G8B8A8_UNORM;
+	}
+
+	return VK_FORMAT_UNDEFINED;
 }
 
-static float R_BytesPerTex( int format ) {
-	switch( format ) {
-	case 1:
-		//"I    "
-		return 1;
-		break;
-	case 2:
-		//"IA   "
-		return 2;
-		break;
-	case 3:
-		//"RGB  "
-		return glConfig.colorBits / 8.0f;
-		break;
-	case 4:
-		//"RGBA "
-		return glConfig.colorBits / 8.0f;
-		break;
-
-	case GL_RGBA4:
-		//"RGBA4"
-		return 2;
-		break;
-	case GL_RGB5:
-		//"RGB5 "
-		return 2;
-		break;
-
-	case GL_RGBA8:
-		//"RGBA8"
-		return 4;
-		break;
-	case GL_RGB8:
-		//"RGB8"
-		return 4;
-		break;
-
-	case GL_RGB4_S3TC:
-		//"S3TC "
-		return 0.33333f;
-		break;
-	case GL_COMPRESSED_RGB_S3TC_DXT1_EXT:
-		//"DXT1 "
-		return 0.33333f;
-		break;
-	case GL_COMPRESSED_RGBA_S3TC_DXT5_EXT:
-		//"DXT5 "
-		return 1;
-		break;
+static int VK_GetInternalFormatTexelSize(VkFormat format) {
+	switch (format) {
+	case VK_FORMAT_BC1_RGB_UNORM_BLOCK:
+	case VK_FORMAT_BC1_RGBA_UNORM_BLOCK:
+		return 8; // per block
+	case VK_FORMAT_BC3_UNORM_BLOCK:
+		return 16; // per block
+	case VK_FORMAT_R8G8B8A8_UNORM:
+		return 4; // per pixel
+	case VK_FORMAT_R8G8B8_UNORM:
+		return 3; // per pixel
+	case VK_FORMAT_R4G4B4A4_UNORM_PACK16:
+	case VK_FORMAT_R5G6B5_UNORM_PACK16:
+		return 2; // per pixel
 	default:
-		//"???? "
-		return 4;
+		return 0;
 	}
 }
+
+static bool VK_IsCompressed(VkFormat format) {
+	switch (format) {
+	case VK_FORMAT_BC1_RGB_UNORM_BLOCK:
+	case VK_FORMAT_BC1_RGBA_UNORM_BLOCK:
+	case VK_FORMAT_BC3_UNORM_BLOCK:
+		return true;
+	default:
+		return false;
+	}
+}
+
+static bool VK_IsDepthStencil(VkFormat format) {
+	switch (format) {
+	case VK_FORMAT_D16_UNORM:
+	case VK_FORMAT_D16_UNORM_S8_UINT:
+	case VK_FORMAT_D24_UNORM_S8_UINT:
+	case VK_FORMAT_D32_SFLOAT:
+	case VK_FORMAT_D32_SFLOAT_S8_UINT:
+	case VK_FORMAT_S8_UINT:
+		return true;
+	default:
+		return false;
+	}
+}
+
+static bool VK_IsDepthOnly(VkFormat format) {
+	switch (format) {
+	case VK_FORMAT_D16_UNORM:
+	case VK_FORMAT_D32_SFLOAT:
+		return true;
+	default:
+		return false;
+	}
+}
+
+static bool VK_IsStencilOnly(VkFormat format) {
+	return format == VK_FORMAT_S8_UINT;
+}
+
+int VK_GetRequiredImageUploadBufferSize(image_t *);
 
 /*
 ===============
@@ -234,8 +330,7 @@ float R_SumOfUsedImages( qboolean bUseFormat ) {
 	while( ( pImage = R_Images_GetNextIteration() ) != NULL ) {
 		if( pImage->frameUsed == tr.frameCount - 1 ) { // it has already been advanced for the next frame, so...
 			if( bUseFormat ) {
-				float bytePerTex = R_BytesPerTex( pImage->internalFormat );
-				total += bytePerTex * ( pImage->width * pImage->height );
+				total += VK_GetRequiredImageUploadBufferSize( pImage );
 			}
 			else {
 				total += pImage->width * pImage->height;
@@ -264,7 +359,7 @@ void R_ImageList_f( void ) {
 	int iNumImages = R_Images_StartIteration();
 	while( ( image = R_Images_GetNextIteration() ) != NULL ) {
 		texels += image->width * image->height;
-		texBytes += image->width * image->height * R_BytesPerTex( image->internalFormat );
+		texBytes += VK_GetRequiredImageUploadBufferSize( image );
 		//		totalFileSizeK += (image->imgfileSize+1023)/1024;
 		// ri.Printf (PRINT_ALL,  "%4i: %4i %4i %5i  %s ",
 		//	i, image->width, image->height,(image->fileSize+1023)/1024, yesno[image->mipmap] );
@@ -272,28 +367,14 @@ void R_ImageList_f( void ) {
 			i, image->width, image->height, yesno[image->mipmap] );
 
 		switch( image->internalFormat ) {
-		case 1:
-			ri.Printf( PRINT_ALL, "I    " );
-			break;
-		case 2:
-			ri.Printf( PRINT_ALL, "IA   " );
-			break;
-		case 3:
-			ri.Printf( PRINT_ALL, "RGB  " );
-			break;
-		case 4:
-			ri.Printf( PRINT_ALL, "RGBA " );
-			break;
 		case VK_FORMAT_R8G8B8A8_UNORM:
 			ri.Printf( PRINT_ALL, "RGBA8" );
 			break;
 		case VK_FORMAT_R8G8B8_UNORM:
 			ri.Printf( PRINT_ALL, "RGB8 " );
 			break;
-		case GL_RGB4_S3TC:
-			ri.Printf( PRINT_ALL, "S3TC " );
-			break;
 		case VK_FORMAT_BC1_RGB_UNORM_BLOCK:
+		case VK_FORMAT_BC1_RGBA_UNORM_BLOCK:
 			ri.Printf( PRINT_ALL, "DXT1 " );
 			break;
 		case VK_FORMAT_BC3_UNORM_BLOCK:
@@ -313,11 +394,8 @@ void R_ImageList_f( void ) {
 		case VK_SAMPLER_ADDRESS_MODE_REPEAT:
 			ri.Printf( PRINT_ALL, "rept " );
 			break;
-		case VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER:
-			ri.Printf( PRINT_ALL, "clmp " );
-			break;
 		case VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE:
-			ri.Printf( PRINT_ALL, "clpE " );
+			ri.Printf( PRINT_ALL, "clmp " );
 			break;
 		default:
 			ri.Printf( PRINT_ALL, "%4i ", image->wrapClampMode );
@@ -538,11 +616,11 @@ byte mipBlendColors[16][4] = {
 
 /*
 ===============
-VKimp_AdjustTextureSize
+VK_AdjustTextureSize
 
 ===============
 */
-static void VKimp_AdjustTextureSize( byte *data, int *pWidth, int *pHeight, qboolean picmip ) {
+static void VK_AdjustTextureSize( byte *data, int *pWidth, int *pHeight, qboolean picmip ) {
 	int i;
 	int width = *pWidth;
 	int height = *pHeight;
@@ -577,114 +655,6 @@ static void VKimp_AdjustTextureSize( byte *data, int *pWidth, int *pHeight, qboo
 
 	*pWidth = width;
 	*pHeight = height;
-}
-
-
-/*
-===============
-VK_GetInternalFormat
-
-===============
-*/
-static VkFormat VK_GetInternalFormat( const byte *data, int width, int height, qboolean isLightmap, qboolean allowTC ) {
-	int samples;
-	int i, c;
-	float rMax = 0, gMax = 0, bMax = 0;
-	byte *scan;
-
-	//
-	// scan the texture for each channel's max values
-	// and verify if the alpha channel is being used or not
-	//
-	c = width * height;
-	scan = ( (byte *)data );
-	samples = 3;
-	for( i = 0; i < c; i++ ) {
-		if( scan[i * 4 + 0] > rMax ) {
-			rMax = scan[i * 4 + 0];
-		}
-		if( scan[i * 4 + 1] > gMax ) {
-			gMax = scan[i * 4 + 1];
-		}
-		if( scan[i * 4 + 2] > bMax ) {
-			bMax = scan[i * 4 + 2];
-		}
-		if( scan[i * 4 + 3] != 255 ) {
-			samples = 4;
-			break;
-		}
-	}
-
-	// select proper internal format
-	if( samples == 3 ) {
-		if( glConfig.textureCompression == TC_S3TC_DXT && allowTC ) { // Compress purely color - no alpha
-			if( r_texturebits->integer == 16 ) {
-				return VK_FORMAT_BC1_RGB_UNORM_BLOCK; // this format cuts to 16 bit
-			}
-			else { // if we aren't using 16 bit then, use 32 bit compression
-				return VK_FORMAT_BC3_UNORM_BLOCK;
-			}
-		}
-		else if( isLightmap && r_texturebitslm->integer > 0 ) {
-			// Allow different bit depth when we are a lightmap
-			if( r_texturebitslm->integer == 16 ) {
-				return VK_FORMAT_R5G6B5_UNORM_PACK16;
-			}
-			else if( r_texturebitslm->integer == 32 ) {
-				return VK_FORMAT_R8G8B8_UNORM;
-			}
-		}
-		else if( r_texturebits->integer == 16 ) {
-			return VK_FORMAT_R5G6B5_UNORM_PACK16;
-		}
-		return VK_FORMAT_R8G8B8_UNORM;
-	}
-	else if( samples == 4 ) {
-		if( glConfig.textureCompression == TC_S3TC_DXT && allowTC ) { // Compress both alpha and color
-			if( r_texturebits->integer == 16 ) {
-				return VK_FORMAT_BC1_RGBA_UNORM_BLOCK; // this format cuts to 16 bit
-			}
-			else { // if we aren't using 16 bit then, use 32 bit compression
-				return VK_FORMAT_BC3_UNORM_BLOCK;
-			}
-		}
-		else if( r_texturebits->integer == 16 ) {
-			return VK_FORMAT_R4G4B4A4_UNORM_PACK16;
-		}
-		return VK_FORMAT_R8G8B8A8_UNORM;
-	}
-
-	return VK_FORMAT_UNDEFINED;
-}
-
-static bool VK_IsCompressed( VkFormat format ) {
-	switch( format ) {
-	case VK_FORMAT_BC1_RGB_UNORM_BLOCK:
-	case VK_FORMAT_BC1_RGBA_UNORM_BLOCK:
-	case VK_FORMAT_BC3_UNORM_BLOCK:
-		return true;
-	default:
-		return false;
-	}
-}
-
-static int VK_GetInternalFormatTexelSize( VkFormat format ) {
-	switch( format ) {
-	case VK_FORMAT_BC1_RGB_UNORM_BLOCK:
-	case VK_FORMAT_BC1_RGBA_UNORM_BLOCK:
-		return 8; // per block
-	case VK_FORMAT_BC3_UNORM_BLOCK:
-		return 16; // per block
-	case VK_FORMAT_R8G8B8A8_UNORM:
-		return 4; // per pixel
-	case VK_FORMAT_R8G8B8_UNORM:
-		return 3; // per pixel
-	case VK_FORMAT_R4G4B4A4_UNORM_PACK16:
-	case VK_FORMAT_R5G6B5_UNORM_PACK16:
-		return 2; // per pixel
-	default:
-		return 0;
-	}
 }
 
 
@@ -737,84 +707,16 @@ static bool VK_ConvertImage( byte *dst, const byte *pic, int width, int height, 
 	}
 }
 
-static int VK_GetImageUploadBufferOffsetForMip( image_t *image, int mip ) {
-	int offset = 0;
-	int width = image->width;
-	int height = image->height;
-	int texelSize = VK_GetInternalFormatTexelSize( image->internalFormat );
+static int VK_GetRequiredImageUploadBufferSize( VkFormat format, int width, int height ) {
+	int texelSize = VK_GetInternalFormatTexelSize( format );
 
-	assert( image->mipmap );	// mipmaps must be enabled
-
-	if( VK_IsCompressed( image->internalFormat ) ) {
-		while( mip > 0 ) {
-			offset += ( ( width + 3 ) >> 2 ) * ( ( height + 3 ) >> 2 ) * texelSize;
-			width >>= 1;
-			height >>= 1;
-			if( width < 1 )
-				width = 1;
-			if( height < 1 )
-				height = 1;
-		}
+	if( VK_IsCompressed( format ) ) {
+		return ( ( width + 3 ) >> 2 ) * ( ( height + 3 ) >> 2 ) * texelSize;
 	}
 
 	else {
-		while( mip > 0 ) {
-			offset += width * height * texelSize;
-			width >>= 1;
-			height >>= 1;
-			if( width < 1 )
-				width = 1;
-			if( height < 1 )
-				height = 1;
-		}
+		return width * height * texelSize;
 	}
-
-	return offset;
-}
-
-static int VK_GetRequiredImageUploadBufferSize( image_t *image ) {
-	int size = 0;
-	int width = image->width;
-	int height = image->height;
-	int texelSize = VK_GetInternalFormatTexelSize( image->internalFormat );
-
-	if( VK_IsCompressed( image->internalFormat ) ) {
-		// compute the size of the first mip
-		size += ( ( width + 3 ) >> 2 ) * ( ( height + 3 ) >> 2 ) * texelSize;
-
-		if( image->mipmap ) {
-			// compute the sizes of the remaining mips
-			while( width > 1 || height > 1 ) {
-				width >>= 1;
-				height >>= 1;
-				if( width < 1 )
-					width = 1;
-				if( height < 1 )
-					height = 1;
-				size += ( ( width + 3 ) >> 2 ) * ( ( height + 3 ) >> 2 ) * texelSize;
-			}
-		}
-	}
-
-	else {
-		// compute the size of the first mip
-		size += width * height * texelSize;
-
-		if( image->mipmap ) {
-			// compute the sizes of the remaining mips
-			while( width > 1 || height > 1 ) {
-				width >>= 1;
-				height >>= 1;
-				if( width < 1 )
-					width = 1;
-				if( height < 1 )
-					height = 1;
-				size += width * height * texelSize;
-			}
-		}
-	}
-
-	return size;
 }
 
 
@@ -826,43 +728,14 @@ VK_UploadImage
 */
 void VK_UploadImage( image_t *image, const byte *pic, int width, int height, int mip ) {
 	int i, c;
+	int requiredBufferSize = VK_GetRequiredImageUploadBufferSize( image->internalFormat, width, height );
+	uploadBuffer_t *uploadBuffer = VK_GetUploadBuffer( requiredBufferSize );
 
-	// allocate a temporary upload buffer for this image
-	if( !image->uploadBuffer.buf ) {
-		VkBufferCreateInfo bufferCreateInfo = {};
-		bufferCreateInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
-		bufferCreateInfo.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
-		bufferCreateInfo.size = VK_GetRequiredImageUploadBufferSize( image );
-
-		VmaAllocationCreateInfo allocationCreateInfo = {};
-		allocationCreateInfo.usage = VMA_MEMORY_USAGE_AUTO;
-		allocationCreateInfo.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT;
-		allocationCreateInfo.requiredFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT;
-
-		VkResult res = vmaCreateBuffer(
-			vkState.allocator,
-			&bufferCreateInfo,
-			&allocationCreateInfo,
-			&image->uploadBuffer.buf,
-			&image->uploadBuffer.allocation,
-			&image->uploadBuffer.allocationInfo );
-
-		if( res != VK_SUCCESS ) {
-			Com_Error( ERR_FATAL, "VK_UploadImage: Failed to allocate upload buffer for image %s, size = %llu (%d)\n",
-				image->imgName, bufferCreateInfo.size, res );
-		}
-
-		image->uploadBuffer.size = (int)bufferCreateInfo.size;
-	}
-
-	// compute the offset to the upload buffer
-	int uploadOffset = 0;
-	if( image->mipmap && mip > 0 ) {
-		uploadOffset = VK_GetImageUploadBufferOffsetForMip( image, mip );
-	}
+	assert( uploadBuffer );
+	assert( (uploadBuffer->buffer->size - uploadBuffer->offset) >= requiredBufferSize );
 
 	// copy or resample data as appropriate for first MIP level
-	VK_ConvertImage( ( (byte *)image->uploadBuffer.allocationInfo.pMappedData ) + uploadOffset,
+	VK_ConvertImage( ( (byte *)uploadBuffer->buffer->allocationInfo.pMappedData ) + uploadBuffer->offset,
 		pic, width, height, image->internalFormat );
 
 	//R_LightScaleTexture( (unsigned int *)pic, width, height, (qboolean)!mipmap );
@@ -875,14 +748,16 @@ void VK_UploadImage( image_t *image, const byte *pic, int width, int height, int
 	uploadRegion.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
 	uploadRegion.imageSubresource.mipLevel = mip;
 	uploadRegion.imageSubresource.layerCount = 1;
-	uploadRegion.bufferOffset = uploadOffset;
+	uploadRegion.bufferOffset		 = uploadBuffer->offset;
 
 	VK_SetImageLayout( image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_ACCESS_TRANSFER_WRITE_BIT );
-	vkCmdCopyBufferToImage( vkContext.cmdbuffer,
-		image->uploadBuffer.buf,
+	vkCmdCopyBufferToImage( vkCtx.cmdbuffer,
+		uploadBuffer->buffer->buf,
 		image->tex,
 		VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
 		1, &uploadRegion );
+
+	uploadBuffer->offset += requiredBufferSize;
 }
 
 class CStringComparator {
@@ -915,10 +790,7 @@ image_t *R_Images_GetNextIteration( void ) {
 static void R_Images_DeleteImageContents( image_t *pImage ) {
 	assert( pImage ); // should never be called with NULL
 	if( pImage ) {
-		if( pImage->uploadBuffer.buf )
-			vmaDestroyBuffer( vkState.allocator, pImage->uploadBuffer.buf, pImage->uploadBuffer.allocation );
-		if( pImage->texview )
-			vkDestroyImageView( vkState.device, pImage->texview, nullptr );
+		vkDestroyImageView( vkState.device, pImage->texview, NULL );
 		vmaDestroyImage( vkState.allocator, pImage->tex, pImage->allocation );
 		R_Free( pImage );
 	}
@@ -1031,7 +903,7 @@ qboolean RE_RegisterImages_LevelLoadEnd( void ) {
 //
 // This is called by both R_FindImageFile and anything that creates default images...
 //
-static image_t *R_FindImageFile_NoLoad( const char *name, qboolean mipmap, qboolean allowPicmip, qboolean allowTC, int glWrapClampMode ) {
+static image_t *R_FindImageFile_NoLoad( const char *name, qboolean mipmap, qboolean allowPicmip, qboolean allowTC, VkSamplerAddressMode wrapClampMode ) {
 	if( !name ) {
 		return NULL;
 	}
@@ -1054,8 +926,8 @@ static image_t *R_FindImageFile_NoLoad( const char *name, qboolean mipmap, qbool
 			if( pImage->allowPicmip != !!allowPicmip ) {
 				ri.Printf( PRINT_WARNING, "WARNING: reused image %s with mixed allowPicmip parm\n", pName );
 			}
-			if( pImage->wrapClampMode != glWrapClampMode ) {
-				ri.Printf( PRINT_WARNING, "WARNING: reused image %s with mixed glWrapClampMode parm\n", pName );
+			if( pImage->wrapClampMode != wrapClampMode ) {
+				ri.Printf( PRINT_WARNING, "WARNING: reused image %s with mixed wrapClampMode parm\n", pName );
 			}
 		}
 
@@ -1068,6 +940,92 @@ static image_t *R_FindImageFile_NoLoad( const char *name, qboolean mipmap, qbool
 }
 
 
+// initializes the image object
+static void VK_InitImage(image_t *image, const char* name, int width, int height, VkFormat internalFormat, qboolean mipmap, qboolean allowPicmip,
+	VkSamplerAddressMode wrapClampMode, VkImageUsageFlags usage) {
+	VkResult res;
+
+	// record which map it was used on...
+	//
+	image->iLastLevelUsedOn = RE_RegisterMedia_GetLevel();
+
+	image->mipmap = !!mipmap;
+	image->allowPicmip = !!allowPicmip;
+
+	Q_strncpyz(image->imgName, name, sizeof(image->imgName));
+
+	image->width = width;
+	image->height = height;
+	image->internalFormat = internalFormat;
+	image->wrapClampMode = wrapClampMode;
+
+	// create the Vulkan resource
+	VkImageCreateInfo imageCreateInfo = {};
+	imageCreateInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
+	imageCreateInfo.imageType = VK_IMAGE_TYPE_2D;
+	imageCreateInfo.extent.width = width;
+	imageCreateInfo.extent.height = height;
+	imageCreateInfo.extent.depth = 1;
+	imageCreateInfo.arrayLayers = 1;
+	imageCreateInfo.mipLevels = 1;
+	imageCreateInfo.format = image->internalFormat;
+	imageCreateInfo.samples = VK_SAMPLE_COUNT_1_BIT;
+	imageCreateInfo.usage = usage;
+
+	if (mipmap) {
+		int mipwidth = width;
+		int mipheight = height;
+
+		// compute number of mipmaps to generate
+		while (mipwidth > 1 || mipheight > 1) {
+			imageCreateInfo.mipLevels++;
+
+			mipwidth >>= 1;
+			mipheight >>= 1;
+			if (mipwidth < 1)
+				mipwidth = 1;
+			if (mipheight < 1)
+				mipheight = 1;
+		}
+	}
+
+	VmaAllocationCreateInfo allocationCreateInfo = {};
+	allocationCreateInfo.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
+
+	res = vmaCreateImage(vkState.allocator, &imageCreateInfo, &allocationCreateInfo, &image->tex, &image->allocation, NULL);
+	if (res != VK_SUCCESS) {
+		Com_Error(ERR_FATAL, "VK_InitImage: failed to create VkImage object (%d)\n", res);
+	}
+
+	// create an image view
+	VkImageViewCreateInfo imageViewCreateInfo = {};
+	imageViewCreateInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+	imageViewCreateInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+	imageViewCreateInfo.image = image->tex;
+	imageViewCreateInfo.format = image->internalFormat;
+	imageViewCreateInfo.subresourceRange.levelCount = VK_REMAINING_MIP_LEVELS;
+	imageViewCreateInfo.subresourceRange.layerCount = 1;
+
+	// set the aspect flags based on the format of the image
+	if (VK_IsDepthStencil(image->internalFormat)) {
+		if (VK_IsStencilOnly(image->internalFormat))
+			imageViewCreateInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_STENCIL_BIT;
+		else if (VK_IsDepthOnly(image->internalFormat))
+			imageViewCreateInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+		else
+			imageViewCreateInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT;
+	}
+	else {
+		imageViewCreateInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+	}
+
+	res = vkCreateImageView(vkState.device, &imageViewCreateInfo, NULL, &image->texview);
+	if (res != VK_SUCCESS) {
+		Com_Error(ERR_FATAL, "VK_InitImage: failed to create VkImageView object (%d)\n", res);
+	}
+}
+
+
 /*
 ================
 R_CreateImage
@@ -1077,8 +1035,10 @@ This is the only way any image_t are created
 */
 image_t *R_CreateImage( const char *name, const byte *pic, int width, int height,
 	VkFormat format, qboolean mipmap, qboolean allowPicmip, qboolean allowTC, VkSamplerAddressMode wrapClampMode ) {
+	VkResult res;
 	image_t *image;
 	qboolean isLightmap = qfalse;
+	VkFormat internalFormat;
 
 	if( strlen( name ) >= MAX_QPATH ) {
 		Com_Error( ERR_DROP, "R_CreateImage: \"%s\" is too long\n", name );
@@ -1100,68 +1060,13 @@ image_t *R_CreateImage( const char *name, const byte *pic, int width, int height
 	image = (image_t *)R_Malloc( sizeof( image_t ), TAG_IMAGE_T, qtrue );
 
 	// Resize the image if needed
-	VKimp_AdjustTextureSize( (byte *)pic, &width, &height, allowPicmip );
+	VK_AdjustTextureSize( (byte *)pic, &width, &height, allowPicmip );
 
 	// image->imgfileSize=fileSize;
 
-	// record which map it was used on...
-	//
-	image->iLastLevelUsedOn = RE_RegisterMedia_GetLevel();
-
-	image->mipmap = !!mipmap;
-	image->allowPicmip = !!allowPicmip;
-
-	Q_strncpyz( image->imgName, name, sizeof( image->imgName ) );
-
-	image->width = width;
-	image->height = height;
-	image->internalFormat = VK_GetInternalFormat( pic, width, height, isLightmap, allowTC );
-	image->wrapClampMode = wrapClampMode;
-
-	// create the Vulkan resource
-	VkImageCreateInfo imageCreateInfo = {};
-	imageCreateInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
-	imageCreateInfo.imageType = VK_IMAGE_TYPE_2D;
-	imageCreateInfo.extent.width = width;
-	imageCreateInfo.extent.height = height;
-	imageCreateInfo.extent.depth = 1;
-	imageCreateInfo.arrayLayers = 1;
-	imageCreateInfo.mipLevels = 1;
-	imageCreateInfo.format = image->internalFormat;
-	imageCreateInfo.samples = VK_SAMPLE_COUNT_1_BIT;
-	imageCreateInfo.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
-
-	if( mipmap ) {
-		int mipwidth = width;
-		int mipheight = height;
-
-		// compute number of mipmaps to generate
-		while( mipwidth > 1 || mipheight > 1 ) {
-			imageCreateInfo.mipLevels++;
-
-			mipwidth >>= 1;
-			mipheight >>= 1;
-			if( mipwidth < 1 )
-				mipwidth = 1;
-			if( mipheight < 1 )
-				mipheight = 1;
-		}
-	}
-
-	VmaAllocationCreateInfo allocationCreateInfo = {};
-	allocationCreateInfo.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
-
-	VkResult res = vmaCreateImage(
-		vkState.allocator,
-		&imageCreateInfo,
-		&allocationCreateInfo,
-		&image->tex,
-		&image->allocation,
-		NULL );
-
-	if( res != VK_SUCCESS ) {
-		Com_Error( ERR_FATAL, "R_CreateImage: Failed to create VkImage object (%d)\n", res );
-	}
+	internalFormat = VK_GetInternalFormat(pic, width, height, isLightmap, allowTC);
+	VK_InitImage(image, name, width, height, internalFormat, mipmap, allowPicmip, wrapClampMode,
+		VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT);
 
 	// upload the first mip
 	VK_UploadImage( image, pic, width, height, 0 );
@@ -1169,9 +1074,11 @@ image_t *R_CreateImage( const char *name, const byte *pic, int width, int height
 	if( mipmap ) {
 		int mipwidth = width;
 		int mipheight = height;
+		int miplevel = 0;
 
 		// generate and upload the remaining mips
-		for( int miplevel = 1; miplevel < imageCreateInfo.mipLevels; ++miplevel ) {
+		while( mipwidth > 1 || mipheight > 1 ) {
+			miplevel++;
 
 			R_MipMap( (byte *)pic, mipwidth, mipheight );
 
@@ -1189,6 +1096,30 @@ image_t *R_CreateImage( const char *name, const byte *pic, int width, int height
 			VK_UploadImage( image, pic, mipwidth, mipheight, miplevel );
 		}
 	}
+
+	return image;
+}
+
+image_t* R_CreateTransientImage( const char* name, int width, int height, VkFormat format, VkSamplerAddressMode wrapClampMode ) {
+	VkResult res;
+	image_t *image;
+
+	VkImageUsageFlags usage;
+
+	if (strlen(name) >= MAX_QPATH) {
+		Com_Error(ERR_DROP, "R_CreateImage: \"%s\" is too long\n", name);
+	}
+
+	image = (image_t*)R_Malloc(sizeof(image_t), TAG_IMAGE_T, qtrue);
+
+	// set the usage flags based on the format of the image
+	usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+	if (VK_IsDepthStencil( image->internalFormat ))
+		usage |= VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+	else
+		usage |= VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+
+	VK_InitImage(image, name, width, height, format, qfalse, qfalse, wrapClampMode, usage);
 
 	return image;
 }
@@ -1370,6 +1301,7 @@ static void R_CreateFogImage( void ) {
 	byte *data;
 	float d;
 	float borderColor[4];
+	VkResult res;
 
 	data = (byte *)R_Malloc( FOG_S * FOG_T * 4, TAG_TEMP_WORKSPACE, qfalse );
 
@@ -1384,18 +1316,9 @@ static void R_CreateFogImage( void ) {
 			data[( y * FOG_S + x ) * 4 + 3] = 255 * d;
 		}
 	}
-	// standard openGL clamping doesn't really do what we want -- it includes
-	// the border color at the edges.  OpenGL 1.2 has clamp-to-edge, which does
-	// what we want.
+
 	tr.fogImage = R_CreateImage( "*fog", (byte *)data, FOG_S, FOG_T, VK_FORMAT_R8G8B8A8_UNORM, qfalse, qfalse, qfalse, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE );
 	R_Free( data );
-
-	borderColor[0] = 1.0;
-	borderColor[1] = 1.0;
-	borderColor[2] = 1.0;
-	borderColor[3] = 1;
-
-	qglTexParameterfv( GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR, borderColor );
 }
 
 /*
@@ -1453,26 +1376,11 @@ void R_CreateBuiltinImages( void ) {
 	tr.whiteImage = R_CreateImage( "*white", (byte *)data, 8, 8, VK_FORMAT_R8G8B8A8_UNORM, qfalse, qfalse, qtrue, VK_SAMPLER_ADDRESS_MODE_REPEAT );
 	tr.screenImage = R_CreateImage( "*screen", (byte *)data, 8, 8, VK_FORMAT_R8G8B8A8_UNORM, qfalse, qfalse, qfalse, VK_SAMPLER_ADDRESS_MODE_REPEAT );
 
-
 	// Create the scene glow image. - AReis
-	tr.screenGlow = 1024 + giTextureBindNum++;
-	qglDisable( GL_TEXTURE_2D );
-	qglEnable( GL_TEXTURE_RECTANGLE_ARB );
-	qglBindTexture( GL_TEXTURE_RECTANGLE_ARB, tr.screenGlow );
-	qglTexImage2D( GL_TEXTURE_RECTANGLE_ARB, 0, GL_RGBA16, glConfig.vidWidth, glConfig.vidHeight, 0, GL_RGB, GL_FLOAT, 0 );
-	qglTexParameteri( GL_TEXTURE_RECTANGLE_ARB, GL_TEXTURE_MIN_FILTER, GL_LINEAR );
-	qglTexParameteri( GL_TEXTURE_RECTANGLE_ARB, GL_TEXTURE_MAG_FILTER, GL_LINEAR );
-	qglTexParameteri( GL_TEXTURE_RECTANGLE_ARB, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE );
-	qglTexParameteri( GL_TEXTURE_RECTANGLE_ARB, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE );
+	tr.glowImage = R_CreateTransientImage( "*screenGlow", glConfig.vidWidth, glConfig.vidHeight, VK_FORMAT_R16G16B16A16_SFLOAT, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE);
 
 	// Create the scene image. - AReis
-	tr.sceneImage = 1024 + giTextureBindNum++;
-	qglBindTexture( GL_TEXTURE_RECTANGLE_ARB, tr.sceneImage );
-	qglTexImage2D( GL_TEXTURE_RECTANGLE_ARB, 0, GL_RGBA16, glConfig.vidWidth, glConfig.vidHeight, 0, GL_RGB, GL_FLOAT, 0 );
-	qglTexParameteri( GL_TEXTURE_RECTANGLE_ARB, GL_TEXTURE_MIN_FILTER, GL_LINEAR );
-	qglTexParameteri( GL_TEXTURE_RECTANGLE_ARB, GL_TEXTURE_MAG_FILTER, GL_LINEAR );
-	qglTexParameteri( GL_TEXTURE_RECTANGLE_ARB, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE );
-	qglTexParameteri( GL_TEXTURE_RECTANGLE_ARB, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE );
+	tr.sceneImage = R_CreateTransientImage( "*sceneImage", glConfig.vidWidth, glConfig.vidHeight, VK_FORMAT_R16G16B16A16_SFLOAT, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE);
 
 	// Create the minimized scene blur image.
 	if( r_DynamicGlowWidth->integer > glConfig.vidWidth ) {
@@ -1481,16 +1389,7 @@ void R_CreateBuiltinImages( void ) {
 	if( r_DynamicGlowHeight->integer > glConfig.vidHeight ) {
 		r_DynamicGlowHeight->integer = glConfig.vidHeight;
 	}
-	tr.blurImage = 1024 + giTextureBindNum++;
-	qglBindTexture( GL_TEXTURE_RECTANGLE_ARB, tr.blurImage );
-	qglTexImage2D( GL_TEXTURE_RECTANGLE_ARB, 0, GL_RGBA16, r_DynamicGlowWidth->integer, r_DynamicGlowHeight->integer, 0, GL_RGB, GL_FLOAT, 0 );
-	qglTexParameteri( GL_TEXTURE_RECTANGLE_ARB, GL_TEXTURE_MIN_FILTER, GL_LINEAR );
-	qglTexParameteri( GL_TEXTURE_RECTANGLE_ARB, GL_TEXTURE_MAG_FILTER, GL_LINEAR );
-	qglTexParameteri( GL_TEXTURE_RECTANGLE_ARB, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE );
-	qglTexParameteri( GL_TEXTURE_RECTANGLE_ARB, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE );
-	qglDisable( GL_TEXTURE_RECTANGLE_ARB );
-	qglEnable( GL_TEXTURE_2D );
-
+	tr.glowBlurImage = R_CreateTransientImage( "*blurImage", r_DynamicGlowWidth->integer, r_DynamicGlowHeight->integer, VK_FORMAT_R16G16B16A16_SFLOAT, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE);
 
 	// with overbright bits active, we need an image which is some fraction of full color,
 	// for default lightmaps, etc
@@ -1502,7 +1401,6 @@ void R_CreateBuiltinImages( void ) {
 			data[y][x][3] = 255;
 		}
 	}
-
 
 	tr.identityLightImage = R_CreateImage( "*identityLight", (byte *)data, 8, 8, VK_FORMAT_R8G8B8A8_UNORM, qfalse, qfalse, qtrue, VK_SAMPLER_ADDRESS_MODE_REPEAT );
 

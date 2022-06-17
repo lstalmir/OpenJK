@@ -2780,7 +2780,7 @@ void RB_SurfaceGhoul( CRenderableSurface *surf )
 	mdxmVertex_t 	*v;
 	int				*triangles;
 	int				indexes;
-	glIndex_t		*tessIndexes;
+	uint32_t		*tessIndexes;
 	mdxmVertexTexCoord_t *pTexCoords;
 	int				*piBoneReferences;
 

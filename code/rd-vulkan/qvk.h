@@ -5,15 +5,14 @@
 #	error
 #elif defined( _WIN32 )
 #	define VK_USE_PLATFORM_WIN32_KHR
-#	include <vulkan/vulkan.h>
+#	define SURFACE_EXTENSION_NAME VK_KHR_WIN32_SURFACE_EXTENSION_NAME
 #elif defined( MACOS_X )
 #	error
-#elif defined( __linux__ )
-#	error
-#elif defined( __FreeBSD__ ) || defined( __OpenBSD__ ) // rb010123
-#	error
-#else
-#	include <gl.h>
+#elif defined( __linux__ ) || defined( __FreeBSD__ ) || defined( __OpenBSD__ )
+#	define VK_USE_PLATFORM_XLIB_KHR
+#	define SURFACE_EXTENSION_NAME VK_KHR_XLIB_SURFACE_EXTENSION_NAME
 #endif
+
+#include <vulkan/vulkan.h>
 
 #include "VulkanMemoryAllocator/vk_mem_alloc.h"

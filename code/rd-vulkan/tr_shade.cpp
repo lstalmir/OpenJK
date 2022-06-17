@@ -69,9 +69,9 @@ R_DrawStripElements
 */
 static int		c_vertexes;		// for seeing how long our average strips are
 static int		c_begins;
-static void R_DrawStripElements( int numIndexes, const glIndex_t *indexes, void ( APIENTRY *element )(GLint) ) {
+static void R_DrawStripElements( int numIndexes, const uint32_t *indexes, void ( APIENTRY *element )(GLint) ) {
 	int i;
-	glIndex_t last[3];
+	uint32_t last[3];
 	qboolean even;
 
 	qglBegin( GL_TRIANGLE_STRIP );
@@ -170,7 +170,7 @@ instead of using the single glDrawElements call that may be inefficient
 without compiled vertex arrays.
 ==================
 */
-static void R_DrawElements( int numIndexes, const glIndex_t *indexes ) {
+static void R_DrawElements( int numIndexes, const uint32_t *indexes ) {
 	int		primitives;
 
 	primitives = r_primitives->integer;
@@ -665,7 +665,7 @@ static void ProjectDlightTexture2( void ) {
 	float	oldTexCoordsArray[SHADER_MAX_VERTEXES][2];
 	float	vertCoordsArray[SHADER_MAX_VERTEXES][4];
 	unsigned int		colorArray[SHADER_MAX_VERTEXES];
-	glIndex_t	hitIndexes[SHADER_MAX_INDEXES];
+	uint32_t	hitIndexes[SHADER_MAX_INDEXES];
 	int		numIndexes;
 	float	radius;
 #ifndef JK2_MODE
@@ -993,7 +993,7 @@ static void ProjectDlightTexture( void ) {
 	byte	clipBits[SHADER_MAX_VERTEXES];
 	float	texCoordsArray[SHADER_MAX_VERTEXES][2];
 	byte	colorArray[SHADER_MAX_VERTEXES][4];
-	glIndex_t	hitIndexes[SHADER_MAX_INDEXES];
+	uint32_t	hitIndexes[SHADER_MAX_INDEXES];
 	int		numIndexes;
 	float	scale;
 	float	radius;
