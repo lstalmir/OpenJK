@@ -1234,7 +1234,7 @@ void R_LoadEntities( lump_t *l, world_t &worldData ) {
 	w->lightGridSize[1] = 64;
 	w->lightGridSize[2] = 128;
 
-	VectorSet(tr.sunAmbient, 1, 1, 1);
+	VectorSet( tr.sunParms.sunAmbient, 1, 1, 1 );
 	tr.distanceCull = 12000;//DEFAULT_DISTANCE_CULL;
 
 	p = (char *)(fileBase + l->fileofs);
@@ -1306,7 +1306,7 @@ void R_LoadEntities( lump_t *l, world_t &worldData ) {
 		}
 	// find the optional world ambient for arioche
 		if (!Q_stricmp(keyname, "_color")) {
-			sscanf(value, "%f %f %f", &tr.sunAmbient[0], &tr.sunAmbient[1], &tr.sunAmbient[2] );
+			sscanf( value, "%f %f %f", &tr.sunParms.sunAmbient[0], &tr.sunParms.sunAmbient[1], &tr.sunParms.sunAmbient[2] );
 			continue;
 		}
 		if (!Q_stricmp(keyname, "ambient")) {
@@ -1315,7 +1315,7 @@ void R_LoadEntities( lump_t *l, world_t &worldData ) {
 		}
 	}
 	//both default to 1 so no harm if not present.
-	VectorScale( tr.sunAmbient, ambient, tr.sunAmbient);
+	VectorScale( tr.sunParms.sunAmbient, ambient, tr.sunParms.sunAmbient );
 
 	COM_EndParseSession();
 }
@@ -1343,11 +1343,11 @@ void RE_LoadWorldMap_Actual( const char *name, world_t &worldData, int index ) {
 	{
 		skyboxportal = 0;
 
-		tr.sunDirection[0] = 0.45f;
-		tr.sunDirection[1] = 0.3f;
-		tr.sunDirection[2] = 0.9f;
+		tr.sunParms.sunDirection[0] = 0.45f;
+		tr.sunParms.sunDirection[1] = 0.3f;
+		tr.sunParms.sunDirection[2] = 0.9f;
 
-		VectorNormalize( tr.sunDirection );
+		VectorNormalize( tr.sunParms.sunDirection );
 
 		tr.worldMapLoaded = qtrue;
 

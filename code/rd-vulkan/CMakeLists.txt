@@ -51,30 +51,30 @@ if(BuildSPRdVulkan OR BuildJK2SPRdVulkan)
 	source_group("ghoul2" FILES ${SPRDVulkanG2Files})
 	set(SPRDVulkanFiles ${SPRDVulkanFiles} ${SPRDVulkanG2Files})
 
-    # Transparently use either bundled or system jpeg.
-    list(APPEND SPRDVulkanRendererIncludeDirectories ${JPEG_INCLUDE_DIR})
-    list(APPEND SPRDVulkanRendererLibraries          ${JPEG_LIBRARIES})
+	# Transparently use either bundled or system jpeg.
+	list(APPEND SPRDVulkanRendererIncludeDirectories ${JPEG_INCLUDE_DIR})
+	list(APPEND SPRDVulkanRendererLibraries          ${JPEG_LIBRARIES})
 
-    # Transparently use either bundled or system libpng.  Order is important --
-    # libpng used zlib, so it must come before it on the linker command line.
-    list(APPEND SPRDVulkanRendererIncludeDirectories ${PNG_INCLUDE_DIRS})
-    list(APPEND SPRDVulkanRendererLibraries          ${PNG_LIBRARIES})
+	# Transparently use either bundled or system libpng.  Order is important --
+	# libpng used zlib, so it must come before it on the linker command line.
+	list(APPEND SPRDVulkanRendererIncludeDirectories ${PNG_INCLUDE_DIRS})
+	list(APPEND SPRDVulkanRendererLibraries          ${PNG_LIBRARIES})
 
-    # Transparently use either bundled or system zlib.
-    list(APPEND SPRDVulkanRendererIncludeDirectories ${ZLIB_INCLUDE_DIR})
-    list(APPEND SPRDVulkanRendererLibraries          ${ZLIB_LIBRARIES})
+	# Transparently use either bundled or system zlib.
+	list(APPEND SPRDVulkanRendererIncludeDirectories ${ZLIB_INCLUDE_DIR})
+	list(APPEND SPRDVulkanRendererLibraries          ${ZLIB_LIBRARIES})
 
-    # Transparently use our bundled minizip.
-    list(APPEND SPRDVulkanRendererIncludeDirectories ${MINIZIP_INCLUDE_DIRS})
-    list(APPEND SPRDVulkanRendererLibraries          ${MINIZIP_LIBRARIES})
+	# Transparently use our bundled minizip.
+	list(APPEND SPRDVulkanRendererIncludeDirectories ${MINIZIP_INCLUDE_DIRS})
+	list(APPEND SPRDVulkanRendererLibraries          ${MINIZIP_LIBRARIES})
 
-    # Transparently use our bundled compressonator.
+	# Transparently use our bundled compressonator.
 	list(APPEND SPRDVulkanRendererIncludeDirectories ${compressonator_INCLUDE_DIRS})
 	list(APPEND SPRDVulkanRendererLibraries          ${compressonator_LIBRARIES})
 
-    # Transparantly make use of all renderer directories
-    list(APPEND SPRDVulkanRendererIncludeDirectories "${SPDir}/rd-common")
-    list(APPEND SPRDVulkanRendererIncludeDirectories "${SPDir}/rd-vulkan")
+	# Transparantly make use of all renderer directories
+	list(APPEND SPRDVulkanRendererIncludeDirectories "${SPDir}/rd-common")
+	list(APPEND SPRDVulkanRendererIncludeDirectories "${SPDir}/rd-vulkan")
 
 	# Misc files
 	set(SPRDVulkanCommonFiles
@@ -97,6 +97,20 @@ if(BuildSPRdVulkan OR BuildJK2SPRdVulkan)
 		)
 	source_group("common/safe" FILES ${SPRDVulkanCommonSafeFiles})
 	set(SPRDVulkanFiles ${SPRDVulkanFiles} ${SPRDVulkanCommonSafeFiles})
+
+	# shader files
+	set(SPRDVulkanShaderFiles
+		"${SPDir}/rd-vulkan/shaders/tr_common.hlsl"
+		"${SPDir}/rd-vulkan/shaders/tr_blur.hlsl"
+		)
+	source_group("shaders" FILES ${SPRDVulkanShaderFiles})
+	set_source_files_properties(${SPRDVulkanShaderFiles} PROPERTIES HEADER_FILE_ONLY TRUE)
+	set(SPRDVulkanFiles ${SPRDVulkanFiles} ${SPRDVulkanShaderFiles})
+
+	set(SPRDVulkanShadersOutputDirectory "${CMAKE_BINARY_DIR}/code/rd-vulkan/shaders")
+	set(SPRDVulkanRendererIncludeDirectories ${SPRDVulkanRendererIncludeDirectories} ${SPRDVulkanShadersOutputDirectory})
+
+	file(MAKE_DIRECTORY ${SPRDVulkanShadersOutputDirectory})
 
 	# main files
 	set(SPRDVulkanMainFiles
@@ -157,6 +171,9 @@ if(BuildSPRdVulkan OR BuildJK2SPRdVulkan)
 	list(APPEND SPRDVulkanRendererIncludeDirectories ${Vulkan_INCLUDE_DIR})
 	list(APPEND SPRDVulkanRendererLibraries          ${Vulkan_LIBRARIES})
 
+	# TODO: prefer dxc, which has better support for HLSL
+	find_program(GLSLANG_VALIDATOR NAMES glslangValidator REQUIRED)
+
 	set(SPRDVulkanRendererIncludeDirectories ${SPRDVulkanRendererIncludeDirectories} ${OpenJKLibDir})
 
 	function(add_sp_renderer_project ProjectName Label EngineName InstallDir Component)
@@ -166,16 +183,16 @@ if(BuildSPRdVulkan OR BuildJK2SPRdVulkan)
 			set_target_properties(${ProjectName} PROPERTIES PREFIX "")
 		endif()
 
-        if(CMAKE_SIZEOF_VOID_P EQUAL 4)
-            set(SPRdVulkanExtraInstallFiles
-                ${OpenJKLibDir}/compressonator/bin/x86/CMP_Core.dll
-                )
-        else()
-            set(SPRdVulkanExtraInstallFiles
-                ${OpenJKLibDir}/compressonator/bin/x64/CMP_Core.dll
-                )
-        endif()
-            
+		if(CMAKE_SIZEOF_VOID_P EQUAL 4)
+			set(SPRdVulkanExtraInstallFiles
+				${OpenJKLibDir}/compressonator/bin/x86/CMP_Core.dll
+				)
+		else()
+			set(SPRdVulkanExtraInstallFiles
+				${OpenJKLibDir}/compressonator/bin/x64/CMP_Core.dll
+				)
+		endif()
+
 		if(WIN32)
 			install(TARGETS ${ProjectName}
 				RUNTIME
@@ -194,10 +211,10 @@ if(BuildSPRdVulkan OR BuildJK2SPRdVulkan)
 					COMPONENT ${Component})
 			endif()
 		endif()
-        
-        install(FILES ${SPRdVulkanExtraInstallFiles}
-            DESTINATION ${InstallDir}
-            COMPONENT ${Component})
+
+		install(FILES ${SPRdVulkanExtraInstallFiles}
+			DESTINATION ${InstallDir}
+			COMPONENT ${Component})
 
 		set_target_properties(${ProjectName} PROPERTIES COMPILE_DEFINITIONS "${SPRDVulkanDefines}")
 
@@ -208,6 +225,18 @@ if(BuildSPRdVulkan OR BuildJK2SPRdVulkan)
 		set_target_properties(${ProjectName} PROPERTIES PROJECT_LABEL ${Label})
 
 		target_link_libraries(${ProjectName} ${SPRDVulkanRendererLibraries})
+
+		target_compile_features(${ProjectName} PRIVATE cxx_std_17)
+
+		# Compile shaders as a pre-build step
+		add_custom_command(TARGET ${ProjectName} PRE_BUILD
+			COMMAND ${GLSLANG_VALIDATOR} -V -D -S vert -e VS_Main -DBLUR_COMBINE_PASS --invert-y --target-env vulkan1.1
+				-o "${SPRDVulkanShadersOutputDirectory}/tr_blur_combine_vert.h" --vn g_spvGlowVShader
+				"${SPDir}/rd-vulkan/shaders/tr_blur.hlsl"
+			COMMAND ${GLSLANG_VALIDATOR} -V -D -S frag -e PS_Main -DBLUR_COMBINE_PASS --invert-y --target-env vulkan1.1
+				-o "${SPRDVulkanShadersOutputDirectory}/tr_blur_combine_frag.h" --vn g_spvGlowPShader
+				"${SPDir}/rd-vulkan/shaders/tr_blur.hlsl"
+			)
 	endfunction(add_sp_renderer_project)
 
 	if(BuildSPRdVulkan)

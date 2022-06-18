@@ -192,12 +192,7 @@ void VK_UploadBuffer( buffer_t *buffer, const byte *data, int size, int offset )
 	}
 }
 
-class CStringComparator {
-public:
-	bool operator()( const char *s1, const char *s2 ) const { return ( Q_stricmp( s1, s2 ) < 0 ); }
-};
-
-typedef std::set<buffer_t *, CStringComparator> AllocatedBuffers_t;
+typedef std::set<buffer_t *> AllocatedBuffers_t;
 AllocatedBuffers_t AllocatedBuffers;
 AllocatedBuffers_t::iterator itAllocatedBuffers;
 
@@ -317,15 +312,20 @@ buffer_t *R_CreateBuffer( int size, VkBufferUsageFlags usage, VkMemoryPropertyFl
 
 /*
 ==================
-R_CreateBuiltinImages
+R_CreateBuiltinBuffers
 ==================
 */
 void R_CreateBuiltinBuffers( void ) {
+	// allocate a buffer for the view parameters
+	tr.viewParmsBuffer = R_CreateBuffer( sizeof( viewParms_t ), VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, 0 );
+
+	// allocate a buffer for sun parameters
+	tr.sunParmsBuffer = R_CreateBuffer( sizeof( sunParms_t ), VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, 0 );
 }
 
 /*
 ===============
-R_InitImages
+R_InitBuffers
 ===============
 */
 void R_InitBuffers( void ) {
@@ -335,7 +335,7 @@ void R_InitBuffers( void ) {
 
 /*
 ===============
-R_DeleteTextures
+R_DeleteBuffers
 ===============
 */
 // (only gets called during vid_restart now (and app exit), not during map load)

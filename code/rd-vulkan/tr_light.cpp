@@ -146,7 +146,7 @@ static void R_SetupEntityLightingGrid( trRefEntity_t *ent ) {
 	{
 		ent->ambientLight[0] = ent->ambientLight[1] = ent->ambientLight[2] = 255.0;
 		ent->directedLight[0] = ent->directedLight[1] = ent->directedLight[2] = 255.0;
-		VectorCopy( tr.sunDirection, ent->lightDir );
+		VectorCopy( tr.sunParms.sunDirection, ent->lightDir );
 		return;
 	}
 
@@ -410,7 +410,7 @@ void R_SetupEntityLighting( const trRefdef_t *refdef, trRefEntity_t *ent ) {
 			ent->ambientLight[2] = tr.identityLight * 150;
 		ent->directedLight[0] = ent->directedLight[1] =
 			ent->directedLight[2] = tr.identityLight * 150;
-		VectorCopy( tr.sunDirection, ent->lightDir );
+		VectorCopy( tr.sunParms.sunDirection, ent->lightDir );
 	}
 
 	// bonus items and view weapons have a fixed minimum add
@@ -478,7 +478,7 @@ qboolean RE_GetLighting( const vec3_t origin, vec3_t ambientLight, vec3_t direct
 	if ( !tr.world || !tr.world->lightGridData) {
 		ambientLight[0] = ambientLight[1] = ambientLight[2] = 255.0;
 		directedLight[0] = directedLight[1] = directedLight[2] = 255.0;
-		VectorCopy( tr.sunDirection, lightDir );
+		VectorCopy( tr.sunParms.sunDirection, lightDir );
 		return qfalse;
 	}
 	memset (&tr_ent, 0, sizeof(tr_ent) );

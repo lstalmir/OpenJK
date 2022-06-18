@@ -88,7 +88,7 @@ typedef struct {
 	float		floatTime;			// tr.refdef.time / 1000.0
 
 	// text messages for deform text shaders
-//	char		text[MAX_RENDER_STRINGS][MAX_RENDER_STRING_LENGTH];
+	//	char		text[MAX_RENDER_STRINGS][MAX_RENDER_STRING_LENGTH];
 
 	int			num_entities;
 	trRefEntity_t	*entities;
@@ -117,7 +117,7 @@ typedef struct {
 
 typedef struct buffer_s {
 	int					size;
-	
+
 	VkBuffer			buf;
 
 	VmaAllocation		allocation;
@@ -131,7 +131,6 @@ typedef struct image_s {
 	char				imgName[MAX_QPATH];		// game path, including extension
 	int					frameUsed;				// for texture usage in frame statistics
 	word				width, height;			// source image
-//	int					imgfileSize;
 
 	VkImage				tex;
 	VkImageView			texview;
@@ -163,7 +162,7 @@ typedef enum {
 
 	SS_DECAL,			// scorch marks, etc.
 	SS_SEE_THROUGH,		// ladders, grates, grills that may have small blended edges
-						// in addition to alpha test
+			// in addition to alpha test
 	SS_BANNER,
 
 	SS_INSIDE,			// inside body parts (i.e. heart)
@@ -334,12 +333,12 @@ typedef struct {
 	float			translate[2];		// t' = s * m[0][1] + t * m[0][1] + trans[1]
 
 	// used for TMOD_SCALE
-//	float			scale[2];			// s *= scale[0]
-	                                    // t *= scale[1]
+	//	float			scale[2];			// s *= scale[0]
+	// t *= scale[1]
 
 	// used for TMOD_SCROLL
-//	float			scroll[2];			// s' = s + scroll[0] * time
-										// t' = t + scroll[1] * time
+	//	float			scroll[2];			// s' = s + scroll[0] * time
+	// t' = t + scroll[1] * time
 
 	// used for TMOD_ROTATE
 	// + = clockwise
@@ -439,8 +438,14 @@ typedef enum {
 } fogPass_t;
 
 typedef struct {
+	vec4_t		sunDirection;
+	vec4_t		sunAmbient;
+	vec4_t		sunLight;
+} sunParms_t;
+
+typedef struct {
 	float		cloudHeight;
-//	image_t		*outerbox[6], *innerbox[6];
+	//	image_t		*outerbox[6], *innerbox[6];
 	image_t		*outerbox[6];
 } skyParms_t;
 
@@ -460,14 +465,17 @@ typedef struct shader_s {
 
 	float		sort;					// lower numbered shaders draw before higher numbered
 
+	VkPipelineLayout layout; // layout of the pipeline inputs for this shader
+	VkPipeline pipeline;	 // precompiled pipeline state
+
 	int			surfaceFlags;			// if explicitlyDefined, this will have SURF_* flags
 	int			contentFlags;
 
 	bool		defaultShader;			// we want to return index 0 if the shader failed to
-										// load for some reason, but R_FindShader should
-										// still keep a name allocated for it, so if
-										// something calls RE_RegisterShader again with
-										// the same name, we don't try looking for it again
+				// load for some reason, but R_FindShader should
+				// still keep a name allocated for it, so if
+				// something calls RE_RegisterShader again with
+				// the same name, we don't try looking for it again
 	bool		explicitlyDefined;		// found in a .shader file
 	bool		entityMergable;			// merge across entites optimizable (smoke, blood)
 
@@ -497,7 +505,6 @@ typedef struct shader_s {
 	// True if this shader has a stage with glow in it (just an optimization).
 	bool hasGlow;
 
-//	struct shader_s		*remappedShader;                  // current shader this one is remapped too
 	struct	shader_s	*next;
 } shader_t;
 
@@ -505,7 +512,7 @@ typedef struct shader_s {
 /*
 Ghoul2 Insert Start
 */
- // bogus little registration system for hit and location based damage files in hunk memory
+// bogus little registration system for hit and location based damage files in hunk memory
 /*
 typedef struct
 {
@@ -586,13 +593,13 @@ typedef enum {
 	SF_TRIANGLES,
 	SF_POLY,
 	SF_MD3,
-/*
-Ghoul2 Insert Start
-*/
+	/*
+	Ghoul2 Insert Start
+	*/
 	SF_MDX,
-/*
-Ghoul2 Insert End
-*/
+	/*
+	Ghoul2 Insert End
+	*/
 
 	SF_FLARE,
 	SF_ENTITY,				// beams, rails, lightning, etc that can be determined by entity
@@ -678,7 +685,7 @@ typedef struct {
 	int			numIndices;
 	int			ofsIndices;
 	float		points[1][VERTEXSIZE];	// variable sized
-										// there is a variable length list of indices here also
+				     // there is a variable length list of indices here also
 } srfSurfaceFace_t;
 
 
@@ -691,8 +698,8 @@ typedef struct {
 
 	// culling information (FIXME: use this!)
 	vec3_t			bounds[2];
-//	vec3_t			localOrigin;
-//	float			radius;
+	//	vec3_t			localOrigin;
+	//	float			radius;
 
 	// triangle definitions
 	int				numIndexes;
@@ -816,14 +823,14 @@ typedef enum {
 	MOD_BAD,
 	MOD_BRUSH,
 	MOD_MESH,
-/*
-Ghoul2 Insert Start
-*/
-   	MOD_MDXM,
+	/*
+	Ghoul2 Insert Start
+	*/
+	MOD_MDXM,
 	MOD_MDXA
-/*
-Ghoul2 Insert End
-*/
+	/*
+	Ghoul2 Insert End
+	*/
 
 } modtype_t;
 
@@ -835,14 +842,14 @@ typedef struct model_s {
 	int			dataSize;			// just for listing purposes
 	bmodel_t	*bmodel;			// only if type == MOD_BRUSH
 	md3Header_t	*md3[MD3_MAX_LODS];	// only if type == MOD_MESH
-/*
-Ghoul2 Insert Start
-*/
+					/*
+					Ghoul2 Insert Start
+					*/
 	mdxmHeader_t *mdxm;				// only if type == MOD_GL2M which is a GHOUL II Mesh file NOT a GHOUL II animation file
 	mdxaHeader_t *mdxa;				// only if type == MOD_GL2A which is a GHOUL II Animation file
-/*
-Ghoul2 Insert End
-*/
+					/*
+					Ghoul2 Insert End
+					*/
 	unsigned char	numLods;
 	bool			bspInstance;			// model is a bsp instance
 } model_t;
@@ -853,7 +860,7 @@ Ghoul2 Insert End
 void		R_ModelInit (void);
 model_t		*R_GetModelByHandle( qhandle_t hModel );
 void		R_LerpTag( orientation_t *tag, qhandle_t handle, int startFrame, int endFrame,
-					 float frac, const char *tagName );
+		float frac, const char *tagName );
 void		R_ModelBounds( qhandle_t handle, vec3_t mins, vec3_t maxs );
 
 void		R_Modellist_f (void);
@@ -952,7 +959,7 @@ typedef struct {
 
 	VkCommandPool			cmdpool;
 	VkCommandBuffer			cmdbuffers[MAX_OUTIMAGES];
-	
+
 	VkFence					fences[MAX_OUTIMAGES];
 	VkSemaphore				semaphores[MAX_OUTIMAGES];
 
@@ -1026,7 +1033,7 @@ typedef struct {
 	int						frameCount;		// incremented every frame
 	int						sceneCount;		// incremented every scene
 	int						viewCount;		// incremented every view (twice a scene if portaled)
-											// and every R_MarkFragments call
+								// and every R_MarkFragments call
 
 	int						frameSceneNum;	// zeroed at RE_BeginFrame
 
@@ -1049,16 +1056,24 @@ typedef struct {
 	VkSampler				wrapModeSampler;
 	VkSampler				clampModeSampler;
 
+	VkSampler				pointClampSampler;
+	VkSampler				pointWrapSampler;
+	VkSampler				linearClampSampler;
+	VkSampler				linearWrapSampler;
+
+	VkDescriptorSetLayout	commonDescriptorSetLayout;
+	VkDescriptorSet			commonDescriptorSet;
+
 	VkRenderPass			postProcessPass;
 	image_t					*postProcessImage;
 	VkFramebuffer			postProcessFramebuffer;
-	
+
 	// A rectangular texture representing the normally rendered scene.
 	image_t					*sceneImage;
 	VkFramebuffer			sceneFramebuffer;
 
 	VkRenderPass			sceneRenderPass;
-	
+
 	// Handles to the Glow Effect resources.
 	VkPipeline				glowBlurPipeline;
 	VkPipelineLayout		glowBlurPipelineLayout;
@@ -1097,6 +1112,7 @@ typedef struct {
 	unsigned				shiftedEntityNum;	// currentEntityNum << QSORT_REFENTITYNUM_SHIFT (possible with high bit set for RF_ALPHA_FADE)
 	model_t					*currentModel;
 
+	buffer_t				*viewParmsBuffer;
 	viewParms_t				viewParms;
 
 	float					identityLight;		// 1.0 / ( 1 << overbrightBits )
@@ -1109,11 +1125,12 @@ typedef struct {
 
 	int						viewCluster;
 
-	vec3_t					sunLight;			// from the sky shader for this level
-	vec3_t					sunDirection;
+	buffer_t				*sunParmsBuffer;
+	sunParms_t				sunParms;
 	int						sunSurfaceLight;	// from the sky shader for this level
-	vec3_t					sunAmbient;			// from the sky shader	(only used for John's terrain system)
 
+
+	VkDescriptorSet			sunDescriptorSet;
 
 	frontEndCounters_t		pc;
 	int						frontEndMsec;		// not in pc due to clearing issue
@@ -1185,10 +1202,10 @@ extern cvar_t	*r_depthbits;			// number of desired depth bits
 extern cvar_t	*r_colorbits;			// number of desired color bits, only relevant for fullscreen
 extern cvar_t	*r_stereo;				// desired pixelformat stereo flag
 extern cvar_t	*r_texturebits;			// number of desired texture bits
-										// 0 = use framebuffer depth
-										// 16 = use 16-bit textures
-										// 32 = use 32-bit textures
-										// all else = error
+				// 0 = use framebuffer depth
+				// 16 = use 16-bit textures
+				// 32 = use 32-bit textures
+				// all else = error
 extern cvar_t	*r_texturebitslm;		// number of desired lightmap texture bits
 
 extern cvar_t	*r_measureOverdraw;		// enables stencil buffer overdraw measurement
@@ -1197,9 +1214,9 @@ extern cvar_t	*r_lodbias;				// push/pull LOD transitions
 extern cvar_t	*r_lodscale;
 
 extern cvar_t	*r_primitives;			// "0" = based on compiled vertex array existance
-										// "1" = glDrawElemet tristrips
-										// "2" = glDrawElements triangles
-										// "-1" = no drawing
+			     // "1" = glDrawElemet tristrips
+			     // "2" = glDrawElements triangles
+			     // "-1" = no drawing
 
 extern cvar_t	*r_fastsky;				// controls whether sky should be cleared or drawn
 extern cvar_t	*r_drawSun;				// controls drawing of sun quad
@@ -1328,7 +1345,7 @@ void R_AddLightningBoltSurfaces( trRefEntity_t *e );
 void R_AddPolygonSurfaces( void );
 
 void R_DecomposeSort( unsigned sort, int *entityNum, shader_t **shader,
-					 int *fogNum, int *dlightMap );
+		      int *fogNum, int *dlightMap );
 
 void R_AddDrawSurf( const surfaceType_t *surface, const shader_t *shader, int fogIndex, int dlightMap );
 
@@ -1348,13 +1365,20 @@ void R_RotateForEntity( const trRefEntity_t *ent, const viewParms_t *viewParms, 
 /*
 ** Vulkan wrapper/helper functions
 */
-void VK_TextureMode( const char* string );
+PFN_vkVoidFunction VK_GetProcAddress( const char *name, qboolean required = qfalse );
+void VK_TextureMode( const char *string );
 uploadBuffer_t *VK_GetUploadBuffer( int uploadSize );
 void VK_PrepareUploadBuffers( void );
 void VK_UploadImage( image_t *im, const byte *pic, int width, int height, int mip );
 void VK_UploadBuffer( buffer_t *buffer, const byte *data, int size, int offset );
 void VK_SetImageLayout( image_t *im, VkImageLayout dstLayout, VkAccessFlags dstAccess );
 
+#ifdef __cplusplus
+template<typename T>
+inline T VK_GetProcAddress( const char *name, qboolean required = qfalse ) {
+	return ( T )VK_GetProcAddress( name, required );
+}
+#endif
 
 #define GLS_SRCBLEND_ZERO						0x00000001
 #define GLS_SRCBLEND_ONE						0x00000002
@@ -1472,6 +1496,8 @@ void		R_ShaderList_f( void );
 //
 // tr_spv.c
 //
+VkShaderModule SPV_FindShaderModuleFile( const char *name );
+VkShaderModule SPV_CreateShaderModule( const uint32_t *code, int size );
 void SPV_InitGlowShaders( void );
 
 
@@ -1618,7 +1644,7 @@ CURVE TESSELATION
 ============================================================
 */
 srfGridMesh_t *R_SubdividePatchToGrid( int width, int height,
-								drawVert_t points[MAX_PATCH_SIZE*MAX_PATCH_SIZE] );
+				       drawVert_t points[MAX_PATCH_SIZE*MAX_PATCH_SIZE] );
 /*
 Ghoul2 Insert Start
 */
@@ -1638,7 +1664,7 @@ MARKERS, POLYGON PROJECTION ON WORLD POLYGONS
 */
 
 int R_MarkFragments( int numPoints, const vec3_t *points, const vec3_t projection,
-				   int maxPoints, vec3_t pointBuffer, int maxFragments, markFragment_t *fragmentBuffer );
+		     int maxPoints, vec3_t pointBuffer, int maxFragments, markFragment_t *fragmentBuffer );
 
 /*
 ============================================================
@@ -1706,15 +1732,15 @@ public:
 	}
 #endif
 
-CRenderableSurface():
-	ident(SF_MDX),
-	boneCache(0),
+	CRenderableSurface():
+		ident(SF_MDX),
+		boneCache(0),
 #ifdef _G2_GORE
-	surfaceData(0),
-	alternateTex(0),
-	goreChain(0)
+		surfaceData(0),
+		alternateTex(0),
+		goreChain(0)
 #else
-	surfaceData(0)
+		surfaceData(0)
 #endif
 	{}
 
@@ -1743,7 +1769,7 @@ Ghoul2 Insert End
 =============================================================
 */
 void	R_TransformModelToClip( const vec3_t src, const float *modelMatrix, const float *projectionMatrix,
-							vec4_t eye, vec4_t dst );
+				     vec4_t eye, vec4_t dst );
 void	R_TransformClipToWindow( const vec4_t clip, const viewParms_t *view, vec4_t normalized, vec4_t window );
 
 void	RB_DeformTessGeometry( void );
@@ -1906,11 +1932,11 @@ void R_AddDrawSurfCmd( drawSurf_t *drawSurfs, int numDrawSurfs );
 
 void RE_SetColor( const float *rgba );
 void RE_StretchPic ( float x, float y, float w, float h,
-					  float s1, float t1, float s2, float t2, qhandle_t hShader );
+		    float s1, float t1, float s2, float t2, qhandle_t hShader );
 void RE_RotatePic ( float x, float y, float w, float h,
-					  float s1, float t1, float s2, float t2,float a, qhandle_t hShader );
+		   float s1, float t1, float s2, float t2,float a, qhandle_t hShader );
 void RE_RotatePic2 ( float x, float y, float w, float h,
-					  float s1, float t1, float s2, float t2,float a, qhandle_t hShader );
+		    float s1, float t1, float s2, float t2,float a, qhandle_t hShader );
 void RE_RenderWorldEffects(void);
 void RE_LAGoggles( void );
 void RE_Scissor ( float x, float y, float w, float h);

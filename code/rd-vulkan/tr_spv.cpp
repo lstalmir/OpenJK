@@ -30,87 +30,47 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 // This vertex shader basically passes through most values and calculates no lighting. The only
 // unusual thing it does is add the inputed texel offsets to all four texture units (this allows
 // nearest neighbor pixel peeking).
-const unsigned char g_strGlowVShaderARB[] =
-{
-	"!!ARBvp1.0\
-	\
-	# Input.\n\
-	ATTRIB	iPos		= vertex.position;\
-	ATTRIB	iColor		= vertex.color;\
-	ATTRIB	iTex0		= vertex.texcoord[0];\
-	ATTRIB	iTex1		= vertex.texcoord[1];\
-	ATTRIB	iTex2		= vertex.texcoord[2];\
-	ATTRIB	iTex3		= vertex.texcoord[3];\
-	\
-	# Output.\n\
-	OUTPUT	oPos		= result.position;\
-	OUTPUT	oColor		= result.color;\
-	OUTPUT	oTex0		= result.texcoord[0];\
-	OUTPUT	oTex1		= result.texcoord[1];\
-	OUTPUT	oTex2		= result.texcoord[2];\
-	OUTPUT	oTex3		= result.texcoord[3];\
-	\
-	# Constants.\n\
-	PARAM	ModelViewProj[4]= { state.matrix.mvp };\
-	PARAM	TexelOffset0	= program.env[0];\
-	PARAM	TexelOffset1	= program.env[1];\
-	PARAM	TexelOffset2	= program.env[2];\
-	PARAM	TexelOffset3	= program.env[3];\
-	\
-	# Main.\n\
-	DP4		oPos.x, ModelViewProj[0], iPos;\
-	DP4		oPos.y, ModelViewProj[1], iPos;\
-	DP4		oPos.z, ModelViewProj[2], iPos;\
-	DP4		oPos.w, ModelViewProj[3], iPos;\
-	MOV		oColor, iColor;\
-	# Notice the optimization of using one texture coord instead of all four.\n\
-	ADD		oTex0, iTex0, TexelOffset0;\
-	ADD		oTex1, iTex0, TexelOffset1;\
-	ADD		oTex2, iTex0, TexelOffset2;\
-	ADD		oTex3, iTex0, TexelOffset3;\
-	\
-	END"
-};
+#include "tr_blur_combine_vert.h"
 
 // This Pixel Shader loads four texture units and adds them all together (with a modifier
 // multiplied to each in the process). The final output is r0 = t0 + t1 + t2 + t3.
-const unsigned char g_strGlowPShaderARB[] =
-{
-	"!!ARBfp1.0\
-	\
-	# Input.\n\
-	ATTRIB	iColor	= fragment.color.primary;\
-	\
-	# Output.\n\
-	OUTPUT	oColor	= result.color;\
-	\
-	# Constants.\n\
-	PARAM	Weight	= program.env[0];\
-	TEMP	t0;\
-	TEMP	t1;\
-	TEMP	t2;\
-	TEMP	t3;\
-	TEMP	r0;\
-	\
-	# Main.\n\
-	TEX		t0, fragment.texcoord[0], texture[0], RECT;\
-	TEX		t1, fragment.texcoord[1], texture[1], RECT;\
-	TEX		t2, fragment.texcoord[2], texture[2], RECT;\
-	TEX		t3, fragment.texcoord[3], texture[3], RECT;\
-	\
-    MUL		r0, t0, Weight;\
-	MAD		r0, t1, Weight, r0;\
-	MAD		r0, t2, Weight, r0;\
-	MAD		r0, t3, Weight, r0;\
-	\
-	MOV		oColor, r0;\
-	\
-	END"
-};
+#include "tr_blur_combine_frag.h"
+
 /***********************************************************************************************************/
 
+/**
+===============
+SPV_FindShaderModuleFile
 
-static VkShaderModule SPV_CreateShaderModule(const uint32_t* code, int codeSize) {
+===============
+*/
+VkShaderModule SPV_FindShaderModuleFile( const char *name ) {
+	VkShaderModule shaderModule;
+	long shaderDataLength;
+	void *shaderData;
+
+	if( strlen( name ) >= MAX_QPATH ) {
+		Com_Error( ERR_DROP, "SPV_FindShaderModuleFile: \"%s\" is too long\n", name );
+	}
+
+	shaderDataLength = ri.FS_ReadFile( name, &shaderData );
+	if( shaderDataLength <= 0 ) {
+		Com_Error( ERR_DROP, "SPV_FindShaderModuleFile: failed to read file \"%s\"\n", name );
+	}
+
+	// create the shader module object
+	shaderModule = SPV_CreateShaderModule( ( const uint32_t * )shaderData, shaderDataLength );
+
+	ri.Z_Free( shaderData );
+}
+
+/**
+===============
+SPV_CreateShaderModule
+
+===============
+*/
+VkShaderModule SPV_CreateShaderModule( const uint32_t *code, int codeSize ) {
 	VkResult res;
 	VkShaderModule module;
 
@@ -119,15 +79,17 @@ static VkShaderModule SPV_CreateShaderModule(const uint32_t* code, int codeSize)
 	shaderModuleCreateInfo.pCode = code;
 	shaderModuleCreateInfo.codeSize = codeSize;
 
-	res = vkCreateShaderModule(vkState.device, &shaderModuleCreateInfo, NULL, &module);
-	if (res != VK_SUCCESS) {
-		Com_Error(ERR_FATAL, "SPV_InitGlowShaders: failed to create vertex shader module (%d)\n", res);
+	res = vkCreateShaderModule( vkState.device, &shaderModuleCreateInfo, NULL, &module );
+	if( res != VK_SUCCESS ) {
+		Com_Error( ERR_DROP, "SPV_CreateShaderModule: failed to create vertex shader module (%d)\n", res );
 	}
 
 	return module;
 }
 
-void SPV_InitGlowShaders(void) {
+/***********************************************************************************************************/
+
+void SPV_InitGlowShaders( void ) {
 	VkResult res;
 
 	// create the pipeline layout
@@ -137,22 +99,22 @@ void SPV_InitGlowShaders(void) {
 	pipelineLayoutCreateInfo.pSetLayouts = &tr.glowBlurDescriptorSetLayout;
 
 	VkPushConstantRange pushConstants[2] = {};
-	pipelineLayoutCreateInfo.pushConstantRangeCount = ARRAY_LEN(pushConstants);
+	pipelineLayoutCreateInfo.pushConstantRangeCount = ARRAY_LEN( pushConstants );
 	pipelineLayoutCreateInfo.pPushConstantRanges = pushConstants;
 
-	VkPushConstantRange* vertexConstants = &pushConstants[0];
+	VkPushConstantRange *vertexConstants = &pushConstants[0];
 	vertexConstants->stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
 	vertexConstants->offset = 0;
 	vertexConstants->size = 64;
 
-	VkPushConstantRange* fragmentConstants = &pushConstants[1];
+	VkPushConstantRange *fragmentConstants = &pushConstants[1];
 	fragmentConstants->stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
 	fragmentConstants->offset = 0;
 	fragmentConstants->size = 16;
 
-	res = vkCreatePipelineLayout(vkState.device, &pipelineLayoutCreateInfo, NULL, &tr.glowBlurPipelineLayout);
-	if (res != VK_SUCCESS) {
-		Com_Error(ERR_FATAL, "SPV_InitGlowShaders: failed to create glow blur pipeline layout (%d)\n", res);
+	res = vkCreatePipelineLayout( vkState.device, &pipelineLayoutCreateInfo, NULL, &tr.glowBlurPipelineLayout );
+	if( res != VK_SUCCESS ) {
+		Com_Error( ERR_FATAL, "SPV_InitGlowShaders: failed to create glow blur pipeline layout (%d)\n", res );
 	}
 
 	// create the glow pipeline
@@ -164,21 +126,21 @@ void SPV_InitGlowShaders(void) {
 
 	// setup the pipeline shader stages
 	VkPipelineShaderStageCreateInfo pipelineStages[2] = {};
-	pipelineCreateInfo.stageCount = ARRAY_LEN(pipelineStages);
+	pipelineCreateInfo.stageCount = ARRAY_LEN( pipelineStages );
 	pipelineCreateInfo.pStages = pipelineStages;
 
 	// vertex shader
-	VkPipelineShaderStageCreateInfo* vertexShaderStage = &pipelineStages[0];
+	VkPipelineShaderStageCreateInfo *vertexShaderStage = &pipelineStages[0];
 	vertexShaderStage->sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
 	vertexShaderStage->stage = VK_SHADER_STAGE_VERTEX_BIT;
-	vertexShaderStage->module = SPV_CreateShaderModule(g_strGlowVShaderARB, sizeof(g_strGlowVShaderARB));
+	vertexShaderStage->module = SPV_CreateShaderModule( g_spvGlowVShader, sizeof( g_spvGlowVShader ) );
 	vertexShaderStage->pName = "main";
 
 	// fragment shader
-	VkPipelineShaderStageCreateInfo* fragmentShaderStage = &pipelineStages[1];
+	VkPipelineShaderStageCreateInfo *fragmentShaderStage = &pipelineStages[1];
 	fragmentShaderStage->sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
 	fragmentShaderStage->stage = VK_SHADER_STAGE_FRAGMENT_BIT;
-	fragmentShaderStage->module = SPV_CreateShaderModule(g_strGlowPShaderARB, sizeof(g_strGlowPShaderARB));
+	fragmentShaderStage->module = SPV_CreateShaderModule( g_spvGlowPShader, sizeof( g_spvGlowPShader ) );
 	fragmentShaderStage->pName = "main";
 
 	// setup the rasterizer
@@ -216,21 +178,21 @@ void SPV_InitGlowShaders(void) {
 	attachmentBlend.colorWriteMask = 0xF;
 
 	// create the blur pipeline
-	res = vkCreateGraphicsPipelines(vkState.device, VK_NULL_HANDLE, 1, &pipelineCreateInfo, NULL, &tr.glowBlurPipeline);
+	res = vkCreateGraphicsPipelines( vkState.device, VK_NULL_HANDLE, 1, &pipelineCreateInfo, NULL, &tr.glowBlurPipeline );
 
-	vkDestroyShaderModule(vkState.device, vertexShaderStage->module, NULL);
-	vkDestroyShaderModule(vkState.device, fragmentShaderStage->module, NULL);
+	vkDestroyShaderModule( vkState.device, vertexShaderStage->module, NULL );
+	vkDestroyShaderModule( vkState.device, fragmentShaderStage->module, NULL );
 
-	if (res != VK_SUCCESS) {
-		Com_Error(ERR_FATAL, "SPV_InitGlowShaders: failed to create glow blur graphics pipeline (%d)\n", res);
+	if( res != VK_SUCCESS ) {
+		Com_Error( ERR_FATAL, "SPV_InitGlowShaders: failed to create glow blur graphics pipeline (%d)\n", res );
 	}
 
 	// create the combine pipeline
 	pipelineLayoutCreateInfo.pushConstantRangeCount = 0;
 
-	res = vkCreatePipelineLayout(vkState.device, &pipelineLayoutCreateInfo, NULL, &tr.glowCombinePipelineLayout);
-	if (res != VK_SUCCESS) {
-		Com_Error(ERR_FATAL, "SPV_InitGlowShaders: failed to create glow combine pipeline layout (%d)\n", res);
+	res = vkCreatePipelineLayout( vkState.device, &pipelineLayoutCreateInfo, NULL, &tr.glowCombinePipelineLayout );
+	if( res != VK_SUCCESS ) {
+		Com_Error( ERR_FATAL, "SPV_InitGlowShaders: failed to create glow combine pipeline layout (%d)\n", res );
 	}
 
 	pipelineCreateInfo.layout = tr.glowCombinePipelineLayout;
@@ -246,20 +208,20 @@ void SPV_InitGlowShaders(void) {
 
 	// One and Inverse Src Color give a very soft addition, while one one is a bit stronger. With one one we can
 	// use additive blending through multitexture though.
-	if (r_DynamicGlowSoft->integer) {
+	if( r_DynamicGlowSoft->integer ) {
 		attachmentBlend.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_COLOR;
 	}
 
-	vertexShaderStage->module = SPV_CreateShaderModule(g_strGlowVShaderARB, sizeof(g_strGlowVShaderARB));
-	fragmentShaderStage->module = SPV_CreateShaderModule(g_strGlowPShaderARB, sizeof(g_strGlowPShaderARB));
+	vertexShaderStage->module = SPV_CreateShaderModule( g_spvGlowVShader, sizeof( g_spvGlowVShader ) );
+	fragmentShaderStage->module = SPV_CreateShaderModule( g_spvGlowPShader, sizeof( g_spvGlowPShader ) );
 
 	// create the combine pipeline
-	res = vkCreateGraphicsPipelines(vkState.device, VK_NULL_HANDLE, 1, &pipelineCreateInfo, NULL, &tr.glowCombinePipeline);
+	res = vkCreateGraphicsPipelines( vkState.device, VK_NULL_HANDLE, 1, &pipelineCreateInfo, NULL, &tr.glowCombinePipeline );
 
-	vkDestroyShaderModule(vkState.device, vertexShaderStage->module, NULL);
-	vkDestroyShaderModule(vkState.device, fragmentShaderStage->module, NULL);
+	vkDestroyShaderModule( vkState.device, vertexShaderStage->module, NULL );
+	vkDestroyShaderModule( vkState.device, fragmentShaderStage->module, NULL );
 
-	if (res != VK_SUCCESS) {
-		Com_Error(ERR_FATAL, "SPV_InitGlowShaders: failed to create glow combine graphics pipeline (%d)\n", res);
+	if( res != VK_SUCCESS ) {
+		Com_Error( ERR_FATAL, "SPV_InitGlowShaders: failed to create glow combine graphics pipeline (%d)\n", res );
 	}
 }

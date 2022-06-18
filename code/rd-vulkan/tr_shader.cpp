@@ -2225,17 +2225,17 @@ static qboolean ParseShader( const char  **text )
 		else if ( !Q_stricmp( token, "sun" ) || !Q_stricmp( token, "q3map_sun" ) || !Q_stricmp( token, "q3map_sunExt" ) )
 		{
 			token = COM_ParseExt( text, qfalse );
-			tr.sunLight[0] = atof( token );
+			tr.sunParms.sunLight[0] = atof( token );
 			token = COM_ParseExt( text, qfalse );
-			tr.sunLight[1] = atof( token );
+			tr.sunParms.sunLight[1] = atof( token );
 			token = COM_ParseExt( text, qfalse );
-			tr.sunLight[2] = atof( token );
+			tr.sunParms.sunLight[2] = atof( token );
 
-			VectorNormalize( tr.sunLight );
+			VectorNormalize( tr.sunParms.sunLight );
 
 			token = COM_ParseExt( text, qfalse );
 			float a = atof( token );
-			VectorScale( tr.sunLight, a, tr.sunLight);
+			VectorScale( tr.sunParms.sunLight, a, tr.sunParms.sunLight );
 
 			token = COM_ParseExt( text, qfalse );
 			a = atof( token );
@@ -2245,9 +2245,9 @@ static qboolean ParseShader( const char  **text )
 			float b = atof( token );
 			b = b / 180 * M_PI;
 
-			tr.sunDirection[0] = cos( a ) * cos( b );
-			tr.sunDirection[1] = sin( a ) * cos( b );
-			tr.sunDirection[2] = sin( b );
+			tr.sunParms.sunDirection[0] = cos( a ) * cos( b );
+			tr.sunParms.sunDirection[1] = sin( a ) * cos( b );
+			tr.sunParms.sunDirection[2] = sin( b );
 
 			SkipRestOfLine( text );
 			continue;

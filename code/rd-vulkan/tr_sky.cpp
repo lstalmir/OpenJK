@@ -721,6 +721,14 @@ void RB_DrawSun( void ) {
 	VectorScale( vec1, size, vec1 );
 	VectorScale( vec2, size, vec2 );
 
+	// update the sunParms buffer on the gpu
+	VK_UploadBuffer( tr.sunParmsBuffer, ( const byte * )&tr.sunParms, sizeof( tr.sunParms ), 0 );
+
+	vkCmdBindPipeline( vkCtx.cmdbuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, tr.sunShader->pipeline );
+	vkCmdBindDescriptorSets( vkCtx.cmdbuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, tr.sunShader->layout, 1, 1, &tr.sunDescriptorSet, 0, NULL );
+
+	vkCmdDraw( vkCtx.cmdbuffer, 6, 1, 0, 0 );
+
 	// farthest depth range
 	qglDepthRange( 1.0, 1.0 );
 

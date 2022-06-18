@@ -220,10 +220,10 @@ typedef struct {
 void RE_SetLightStyle( int style, int color );
 
 void R_Splash() {
-	VK_SetImageLayout(vkCtx.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_ACCESS_TRANSFER_WRITE_BIT);
+	VK_SetImageLayout( vkCtx.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_ACCESS_TRANSFER_WRITE_BIT );
 
 	image_t *image = R_FindImageFile( "menu/splash", qfalse, qfalse, qfalse, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE );
-	if( !image) {
+	if( !image ) {
 		// Can't find the splash image so just clear to black
 		VkClearColorValue clearColorValue = { 0, 0, 0, 1 };
 		VkImageSubresourceRange clearRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
@@ -254,21 +254,21 @@ void R_Splash() {
 		blitRegion.dstOffsets[1].y = height;
 		blitRegion.dstOffsets[1].z = 1;
 
-		VK_SetImageLayout(image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_ACCESS_TRANSFER_READ_BIT);
-		vkCmdBlitImage(vkCtx.cmdbuffer,
-			image->tex,
-			VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-			vkCtx.image->tex,
-			VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-			1, &blitRegion,
-			VK_FILTER_LINEAR);
+		VK_SetImageLayout( image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_ACCESS_TRANSFER_READ_BIT );
+		vkCmdBlitImage( vkCtx.cmdbuffer,
+				image->tex,
+				VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+				vkCtx.image->tex,
+				VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+				1, &blitRegion,
+				VK_FILTER_LINEAR );
 	}
 
 	ri.WIN_Present( &window );
 }
 
-static const char* VK_GetVendorString(uint32_t vendorID) {
-	switch (vendorID) {
+static const char *VK_GetVendorString( uint32_t vendorID ) {
+	switch( vendorID ) {
 	case 0x8086: return "Intel";
 	case 0x10DE: return "NVIDIA";
 	case 0x1022: return "AMD";
@@ -338,10 +338,10 @@ static void VK_InitTextureCompression( const vkdevice_initContext_t *ctx ) {
 VK_InitExtensions
 ===============
 */
-#define REQUIRED 1
+#define REQUIRED qtrue
 
-template <typename _initContext_t>
-static bool VK_ExtensionSupported( const _initContext_t *ctx, const char* name ) {
+template<typename _initContext_t>
+static bool VK_ExtensionSupported( const _initContext_t *ctx, const char *name ) {
 	for( uint32_t i = 0; i < ctx->supportedExtensionCount; ++i ) {
 		if( Q_stricmp( ctx->supportedExtensions[i].extensionName, name ) == 0 )
 			return true;
@@ -349,22 +349,22 @@ static bool VK_ExtensionSupported( const _initContext_t *ctx, const char* name )
 	return false;
 }
 
-template <typename _initContext_t>
-static bool VK_EnableExtension( _initContext_t *ctx, const char *name, int flags = 0 ) {
+template<typename _initContext_t>
+static bool VK_EnableExtension( _initContext_t *ctx, const char *name, qboolean required ) {
 	bool extensionEnabled = false;
 	if( VK_ExtensionSupported( ctx, name ) && ctx->enabledExtensionCount < MAX_EXTENSIONS ) {
 		ctx->enabledExtensions[ctx->enabledExtensionCount] = name;
 		ctx->enabledExtensionCount++;
 		extensionEnabled = true;
 	}
-	if( !extensionEnabled && (flags & REQUIRED) ) {
+	if( !extensionEnabled && required ) {
 		Com_Error( ERR_FATAL, "VK_EnableExtension: required extension %s not supported\n", name );
 	}
 	return extensionEnabled;
 }
 
 extern bool g_bDynamicGlowSupported;
-static void VK_InitDeviceExtensions( vkdevice_initContext_t* ctx ) {
+static void VK_InitDeviceExtensions( vkdevice_initContext_t *ctx ) {
 	bool enableOptionalExtensions = true;
 	if( !r_allowExtensions->integer ) {
 		enableOptionalExtensions = false;
@@ -408,22 +408,341 @@ static void VK_InitInstanceExtensions( vkinstance_initContext_t *ctx ) {
 		enableOptionalExtensions = false;
 	}
 
-	Com_Printf("Initializing Vulkan instance extensions\n");
+	Com_Printf( "Initializing Vulkan instance extensions\n" );
 
 	// required extensions
 	VK_EnableExtension( ctx, VK_KHR_SURFACE_EXTENSION_NAME, REQUIRED );
 	VK_EnableExtension( ctx, SURFACE_EXTENSION_NAME, REQUIRED );
 }
 
+/***********************************************************************************************************/
+
+PFN_vkVoidFunction VK_GetProcAddress( const char *name, qboolean required ) {
+	PFN_vkVoidFunction func = NULL;
+
+	if( vkState.device ) {
+		// try to load the device function first as this pointer may be more optimal
+		// than the one retrieved via vkGetInstanceProcAddr
+		func = vkGetDeviceProcAddr( vkState.device, name );
+	}
+
+	if( !func ) {
+		// if the function is not available at the device level, import it from the instance
+		func = vkGetInstanceProcAddr( vkState.instance, name );
+	}
+
+	if( !func && required ) {
+		Com_Error( ERR_FATAL, "VK_GetProcAddress: required Vulkan entry point %s not found\n", name );
+	}
+
+	return func;
+}
+
+/***********************************************************************************************************/
+
+static void InitVulkanInstance( void ) {
+	vkinstance_initContext_t *initCtx;
+	VkResult res;
+
+	// initialize the instance
+	initCtx = ( vkinstance_initContext_t * )R_Malloc( sizeof( vkinstance_initContext_t ), TAG_ALL, qtrue );
+
+	VkApplicationInfo appInfo = {};
+	appInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
+	appInfo.apiVersion = VK_API_VERSION_1_2;
+
+	// get number of supported instance extensions, allocate a buffer and read the extensions
+	vkEnumerateInstanceExtensionProperties( NULL, &initCtx->supportedExtensionCount, NULL );
+	initCtx->supportedExtensions = ( VkExtensionProperties * )R_Malloc( sizeof( VkExtensionProperties ) * initCtx->supportedExtensionCount, TAG_ALL );
+	res = vkEnumerateInstanceExtensionProperties( NULL, &initCtx->supportedExtensionCount, initCtx->supportedExtensions );
+	if( res != VK_SUCCESS ) {
+		Com_Error( ERR_FATAL, "InitVulkan: failed to query supported Vulkan instance extensions (%d)\n", res );
+	}
+
+	// initialize extensions
+	VK_InitInstanceExtensions( initCtx );
+
+	// create the instance
+	VkInstanceCreateInfo instanceCreateInfo = {};
+	instanceCreateInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
+	instanceCreateInfo.pApplicationInfo = &appInfo;
+	instanceCreateInfo.enabledExtensionCount = initCtx->enabledExtensionCount;
+	instanceCreateInfo.ppEnabledExtensionNames = initCtx->enabledExtensions;
+
+	res = vkCreateInstance( &instanceCreateInfo, NULL, &vkState.instance );
+	if( res != VK_SUCCESS ) {
+		Com_Error( ERR_FATAL, "InitVulkan: failed to create Vulkan instance (%d)\n", res );
+	}
+
+	R_Free( initCtx->supportedExtensions );
+	R_Free( initCtx );
+}
+
+static void InitVulkanSurface( void ) {
+	VkResult res;
+
+#if defined( _WIN32 )
+	PFN_vkCreateWin32SurfaceKHR pfnCreateSurfaceKHR;
+	VkWin32SurfaceCreateInfoKHR surfaceCreateInfo = {};
+
+	// get the address of the platform-specific function that creates the surface
+	pfnCreateSurfaceKHR = VK_GetProcAddress<PFN_vkCreateWin32SurfaceKHR>( "vkCreateWin32SurfaceKHR", REQUIRED );
+
+	// setup the surface create info
+	surfaceCreateInfo.sType = VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR;
+	surfaceCreateInfo.hinstance = ( HINSTANCE )window.process;
+	surfaceCreateInfo.hwnd = ( HWND )window.handle;
+
+#elif defined( __linux__ )
+	PFN_vkCreateXlibSurfaceKHR pfnCreateSurfaceKHR;
+	VkXlibSurfaceCreateInfoKHR surfaceCreateInfo = {};
+
+	// get the address of the platform-specific function that creates the surface
+	pfnCreateSurfaceKHR = VK_GetProcAddress<PFN_vkCreateXlibSurfaceKHR>( "vkCreateXlibSurfaceKHR", REQUIRED );
+
+	surfaceCreateInfo.sType = VK_STRUCTURE_TYPE_XLIB_SURFACE_CREATE_INFO_KHR;
+	...
+#endif
+
+	// create the surface
+	res = pfnCreateSurfaceKHR( vkState.instance, &surfaceCreateInfo, NULL, &vkState.surface );
+	if( res != VK_SUCCESS ) {
+		Com_Error( ERR_FATAL, "InitVulkan: failed to create window surface (%d)\n", res );
+	}
+}
+
+static void InitVulkanDevice( void ) {
+	vkdevice_initContext_t *initCtx;
+	VkResult res;
+
+	// initialize the device
+	initCtx = ( vkdevice_initContext_t * )R_Malloc( sizeof( vkdevice_initContext_t ), TAG_ALL, qtrue );
+	initCtx->physicalDevice = vkState.physicalDevice;
+
+	vkGetPhysicalDeviceFeatures( initCtx->physicalDevice, &initCtx->supportedDeviceFeatures );
+	vkGetPhysicalDeviceProperties( initCtx->physicalDevice, &initCtx->physicalDeviceProperties );
+
+	// get number of supported device queue families, allocate a buffer and read the properties
+	vkGetPhysicalDeviceQueueFamilyProperties( initCtx->physicalDevice, &initCtx->supportedDeviceQueueFamilyCount, NULL );
+	initCtx->supportedDeviceQueueFamilies = ( VkQueueFamilyProperties * )R_Malloc( sizeof( VkQueueFamilyProperties ) * initCtx->supportedDeviceQueueFamilyCount, TAG_ALL );
+	vkGetPhysicalDeviceQueueFamilyProperties( initCtx->physicalDevice, &initCtx->supportedDeviceQueueFamilyCount, initCtx->supportedDeviceQueueFamilies );
+
+	// get number of supported device extensions, allocate a buffer and read the extensions
+	vkEnumerateDeviceExtensionProperties( initCtx->physicalDevice, NULL, &initCtx->supportedExtensionCount, NULL );
+	initCtx->supportedExtensions = ( VkExtensionProperties * )R_Malloc( sizeof( VkExtensionProperties ) * initCtx->supportedExtensionCount, TAG_ALL );
+	res = vkEnumerateDeviceExtensionProperties( initCtx->physicalDevice, NULL, &initCtx->supportedExtensionCount, initCtx->supportedExtensions );
+	if( res != VK_SUCCESS ) {
+		Com_Error( ERR_FATAL, "InitVulkan: failed to query supported Vulkan device extensions (%d)\n", res );
+	}
+
+	// initialize extensions
+	VK_InitDeviceExtensions( initCtx );
+
+	// setup the default command queue
+	float queuePriority = 1.f;
+	VkDeviceQueueCreateInfo queueCreateInfo = {};
+	queueCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+
+	for( uint32_t i = 0; i < initCtx->supportedDeviceQueueFamilyCount; ++i ) {
+		const VkQueueFamilyProperties *queueFamily = &initCtx->supportedDeviceQueueFamilies[i];
+
+		VkBool32 queueSupportsPresentation = VK_FALSE;
+		res = vkGetPhysicalDeviceSurfaceSupportKHR( initCtx->physicalDevice, i, vkState.surface, &queueSupportsPresentation );
+
+		if( queueFamily->queueFlags & VK_QUEUE_GRAPHICS_BIT && res == VK_SUCCESS && queueSupportsPresentation ) {
+			queueCreateInfo.queueFamilyIndex = i;
+			queueCreateInfo.queueCount = 1;
+			queueCreateInfo.pQueuePriorities = &queuePriority;
+			break;
+		}
+	}
+
+	if( queueCreateInfo.queueCount == 0 ) {
+		Com_Error( ERR_FATAL, "InitVulkan: suitable command queue family not found\n" );
+	}
+
+	// create the device
+	VkDeviceCreateInfo deviceCreateInfo = {};
+	deviceCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
+	deviceCreateInfo.pEnabledFeatures = &initCtx->enabledDeviceFeatures;
+	deviceCreateInfo.enabledExtensionCount = initCtx->enabledExtensionCount;
+	deviceCreateInfo.ppEnabledExtensionNames = initCtx->enabledExtensions;
+	deviceCreateInfo.queueCreateInfoCount = 1;
+	deviceCreateInfo.pQueueCreateInfos = &queueCreateInfo;
+
+	res = vkCreateDevice( vkState.physicalDevice, &deviceCreateInfo, NULL, &vkState.device );
+	if( res != VK_SUCCESS ) {
+		Com_Error( ERR_FATAL, "InitVulkan: failed to create Vulkan device (%d)\n", res );
+	}
+
+	// get the command queue
+	vkState.queueFamilyIndex = queueCreateInfo.queueFamilyIndex;
+	vkGetDeviceQueue( vkState.device, vkState.queueFamilyIndex, 0, &vkState.queue );
+
+	R_Free( initCtx->supportedExtensions );
+	R_Free( initCtx->supportedDeviceQueueFamilies );
+	R_Free( initCtx );
+}
+
+static void InitVulkanObjects( void ) {
+	VkResult res;
+
+	// create the command pool
+	VkCommandPoolCreateInfo commandPoolCreateInfo = {};
+	commandPoolCreateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+	commandPoolCreateInfo.queueFamilyIndex = vkState.queueFamilyIndex;
+
+	res = vkCreateCommandPool( vkState.device, &commandPoolCreateInfo, NULL, &vkState.cmdpool );
+	if( res != VK_SUCCESS ) {
+		Com_Error( ERR_FATAL, "InitVulkan: failed to create Vulkan command pool (%d)\n", res );
+	}
+
+	// create the descriptor pool
+	VkDescriptorPoolCreateInfo descriptorPoolCreateInfo = {};
+	descriptorPoolCreateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+	descriptorPoolCreateInfo.maxSets = 2048;
+	// ...
+
+	res = vkCreateDescriptorPool( vkState.device, &descriptorPoolCreateInfo, NULL, &vkState.descriptorPool );
+	if( res != VK_SUCCESS ) {
+		Com_Error( ERR_FATAL, "InitVulkan: failed to create Vulkan descriptor pool (%d)\n", res );
+	}
+}
+
+static void VK_InitSwapchain( void ) {
+	VkResult res;
+	VkSurfaceCapabilitiesKHR surfaceCapabilities;
+
+	// get the surface capabilities
+	vkGetPhysicalDeviceSurfaceCapabilitiesKHR( vkState.physicalDevice, vkState.surface, &surfaceCapabilities );
+
+	// swapchain can be created only on a non-minimized window
+	if( surfaceCapabilities.currentExtent.width && surfaceCapabilities.currentExtent.height ) {
+		VkSwapchainKHR oldSwapchain = vkState.swapchain;
+		uint32_t imageCount = MAX_OUTIMAGES;
+		VkImage images[MAX_OUTIMAGES];
+
+		// create the new swapchain
+		VkSwapchainCreateInfoKHR swapchainCreateInfo = {};
+		swapchainCreateInfo.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR;
+		swapchainCreateInfo.surface = vkState.surface;
+		swapchainCreateInfo.oldSwapchain = oldSwapchain;
+
+		swapchainCreateInfo.presentMode = VK_PRESENT_MODE_FIFO_KHR; // fifo must be supported by every implementation
+		swapchainCreateInfo.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR;
+		swapchainCreateInfo.preTransform = surfaceCapabilities.currentTransform;
+		
+		swapchainCreateInfo.imageExtent = surfaceCapabilities.currentExtent;
+		swapchainCreateInfo.imageArrayLayers = 1; // todo: stereo support
+		swapchainCreateInfo.imageColorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
+		swapchainCreateInfo.imageFormat = VK_FORMAT_R8G8B8A8_UNORM;
+		swapchainCreateInfo.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+		swapchainCreateInfo.minImageCount = 2;
+
+		res = vkCreateSwapchainKHR( vkState.device, &swapchainCreateInfo, NULL, &vkState.swapchain );
+		if( res != VK_SUCCESS ) {
+			Com_Error( ERR_FATAL, "VK_InitSwapchain: failed to create a new swapchain (%d)\n", res );
+		}
+
+		if( oldSwapchain ) {
+			// destroy image resources associated with images belonging to the old swapchain
+			// R_Images_DestroyImage can't be used because the image resource is owned by the swapchain
+			for( int i = 0; i < vkState.imgcount; ++i ) {
+				vkDestroyImageView( vkState.device, vkState.images[i].texview, NULL );
+			}
+			vkDestroySwapchainKHR( vkState.device, oldSwapchain, NULL );
+
+			// clear the array so that it can be reused
+			memset( vkState.images, 0, sizeof( vkState.images ) );
+		}
+
+		// get swapchain images
+		res = vkGetSwapchainImagesKHR( vkState.device, vkState.swapchain, &imageCount, images );
+		if( res != VK_SUCCESS ) {
+			Com_Error( ERR_FATAL, "VK_InitSwapchain: failed to get swapchain images (%d)\n", res );
+		}
+
+		VkImageViewCreateInfo imageViewCreateInfo = {};
+		imageViewCreateInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+		imageViewCreateInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+		imageViewCreateInfo.format = swapchainCreateInfo.imageFormat;
+		imageViewCreateInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+		imageViewCreateInfo.subresourceRange.layerCount = 1;
+		imageViewCreateInfo.subresourceRange.levelCount = 1;
+
+		for( int i = 0; i < imageCount; ++i ) {
+			image_t *img = &vkState.images[i];
+			img->tex = images[i];
+			img->internalFormat = swapchainCreateInfo.imageFormat;
+
+			// assign a debug name for the image
+			sprintf( img->imgName, "<swapchainImage[%d]>", i );
+
+			// create an image view
+			res = vkCreateImageView( vkState.device, &imageViewCreateInfo, NULL, &img->texview );
+			if( res != VK_SUCCESS ) {
+				Com_Error( ERR_FATAL, "VK_InitSwapchain: failed to create swapchain image view for image %d (%d)\n", i, res );
+			}
+		}
+
+		// create additional resources if number of images is greater than previously
+		if( imageCount > vkState.imgcount ) {
+
+			// semaphores
+			VkSemaphoreCreateInfo semaphoreCreateInfo = {};
+			semaphoreCreateInfo.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+
+			for( int i = vkState.imgcount; i < imageCount; ++i ) {
+				if( !vkState.semaphores[i] ) {
+					res = vkCreateSemaphore( vkState.device, &semaphoreCreateInfo, NULL, &vkState.semaphores[i] );
+					if( res != VK_SUCCESS ) {
+						Com_Error( ERR_FATAL, "VK_InitSwapchain: failed to create semaphore for image %d (%d)\n", i, res );
+					}
+				}
+			}
+
+			// fences
+			VkFenceCreateInfo fenceCreateInfo = {};
+			fenceCreateInfo.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+			fenceCreateInfo.flags = VK_FENCE_CREATE_SIGNALED_BIT;
+
+			for( int i = vkState.imgcount; i < imageCount; ++i ) {
+				if( !vkState.fences[i] ) {
+					res = vkCreateFence( vkState.device, &fenceCreateInfo, NULL, &vkState.fences[i] );
+					if( res != VK_SUCCESS ) {
+						Com_Error( ERR_FATAL, "VK_InitSwapchain: failed to create fence for image %d (%d)\n", i, res );
+					}
+				}
+			}
+
+			// command buffers
+			VkCommandBufferAllocateInfo commandBufferAllocateInfo = {};
+			commandBufferAllocateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+			commandBufferAllocateInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+			commandBufferAllocateInfo.commandPool = vkState.cmdpool;
+			commandBufferAllocateInfo.commandBufferCount = imageCount - vkState.imgcount;
+
+			res = vkAllocateCommandBuffers( vkState.device, &commandBufferAllocateInfo, vkState.cmdbuffers + vkState.imgcount );
+			if( res != VK_SUCCESS ) {
+				Com_Error( ERR_FATAL, "VK_InitSwapchain: failed to allocate %d command buffers for new swapchain images (%d)\n",
+						commandBufferAllocateInfo.commandBufferCount, res );
+			}
+		}
+
+		// update the image count
+		vkState.imgcount = imageCount;
+	}
+}
+
 /*
-** InitVulkan
+** VK_Init
 **
 ** This function is responsible for initializing a valid Vulkan subsystem.  This
 ** is done by calling GLimp_Init (which gives us a working OGL subsystem) then
 ** setting variables, checking GL constants, and reporting the gfx system config
 ** to the user.
 */
-static void InitVulkan( void ) {
+static void VK_Init( void ) {
 	VkResult res;
 	//
 	// initialize OS specific portions of the renderer
@@ -437,135 +756,58 @@ static void InitVulkan( void ) {
 	//
 
 	if( glConfig.vidWidth == 0 ) {
-		vkinstance_initContext_t* instInitCtx;
-		vkdevice_initContext_t* devInitCtx;
+		VkPhysicalDeviceProperties physicalDeviceProperties;
 
+		// initialize the window
 		windowDesc_t windowDesc = { GRAPHICS_API_GENERIC };
-		memset(&glConfig, 0, sizeof(glConfig));
+		memset( &glConfig, 0, sizeof( glConfig ) );
+		window = ri.WIN_Init( &windowDesc, &glConfig );
 
-		window = ri.WIN_Init(&windowDesc, &glConfig);
-
-		// initialize the instance
-		instInitCtx = (vkinstance_initContext_t*)R_Malloc(sizeof(vkinstance_initContext_t), TAG_ALL, qtrue);
-
-		VkApplicationInfo appInfo = {};
-		appInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
-		appInfo.apiVersion = VK_API_VERSION_1_2;
-
-		// get number of supported instance extensions, allocate a buffer and read the extensions
-		vkEnumerateInstanceExtensionProperties(NULL, &instInitCtx->supportedExtensionCount, NULL);
-		instInitCtx->supportedExtensions = (VkExtensionProperties*)R_Malloc(sizeof(VkExtensionProperties) * instInitCtx->supportedExtensionCount, TAG_ALL);
-		res = vkEnumerateInstanceExtensionProperties(NULL, &instInitCtx->supportedExtensionCount, instInitCtx->supportedExtensions);
-		if (res != VK_SUCCESS) {
-			Com_Error(ERR_FATAL, "InitVulkan: failed to query supported Vulkan instance extensions (%d)\n", res);
-		}
-
-		// initialize extensions
-		VK_InitInstanceExtensions( instInitCtx );
-
-		// create the instance
-		VkInstanceCreateInfo instanceCreateInfo = {};
-		instanceCreateInfo.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
-		instanceCreateInfo.pApplicationInfo = &appInfo;
-		instanceCreateInfo.enabledExtensionCount = instInitCtx->enabledExtensionCount;
-		instanceCreateInfo.ppEnabledExtensionNames = instInitCtx->enabledExtensions;
-
-		res = vkCreateInstance( &instanceCreateInfo, NULL, &vkState.instance );
-		if (res != VK_SUCCESS) {
-			Com_Error(ERR_FATAL, "InitVulkan: failed to create Vulkan instance (%d)\n", res);
-		}
+		// initialize the vulkan instance and window surface
+		InitVulkanInstance();
+		InitVulkanSurface();
 
 		// get the physical device
 		uint32_t physicalDeviceCount = 1;
 		res = vkEnumeratePhysicalDevices( vkState.instance, &physicalDeviceCount, &vkState.physicalDevice );
-		if (res != VK_SUCCESS && res != VK_INCOMPLETE) {
-			Com_Error(ERR_FATAL, "InitVulkan: failed to get the primary physical device (%d)\n", res);
+		if( res != VK_SUCCESS && res != VK_INCOMPLETE ) {
+			Com_Error( ERR_FATAL, "InitVulkan: failed to get the primary physical device (%d)\n", res );
 		}
 
-		R_Free(instInitCtx->supportedExtensions);
-		R_Free(instInitCtx);
-
-		// initialize the device
-		devInitCtx = (vkdevice_initContext_t*)R_Malloc(sizeof(vkdevice_initContext_t), TAG_ALL, qtrue);
-		devInitCtx->physicalDevice = vkState.physicalDevice;
-
-		vkGetPhysicalDeviceFeatures(devInitCtx->physicalDevice, &devInitCtx->supportedDeviceFeatures);
-		vkGetPhysicalDeviceProperties(devInitCtx->physicalDevice, &devInitCtx->physicalDeviceProperties);
-
-		// get number of supported device queue families, allocate a buffer and read the properties
-		vkGetPhysicalDeviceQueueFamilyProperties(devInitCtx->physicalDevice, &devInitCtx->supportedDeviceQueueFamilyCount, NULL);
-		devInitCtx->supportedDeviceQueueFamilies = (VkQueueFamilyProperties*)R_Malloc(sizeof(VkQueueFamilyProperties) * devInitCtx->supportedDeviceQueueFamilyCount, TAG_ALL);
-		vkGetPhysicalDeviceQueueFamilyProperties(devInitCtx->physicalDevice, &devInitCtx->supportedDeviceQueueFamilyCount, devInitCtx->supportedDeviceQueueFamilies);
-
-		// get number of supported device extensions, allocate a buffer and read the extensions
-		vkEnumerateDeviceExtensionProperties(devInitCtx->physicalDevice, NULL, &devInitCtx->supportedExtensionCount, NULL);
-		devInitCtx->supportedExtensions = (VkExtensionProperties*)R_Malloc(sizeof(VkExtensionProperties) * devInitCtx->supportedExtensionCount, TAG_ALL);
-		res = vkEnumerateDeviceExtensionProperties(devInitCtx->physicalDevice, NULL, &devInitCtx->supportedExtensionCount, devInitCtx->supportedExtensions);
-		if( res != VK_SUCCESS ) {
-			Com_Error( ERR_FATAL, "InitVulkan: failed to query supported Vulkan device extensions (%d)\n", res );
-		}
+		// initialize the device on the selected display adapter
+		InitVulkanDevice();
+		InitVulkanObjects();
+		VK_InitSwapchain();
 
 		// get our config strings
-		Q_strncpyz(vkState.physicalDeviceName, devInitCtx->physicalDeviceProperties.deviceName, ARRAY_LEN(vkState.physicalDeviceName));
-		sprintf(vkState.physicalDeviceDriverVersion, "%u.%u.%u",
-			VK_API_VERSION_MAJOR(devInitCtx->physicalDeviceProperties.driverVersion),
-			VK_API_VERSION_MINOR(devInitCtx->physicalDeviceProperties.driverVersion),
-			VK_API_VERSION_PATCH(devInitCtx->physicalDeviceProperties.driverVersion));
+		vkGetPhysicalDeviceProperties( vkState.physicalDevice, &physicalDeviceProperties );
 
-		glConfig.vendor_string = VK_GetVendorString( devInitCtx->physicalDeviceProperties.vendorID );
+		Q_strncpyz( vkState.physicalDeviceName, physicalDeviceProperties.deviceName, ARRAY_LEN( vkState.physicalDeviceName ) );
+		sprintf( vkState.physicalDeviceDriverVersion, "%u.%u.%u",
+			 VK_API_VERSION_MAJOR( physicalDeviceProperties.driverVersion ),
+			 VK_API_VERSION_MINOR( physicalDeviceProperties.driverVersion ),
+			 VK_API_VERSION_PATCH( physicalDeviceProperties.driverVersion ) );
+
+		glConfig.vendor_string = VK_GetVendorString( physicalDeviceProperties.vendorID );
 		glConfig.renderer_string = vkState.physicalDeviceName;
 		glConfig.version_string = vkState.physicalDeviceDriverVersion;
 		glConfig.extensions_string = NULL;
 
 		// Vulkan driver constants
-		glConfig.maxTextureSize = devInitCtx->physicalDeviceProperties.limits.maxImageDimension2D;
-
-		// initialize extensions
-		VK_InitDeviceExtensions( devInitCtx );
-
-		// setup the default command queue
-		float queuePriority = 1.f;
-		VkDeviceQueueCreateInfo queueCreateInfo = {};
-		queueCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-
-		for( uint32_t i = 0; i < devInitCtx->supportedDeviceQueueFamilyCount; ++i ) {
-			const VkQueueFamilyProperties* queueFamily = &devInitCtx->supportedDeviceQueueFamilies[i];
-
-			VkBool32 queueSupportsPresentation = VK_FALSE;
-			res = vkGetPhysicalDeviceSurfaceSupportKHR( devInitCtx->physicalDevice, i, vkState.surface, &queueSupportsPresentation );
-
-			if( queueFamily->queueFlags & VK_QUEUE_GRAPHICS_BIT && res == VK_SUCCESS && queueSupportsPresentation ) {
-				queueCreateInfo.queueFamilyIndex = i;
-				queueCreateInfo.queueCount = 1;
-				queueCreateInfo.pQueuePriorities = &queuePriority;
-				break;
-			}
-		}
-
-		if( queueCreateInfo.queueCount == 0 ) {
-			Com_Error( ERR_FATAL, "InitVulkan: suitable command queue family not found\n" );
-		}
-
-		// create the device
-		VkDeviceCreateInfo deviceCreateInfo = {};
-		deviceCreateInfo.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
-		deviceCreateInfo.pEnabledFeatures = &devInitCtx->enabledDeviceFeatures;
-		deviceCreateInfo.enabledExtensionCount = devInitCtx->enabledExtensionCount;
-		deviceCreateInfo.ppEnabledExtensionNames = devInitCtx->enabledExtensions;
-		deviceCreateInfo.queueCreateInfoCount = 1;
-		deviceCreateInfo.pQueueCreateInfos = &queueCreateInfo;
-
-		res = vkCreateDevice( vkState.physicalDevice, &deviceCreateInfo, NULL, &vkState.device );
-		if( res != VK_SUCCESS ) {
-			Com_Error( ERR_FATAL, "InitVulkan: failed to create Vulkan device (%d)\n", res );
-		}
+		glConfig.maxTextureSize = physicalDeviceProperties.limits.maxImageDimension2D;
 
 		R_Splash(); // get something on screen asap
-
-		R_Free(devInitCtx->supportedExtensions);
-		R_Free(devInitCtx->supportedDeviceQueueFamilies);
-		R_Free(devInitCtx);
 	}
+}
+
+static void DeinitVulkan( void ) {
+	vmaDestroyAllocator( vkState.allocator );
+	vkDestroyDescriptorPool( vkState.device, vkState.descriptorPool, NULL );
+	vkDestroyCommandPool( vkState.device, vkState.cmdpool, NULL );
+	vkDestroySwapchainKHR( vkState.device, vkState.swapchain, NULL );
+	vkDestroyDevice( vkState.device, NULL );
+	vkDestroySurfaceKHR( vkState.instance, vkState.surface, NULL );
+	vkDestroyInstance( vkState.instance, NULL );
 }
 
 /*
@@ -605,9 +847,9 @@ byte *RB_ReadPixels( int x, int y, int width, int height, size_t *offset, int *p
 	padwidth = PAD( linelen, packAlign );
 
 	// Allocate a few more bytes so that we can choose an alignment we like
-	buffer = (byte *)R_Malloc( padwidth * height + *offset + packAlign - 1, TAG_TEMP_WORKSPACE, qfalse );
+	buffer = ( byte * )R_Malloc( padwidth * height + *offset + packAlign - 1, TAG_TEMP_WORKSPACE, qfalse );
 
-	bufstart = (byte *)PADP( (intptr_t)buffer + *offset, packAlign );
+	bufstart = ( byte * )PADP( ( intptr_t )buffer + *offset, packAlign );
 	qglReadPixels( x, y, width, height, GL_RGB, GL_UNSIGNED_BYTE, bufstart );
 
 	*offset = bufstart - buffer;
@@ -751,7 +993,7 @@ static void R_LevelShot( void ) {
 	allsource = RB_ReadPixels( 0, 0, glConfig.vidWidth, glConfig.vidHeight, &offset, &padlen );
 	source = allsource + offset;
 
-	buffer = (byte *)R_Malloc( LEVELSHOTSIZE * LEVELSHOTSIZE * 3 + 18, TAG_TEMP_WORKSPACE, qfalse );
+	buffer = ( byte * )R_Malloc( LEVELSHOTSIZE * LEVELSHOTSIZE * 3 + 18, TAG_TEMP_WORKSPACE, qfalse );
 	Com_Memset( buffer, 0, 18 );
 	buffer[2] = 2; // uncompressed type
 	buffer[12] = LEVELSHOTSIZE & 255;
@@ -768,7 +1010,7 @@ static void R_LevelShot( void ) {
 			r = g = b = 0;
 			for( yy = 0; yy < 3; yy++ ) {
 				for( xx = 0; xx < 4; xx++ ) {
-					src = source + 3 * ( glConfig.vidWidth * (int)( ( y * 3 + yy ) * yScale ) + (int)( ( x * 4 + xx ) * xScale ) );
+					src = source + 3 * ( glConfig.vidWidth * ( int )( ( y * 3 + yy ) * yScale ) + ( int )( ( x * 4 + xx ) * xScale ) );
 					r += src[0];
 					g += src[1];
 					b += src[2];
@@ -991,10 +1233,10 @@ void GfxInfo_f( void ) {
 	ri.Printf( PRINT_ALL, "GL_MAX_ACTIVE_TEXTURES_ARB: %d\n", glConfig.maxActiveTextures );
 	ri.Printf( PRINT_ALL, "\nPIXELFORMAT: color(%d-bits) Z(%d-bit) stencil(%d-bits)\n", glConfig.colorBits, glConfig.depthBits, glConfig.stencilBits );
 	ri.Printf( PRINT_ALL, "MODE: %d, %d x %d %s%s hz:",
-		ri.Cvar_VariableIntegerValue( "r_mode" ),
-		glConfig.vidWidth, glConfig.vidHeight,
-		fullscreen == 0 ? noborderstrings[noborder == 1] : noborderstrings[0],
-		fsstrings[fullscreen == 1] );
+		   ri.Cvar_VariableIntegerValue( "r_mode" ),
+		   glConfig.vidWidth, glConfig.vidHeight,
+		   fullscreen == 0 ? noborderstrings[noborder == 1] : noborderstrings[0],
+		   fsstrings[fullscreen == 1] );
 	if( glConfig.displayFrequency ) {
 		ri.Printf( PRINT_ALL, "%d\n", glConfig.displayFrequency );
 	}
@@ -1051,12 +1293,12 @@ void GfxInfo_f( void ) {
 	ri.Printf( PRINT_ALL, "anisotropic filtering: %s  ", enablestrings[( r_ext_texture_filter_anisotropic->integer != 0 ) && glConfig.maxTextureFilterAnisotropy] );
 	if( r_ext_texture_filter_anisotropic->integer != 0 && glConfig.maxTextureFilterAnisotropy ) {
 		if( Q_isintegral( r_ext_texture_filter_anisotropic->value ) )
-			ri.Printf( PRINT_ALL, "(%i of ", (int)r_ext_texture_filter_anisotropic->value );
+			ri.Printf( PRINT_ALL, "(%i of ", ( int )r_ext_texture_filter_anisotropic->value );
 		else
 			ri.Printf( PRINT_ALL, "(%f of ", r_ext_texture_filter_anisotropic->value );
 
 		if( Q_isintegral( glConfig.maxTextureFilterAnisotropy ) )
-			ri.Printf( PRINT_ALL, "%i)\n", (int)glConfig.maxTextureFilterAnisotropy );
+			ri.Printf( PRINT_ALL, "%i)\n", ( int )glConfig.maxTextureFilterAnisotropy );
 		else
 			ri.Printf( PRINT_ALL, "%f)\n", glConfig.maxTextureFilterAnisotropy );
 	}
@@ -1164,9 +1406,9 @@ void R_FogColor_f( void ) {
 		unsigned i = tr.world->fogs[tr.world->globalFog].colorInt;
 
 		ri.Printf( PRINT_ALL, "R_FogColor_f: Current Color: %0f %0f %0f\n",
-			( (byte *)&i )[0] / 255.0,
-			( (byte *)&i )[1] / 255.0,
-			( (byte *)&i )[2] / 255.0 );
+			   ( ( byte * )&i )[0] / 255.0,
+			   ( ( byte * )&i )[1] / 255.0,
+			   ( ( byte * )&i )[2] / 255.0 );
 		return;
 	}
 
@@ -1179,8 +1421,8 @@ void R_FogColor_f( void ) {
 	tr.world->fogs[tr.world->globalFog].parms.color[1] = atof( ri.Cmd_Argv( 2 ) );
 	tr.world->fogs[tr.world->globalFog].parms.color[2] = atof( ri.Cmd_Argv( 3 ) );
 	tr.world->fogs[tr.world->globalFog].colorInt = ColorBytes4( atof( ri.Cmd_Argv( 1 ) ) * tr.identityLight,
-		atof( ri.Cmd_Argv( 2 ) ) * tr.identityLight,
-		atof( ri.Cmd_Argv( 3 ) ) * tr.identityLight, 1.0 );
+								    atof( ri.Cmd_Argv( 2 ) ) * tr.identityLight,
+								    atof( ri.Cmd_Argv( 3 ) ) * tr.identityLight, 1.0 );
 }
 
 typedef struct consoleCommand_s {
@@ -1431,7 +1673,7 @@ void R_Init( void ) {
 	memset( &tess, 0, sizeof( tess ) );
 
 #ifndef FINAL_BUILD
-	if( (intptr_t)tess.xyz & 15 ) {
+	if( ( intptr_t )tess.xyz & 15 ) {
 		Com_Printf( "WARNING: tess.xyz not 16 byte aligned\n" );
 	}
 #endif
@@ -1440,14 +1682,14 @@ void R_Init( void ) {
 	// init function tables
 	//
 	for( i = 0; i < FUNCTABLE_SIZE; i++ ) {
-		tr.sinTable[i] = sin( DEG2RAD( i * 360.0f / ( (float)( FUNCTABLE_SIZE - 1 ) ) ) );
+		tr.sinTable[i] = sin( DEG2RAD( i * 360.0f / ( ( float )( FUNCTABLE_SIZE - 1 ) ) ) );
 		tr.squareTable[i] = ( i < FUNCTABLE_SIZE / 2 ) ? 1.0f : -1.0f;
-		tr.sawToothTable[i] = (float)i / FUNCTABLE_SIZE;
+		tr.sawToothTable[i] = ( float )i / FUNCTABLE_SIZE;
 		tr.inverseSawToothTable[i] = 1.0f - tr.sawToothTable[i];
 
 		if( i < FUNCTABLE_SIZE / 2 ) {
 			if( i < FUNCTABLE_SIZE / 4 ) {
-				tr.triangleTable[i] = (float)i / ( FUNCTABLE_SIZE / 4 );
+				tr.triangleTable[i] = ( float )i / ( FUNCTABLE_SIZE / 4 );
 			}
 			else {
 				tr.triangleTable[i] = 1.0f - tr.triangleTable[i - FUNCTABLE_SIZE / 4];
@@ -1463,15 +1705,15 @@ void R_Init( void ) {
 	R_NoiseInit();
 	R_Register();
 
-	backEndData = (backEndData_t *)R_Hunk_Alloc( sizeof( backEndData_t ), qtrue );
+	backEndData = ( backEndData_t * )R_Hunk_Alloc( sizeof( backEndData_t ), qtrue );
 	R_InitNextFrame();
 
 	const color4ub_t color = { 0xff, 0xff, 0xff, 0xff };
 	for( i = 0; i < MAX_LIGHT_STYLES; i++ ) {
-		byteAlias_t *ba = (byteAlias_t *)&color;
+		byteAlias_t *ba = ( byteAlias_t * )&color;
 		RE_SetLightStyle( i, ba->i );
 	}
-	InitVulkan();
+	VK_Init();
 
 	R_InitImages();
 	R_InitShaders();
@@ -1497,36 +1739,30 @@ void RE_Shutdown( qboolean destroyWindow, qboolean restarting ) {
 	for( size_t i = 0; i < numCommands; i++ )
 		ri.Cmd_RemoveCommand( commands[i].cmd );
 
+	// free the dynamic glow resources
 	if( r_DynamicGlow && r_DynamicGlow->integer ) {
-		if( tr.glowBlurPipeline )
-			vkDestroyPipeline(vkState.device, tr.glowBlurPipeline, NULL);
-		if( tr.glowBlurPipelineLayout )
-			vkDestroyPipelineLayout(vkState.device, tr.glowBlurPipelineLayout, NULL);
-		if (tr.glowBlurDescriptorSet)
-			vkFreeDescriptorSets(vkState.device, vkState.descriptorPool, 1, &tr.glowBlurDescriptorSet);
-		if (tr.glowBlurDescriptorSetLayout)
-			vkDestroyDescriptorSetLayout(vkState.device, tr.glowBlurDescriptorSetLayout, NULL);
+		vkDestroyPipeline( vkState.device, tr.glowBlurPipeline, NULL );
+		vkDestroyPipelineLayout( vkState.device, tr.glowBlurPipelineLayout, NULL );
+		vkFreeDescriptorSets( vkState.device, vkState.descriptorPool, 1, &tr.glowBlurDescriptorSet );
+		vkDestroyDescriptorSetLayout( vkState.device, tr.glowBlurDescriptorSetLayout, NULL );
 
-		if( tr.glowCombinePipeline )
-			vkDestroyPipeline(vkState.device, tr.glowCombinePipeline, NULL);
-		if (tr.glowCombinePipelineLayout)
-			vkDestroyPipelineLayout(vkState.device, tr.glowCombinePipelineLayout, NULL);
-		if (tr.glowCombineDescriptorSet)
-			vkFreeDescriptorSets(vkState.device, vkState.descriptorPool, 1, &tr.glowCombineDescriptorSet);
-		if (tr.glowCombineDescriptorSetLayout)
-			vkDestroyDescriptorSetLayout(vkState.device, tr.glowCombineDescriptorSetLayout, NULL);
+		vkDestroyPipeline( vkState.device, tr.glowCombinePipeline, NULL );
+		vkDestroyPipelineLayout( vkState.device, tr.glowCombinePipelineLayout, NULL );
+		vkFreeDescriptorSets( vkState.device, vkState.descriptorPool, 1, &tr.glowCombineDescriptorSet );
+		vkDestroyDescriptorSetLayout( vkState.device, tr.glowCombineDescriptorSetLayout, NULL );
 
-		if (tr.glowBlurFramebuffer)
-			vkDestroyFramebuffer(vkState.device, tr.glowBlurFramebuffer, NULL);
-		if (tr.glowFramebuffer)
-			vkDestroyFramebuffer(vkState.device, tr.glowFramebuffer, NULL);
+		vkDestroyFramebuffer( vkState.device, tr.glowBlurFramebuffer, NULL );
+		vkDestroyFramebuffer( vkState.device, tr.glowFramebuffer, NULL );
 
-		if (tr.glowRenderPass)
-			vkDestroyRenderPass(vkState.device, tr.glowRenderPass, NULL);
+		vkDestroyRenderPass( vkState.device, tr.glowRenderPass, NULL );
 
-		R_Images_DeleteImage(tr.glowBlurImage);
-		R_Images_DeleteImage(tr.glowImage);
+		R_Images_DeleteImage( tr.glowBlurImage );
+		R_Images_DeleteImage( tr.glowImage );
 	}
+
+	// free the common descriptor set
+	vkDestroyDescriptorSetLayout( vkState.device, tr.commonDescriptorSetLayout, NULL );
+	vkFreeDescriptorSets( vkState.device, vkState.descriptorPool, 1, &tr.commonDescriptorSet );
 
 	R_ShutdownWorldEffects();
 	R_ShutdownFonts();
@@ -1563,21 +1799,21 @@ void RE_EndRegistration( void ) {
 
 void RE_GetLightStyle( int style, color4ub_t color ) {
 	if( style >= MAX_LIGHT_STYLES ) {
-		Com_Error( ERR_FATAL, "RE_GetLightStyle: %d is out of range", (int)style );
+		Com_Error( ERR_FATAL, "RE_GetLightStyle: %d is out of range", ( int )style );
 		return;
 	}
 
-	byteAlias_t *baDest = (byteAlias_t *)&color, *baSource = (byteAlias_t *)&styleColors[style];
+	byteAlias_t *baDest = ( byteAlias_t * )&color, *baSource = ( byteAlias_t * )&styleColors[style];
 	baDest->i = baSource->i;
 }
 
 void RE_SetLightStyle( int style, int color ) {
 	if( style >= MAX_LIGHT_STYLES ) {
-		Com_Error( ERR_FATAL, "RE_SetLightStyle: %d is out of range", (int)style );
+		Com_Error( ERR_FATAL, "RE_SetLightStyle: %d is out of range", ( int )style );
 		return;
 	}
 
-	byteAlias_t *ba = (byteAlias_t *)&styleColors[style];
+	byteAlias_t *ba = ( byteAlias_t * )&styleColors[style];
 	if( ba->i != color ) {
 		ba->i = color;
 		styleUpdated[style] = true;
@@ -1677,7 +1913,7 @@ extern "C" Q_EXPORT refexport_t *QDECL GetRefAPI( int apiVersion, refimport_t *r
 
 	if( apiVersion != REF_API_VERSION ) {
 		ri.Printf( PRINT_ALL, "Mismatched REF_API_VERSION: expected %i, got %i\n",
-			REF_API_VERSION, apiVersion );
+			   REF_API_VERSION, apiVersion );
 		return NULL;
 	}
 

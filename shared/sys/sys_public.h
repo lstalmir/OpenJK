@@ -168,6 +168,7 @@ typedef enum graphicsApi_e
 typedef struct window_s
 {
 	void *handle; // OS-dependent window handle
+	void *process; // OS-dependent process instance handle
 	graphicsApi_t api;
 } window_t;
 

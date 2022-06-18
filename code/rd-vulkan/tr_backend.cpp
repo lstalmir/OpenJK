@@ -211,6 +211,9 @@ void GL_State( uint32_t stateBits ) {
 		return;
 	}
 
+	VkGraphicsPipelineCreateInfo pipelineCreateInfo = {};
+	pipelineCreateInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+
 	//
 	// check depthFunc bits
 	//
@@ -227,70 +230,70 @@ void GL_State( uint32_t stateBits ) {
 	// check blend bits
 	//
 	if( diff & ( GLS_SRCBLEND_BITS | GLS_DSTBLEND_BITS ) ) {
-		GLenum srcFactor, dstFactor;
+		VkBlendFactor srcFactor, dstFactor;
 
 		if( stateBits & ( GLS_SRCBLEND_BITS | GLS_DSTBLEND_BITS ) ) {
 			switch( stateBits & GLS_SRCBLEND_BITS ) {
 			case GLS_SRCBLEND_ZERO:
-				srcFactor = GL_ZERO;
+				srcFactor = VK_BLEND_FACTOR_ZERO;
 				break;
 			case GLS_SRCBLEND_ONE:
-				srcFactor = GL_ONE;
+				srcFactor = VK_BLEND_FACTOR_ONE;
 				break;
 			case GLS_SRCBLEND_DST_COLOR:
-				srcFactor = GL_DST_COLOR;
+				srcFactor = VK_BLEND_FACTOR_DST_COLOR;
 				break;
 			case GLS_SRCBLEND_ONE_MINUS_DST_COLOR:
-				srcFactor = GL_ONE_MINUS_DST_COLOR;
+				srcFactor = VK_BLEND_FACTOR_ONE_MINUS_DST_COLOR;
 				break;
 			case GLS_SRCBLEND_SRC_ALPHA:
-				srcFactor = GL_SRC_ALPHA;
+				srcFactor = VK_BLEND_FACTOR_SRC_ALPHA;
 				break;
 			case GLS_SRCBLEND_ONE_MINUS_SRC_ALPHA:
-				srcFactor = GL_ONE_MINUS_SRC_ALPHA;
+				srcFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
 				break;
 			case GLS_SRCBLEND_DST_ALPHA:
-				srcFactor = GL_DST_ALPHA;
+				srcFactor = VK_BLEND_FACTOR_DST_ALPHA;
 				break;
 			case GLS_SRCBLEND_ONE_MINUS_DST_ALPHA:
-				srcFactor = GL_ONE_MINUS_DST_ALPHA;
+				srcFactor = VK_BLEND_FACTOR_ONE_MINUS_DST_ALPHA;
 				break;
 			case GLS_SRCBLEND_ALPHA_SATURATE:
-				srcFactor = GL_SRC_ALPHA_SATURATE;
+				srcFactor = VK_BLEND_FACTOR_SRC_ALPHA_SATURATE;
 				break;
 			default:
-				srcFactor = GL_ONE; // to get warning to shut up
+				srcFactor = VK_BLEND_FACTOR_ONE; // to get warning to shut up
 				Com_Error( ERR_DROP, "GL_State: invalid src blend state bits\n" );
 				break;
 			}
 
 			switch( stateBits & GLS_DSTBLEND_BITS ) {
 			case GLS_DSTBLEND_ZERO:
-				dstFactor = GL_ZERO;
+				dstFactor = VK_BLEND_FACTOR_ZERO;
 				break;
 			case GLS_DSTBLEND_ONE:
-				dstFactor = GL_ONE;
+				dstFactor = VK_BLEND_FACTOR_ONE;
 				break;
 			case GLS_DSTBLEND_SRC_COLOR:
-				dstFactor = GL_SRC_COLOR;
+				dstFactor = VK_BLEND_FACTOR_SRC_COLOR;
 				break;
 			case GLS_DSTBLEND_ONE_MINUS_SRC_COLOR:
-				dstFactor = GL_ONE_MINUS_SRC_COLOR;
+				dstFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_COLOR;
 				break;
 			case GLS_DSTBLEND_SRC_ALPHA:
-				dstFactor = GL_SRC_ALPHA;
+				dstFactor = VK_BLEND_FACTOR_SRC_ALPHA;
 				break;
 			case GLS_DSTBLEND_ONE_MINUS_SRC_ALPHA:
-				dstFactor = GL_ONE_MINUS_SRC_ALPHA;
+				dstFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
 				break;
 			case GLS_DSTBLEND_DST_ALPHA:
-				dstFactor = GL_DST_ALPHA;
+				dstFactor = VK_BLEND_FACTOR_DST_ALPHA;
 				break;
 			case GLS_DSTBLEND_ONE_MINUS_DST_ALPHA:
-				dstFactor = GL_ONE_MINUS_DST_ALPHA;
+				dstFactor = VK_BLEND_FACTOR_ONE_MINUS_DST_ALPHA;
 				break;
 			default:
-				dstFactor = GL_ONE; // to get warning to shut up
+				dstFactor = VK_BLEND_FACTOR_ONE; // to get warning to shut up
 				Com_Error( ERR_DROP, "GL_State: invalid dst blend state bits\n" );
 				break;
 			}
@@ -319,11 +322,13 @@ void GL_State( uint32_t stateBits ) {
 	// fill/line mode
 	//
 	if( diff & GLS_POLYMODE_LINE ) {
+		VkPolygonMode polygonMode;
+
 		if( stateBits & GLS_POLYMODE_LINE ) {
-			qglPolygonMode( GL_FRONT_AND_BACK, GL_LINE );
+			polygonMode = VK_POLYGON_MODE_LINE;
 		}
 		else {
-			qglPolygonMode( GL_FRONT_AND_BACK, GL_FILL );
+			polygonMode = VK_POLYGON_MODE_FILL;
 		}
 	}
 
@@ -1240,12 +1245,22 @@ const void *RB_Scissor( const void *data ) {
 		RB_SetGL2D();
 	}
 
+	VkRect2D scissorRect;
+
 	if( cmd->x >= 0 ) {
-		qglScissor( cmd->x, ( glConfig.vidHeight - cmd->y - cmd->h ), cmd->w, cmd->h );
+		scissorRect.offset.x = cmd->x;
+		scissorRect.offset.y = glConfig.vidHeight - cmd->y - cmd->h;
+		scissorRect.extent.width = cmd->w;
+		scissorRect.extent.height = cmd->h;
 	}
 	else {
-		qglScissor( 0, 0, glConfig.vidWidth, glConfig.vidHeight );
+		scissorRect.offset.x = 0;
+		scissorRect.offset.y = 0;
+		scissorRect.extent.width = glConfig.vidWidth;
+		scissorRect.extent.height = glConfig.vidHeight;
 	}
+
+	vkCmdSetScissor( vkCtx.cmdbuffer, 0, 1, &scissorRect );
 
 	return (const void *)( cmd + 1 );
 }
@@ -1282,31 +1297,11 @@ const void *RB_DrawSurfs( const void *data ) {
 
 	// Render dynamic glowing/flaring objects.
 	if( !( backEnd.refdef.rdflags & RDF_NOWORLDMODEL ) && g_bDynamicGlowSupported && r_DynamicGlow->integer ) {
-		// Copy the normal scene to texture.
-		qglDisable( GL_TEXTURE_2D );
-		qglEnable( GL_TEXTURE_RECTANGLE_ARB );
-		qglBindTexture( GL_TEXTURE_RECTANGLE_ARB, tr.sceneImage );
-		qglCopyTexSubImage2D( GL_TEXTURE_RECTANGLE_ARB, 0, 0, 0, backEnd.viewParms.viewportX, backEnd.viewParms.viewportY, backEnd.viewParms.viewportWidth, backEnd.viewParms.viewportHeight );
-		qglDisable( GL_TEXTURE_RECTANGLE_ARB );
-		qglEnable( GL_TEXTURE_2D );
-
-		// Just clear colors, but leave the depth buffer intact so we can 'share' it.
-		qglClearColor( 0.0f, 0.0f, 0.0f, 0.0f );
-		qglClear( GL_COLOR_BUFFER_BIT );
 
 		// Render the glowing objects.
 		g_bRenderGlowingObjects = true;
 		RB_RenderDrawSurfList( cmd->drawSurfs, cmd->numDrawSurfs );
 		g_bRenderGlowingObjects = false;
-		qglFinish();
-
-		// Copy the glow scene to texture.
-		qglDisable( GL_TEXTURE_2D );
-		qglEnable( GL_TEXTURE_RECTANGLE_ARB );
-		qglBindTexture( GL_TEXTURE_RECTANGLE_ARB, tr.screenGlow );
-		qglCopyTexSubImage2D( GL_TEXTURE_RECTANGLE_ARB, 0, 0, 0, backEnd.viewParms.viewportX, backEnd.viewParms.viewportY, backEnd.viewParms.viewportWidth, backEnd.viewParms.viewportHeight );
-		qglDisable( GL_TEXTURE_RECTANGLE_ARB );
-		qglEnable( GL_TEXTURE_2D );
 
 		// Resize the viewport to the blur texture size.
 		const int oldViewWidth = backEnd.viewParms.viewportWidth;
@@ -1317,20 +1312,6 @@ const void *RB_DrawSurfs( const void *data ) {
 
 		// Blur the scene.
 		RB_BlurGlowTexture();
-
-		// Copy the finished glow scene back to texture.
-		qglDisable( GL_TEXTURE_2D );
-		qglEnable( GL_TEXTURE_RECTANGLE_ARB );
-		qglBindTexture( GL_TEXTURE_RECTANGLE_ARB, tr.blurImage );
-		qglCopyTexSubImage2D( GL_TEXTURE_RECTANGLE_ARB, 0, 0, 0, 0, 0, backEnd.viewParms.viewportWidth, backEnd.viewParms.viewportHeight );
-		qglDisable( GL_TEXTURE_RECTANGLE_ARB );
-		qglEnable( GL_TEXTURE_2D );
-
-		// Set the viewport back to normal.
-		backEnd.viewParms.viewportWidth = oldViewWidth;
-		backEnd.viewParms.viewportHeight = oldViewHeight;
-		SetViewportAndScissor();
-		qglClear( GL_COLOR_BUFFER_BIT );
 
 		// Draw the glow additively over the screen.
 		RB_DrawGlowOverlay();
