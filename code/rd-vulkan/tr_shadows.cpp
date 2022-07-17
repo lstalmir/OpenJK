@@ -24,6 +24,7 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 
 #include "tr_local.h"
 
+#if 0
 /*
 
   for a projection shadow:
@@ -167,6 +168,7 @@ void R_RenderShadowEdges( void ) {
 
 //#define _DEBUG_STENCIL_SHADOWS
 
+#endif
 /*
 =================
 RB_ShadowTessEnd
@@ -224,6 +226,7 @@ void RB_ShadowTessEnd( void )
 
 void RB_DoShadowTessEnd( vec3_t lightPos )
 {
+#if 0
 	int		i;
 	int		numTris;
 	vec3_t	lightDir;
@@ -328,7 +331,7 @@ void RB_DoShadowTessEnd( vec3_t lightPos )
 		R_AddEdgeDef( i3, i1, facing[ i ] );
 	}
 
-	GL_Bind( tr.whiteImage );
+	VK_BindImage( tr.whiteImage );
 	//qglEnable( GL_CULL_FACE );
 	GL_State( GLS_SRCBLEND_ONE | GLS_DSTBLEND_ZERO );
 
@@ -404,8 +407,8 @@ void RB_DoShadowTessEnd( vec3_t lightPos )
 #ifdef _DEBUG_STENCIL_SHADOWS
 	qglPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 #endif
+#endif
 }
-
 
 /*
 =================
@@ -418,6 +421,7 @@ overlap and double darken.
 =================
 */
 void RB_ShadowFinish( void ) {
+#if 0
 	if ( r_shadows->integer != 2 ) {
 		return;
 	}
@@ -443,7 +447,7 @@ void RB_ShadowFinish( void ) {
 	GL_Cull(CT_TWO_SIDED);
 	//qglDisable (GL_CULL_FACE);
 
-	GL_Bind( tr.whiteImage );
+	VK_BindImage( tr.whiteImage );
 
 	qglPushMatrix();
     qglLoadIdentity ();
@@ -472,9 +476,10 @@ void RB_ShadowFinish( void ) {
 		qglEnable (GL_CLIP_PLANE0);
 	}
 	qglPopMatrix();
+#endif
 }
 
-
+#if 0
 /*
 =================
 RB_ProjectionShadowDeform
@@ -520,10 +525,12 @@ void RB_ProjectionShadowDeform( void ) {
 		xyz[2] -= light[2] * h;
 	}
 }
+#endif
 
 //update tr.screenImage
 void RB_CaptureScreenImage(void)
 {
+#if 0
 	int radX = 2048;
 	int radY = 2048;
 	int x = glConfig.vidWidth/2;
@@ -583,6 +590,7 @@ void RB_CaptureScreenImage(void)
 	}
 
 	qglCopyTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA16, cX, cY, radX, radY, 0);
+#endif
 }
 
 
@@ -591,8 +599,8 @@ float tr_distortionAlpha = 1.0f; //opaque
 float tr_distortionStretch = 0.0f; //no stretch override
 qboolean tr_distortionPrePost = qfalse; //capture before postrender phase?
 qboolean tr_distortionNegate = qfalse; //negative blend mode
-void RB_DistortionFill(void)
-{
+void RB_DistortionFill(void) {
+#if 0
 	float alpha = tr_distortionAlpha;
 	float spost = 0.0f;
 	float spost2 = 0.0f;
@@ -720,4 +728,5 @@ void RB_DistortionFill(void)
 	qglPopMatrix();
 
 	qglDisable( GL_STENCIL_TEST );
+#endif
 }

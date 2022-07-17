@@ -33,7 +33,7 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 ////////////////////////////////////////////////////////////////////////////////////////
 // Externs & Fwd Decl.
 ////////////////////////////////////////////////////////////////////////////////////////
-extern void			SetViewportAndScissor( void );
+extern void			SetViewportAndScissor( int depthRange );
 
 ////////////////////////////////////////////////////////////////////////////////////////
 // Includes
@@ -915,7 +915,7 @@ bool R_SetTempGlobalFogColor(vec3_t color)
 			//-------------------------------
 			if (!mOutside.mFogColorTempActive)
 			{
-				mOutside.mFogColor				= tr.world->fogs[tr.world->globalFog].parms.color;
+				mOutside.mFogColor				= tr.world->fogs[tr.world->globalFog].parms.color.m;
 				mOutside.mFogColorInt			= tr.world->fogs[tr.world->globalFog].colorInt;
 				mOutside.mFogColorTempActive	= true;
 			}
@@ -978,9 +978,16 @@ private:
 
 
 	int			mParticleCountRender;
-	int			mGLModeEnum;
 
 	bool		mPopulated;
+
+	shader_t	*mShader;
+
+	int			mDescriptorSetLocation;
+	VkDescriptorSet mDescriptorSet;
+	VkDescriptorSetLayout mDescriptorSetLayout;
+
+	buffer_t	*mParticleInstanceBuffer;
 
 
 public:
@@ -1045,7 +1052,7 @@ public:
 		mParticles		= new WFXParticle[mParticleCount];
 
 		WFXParticle*	part=0;
-		for (int particleNum=0; particleNum<mParticleCount; particleNum++)
+		for (int particleNum=0; particleNum < mParticleCount; particleNum++)
 		{
 			part = &(mParticles[particleNum]);
 			part->mPosition.Clear();
@@ -1055,9 +1062,53 @@ public:
 		}
 
 		mVertexCount = VertexCount;
-		mGLModeEnum = (mVertexCount==3)?(GL_TRIANGLES):(GL_QUADS);
 	}
 
+	////////////////////////////////////////////////////////////////////////////////////
+	// Compile - Build Vulkan descriptor set and pipeline state from the current values
+	////////////////////////////////////////////////////////////////////////////////////
+	void		Compile()
+	{
+		VkResult res;
+		VkWriteDescriptorSet descriptorSetUpdates[2] = {};
+		VkDescriptorImageInfo descriptors[2] = {};
+
+		if( mDescriptorSet == VK_NULL_HANDLE ) {
+			VkDescriptorSetAllocateInfo descriptorSetAllocateInfo = {};
+
+			descriptorSetAllocateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+			descriptorSetAllocateInfo.descriptorSetCount = 1;
+			descriptorSetAllocateInfo.pSetLayouts = &mDescriptorSetLayout;
+
+			res = vkAllocateDescriptorSets( vkState.device, &descriptorSetAllocateInfo, &mDescriptorSet );
+			if (res != VK_SUCCESS) {
+				Com_Error( ERR_DROP, "CParticleCloud::Compile: failed to allocate descriptor set (%d)\n", res );
+			}
+		}
+
+		// update image
+		descriptorSetUpdates[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+		descriptorSetUpdates[0].dstSet = mDescriptorSet;
+		descriptorSetUpdates[0].dstBinding = 0;
+		descriptorSetUpdates[0].descriptorCount = 1;
+		descriptorSetUpdates[0].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+		descriptorSetUpdates[0].pImageInfo = &descriptors[0];
+		descriptors[0].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+		descriptors[0].imageView = mImage->texview;
+
+		// update sampler
+		descriptorSetUpdates[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+		descriptorSetUpdates[1].dstSet = mDescriptorSet;
+		descriptorSetUpdates[1].dstBinding = 1;
+		descriptorSetUpdates[1].descriptorCount = 1;
+		descriptorSetUpdates[1].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER;
+		descriptorSetUpdates[1].pImageInfo = &descriptors[1];
+		descriptors[1].sampler = ( mFilterMode == 1 ) ? tr.pointClampSampler : tr.linearClampSampler;
+
+		vkUpdateDescriptorSets( vkState.device, ARRAY_LEN( descriptorSetUpdates ), descriptorSetUpdates, 0, NULL );
+
+
+	}
 
 	////////////////////////////////////////////////////////////////////////////////////
 	// Reset - Initializes all data to default values
@@ -1424,129 +1475,44 @@ public:
 	void		Render()
 	{
 		WFXParticle*	part=0;
-		int			particleNum;
-		CVec3		partDirection;
+		VkDeviceSize	particleInstanceBufferOffset = 0;
+		int				firstInstance = 0;
+		int				instanceCount = 0;
+		int				particleNum;
 
-
-		// Set The GL State And Image Binding
-		//------------------------------------
-		GL_State((mBlendMode==0)?(GLS_ALPHA):(GLS_SRCBLEND_ONE | GLS_DSTBLEND_ONE));
-		GL_Bind(mImage);
-
-
-		// Enable And Disable Things
-		//---------------------------
-		qglEnable(GL_TEXTURE_2D);
-		qglDisable(GL_CULL_FACE);
-
-		qglTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, (mFilterMode==0)?(GL_LINEAR):(GL_NEAREST));
-		qglTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, (mFilterMode==0)?(GL_LINEAR):(GL_NEAREST));
-
-
-		// Setup Matrix Mode And Translation
+		// Setup Vk state and bindings
 		//-----------------------------------
-		qglMatrixMode(GL_MODELVIEW);
-		qglPushMatrix();
+		RB_SetShader( mShader );
+
+		vkCmdBindDescriptorSets( backEndData->cmdbuf, VK_PIPELINE_BIND_POINT_GRAPHICS, backEndData->pipelineLayout,
+			mDescriptorSetLocation, 1, &mDescriptorSet, 0, NULL );
+
+		vkCmdBindVertexBuffers( backEndData->cmdbuf, 1, 1, &mParticleInstanceBuffer->buf, &particleInstanceBufferOffset );
 
 
 		// Begin
 		//-------
-		qglBegin(mGLModeEnum);
-		for (particleNum=0; particleNum<mParticleCount; particleNum++)
+		for (particleNum=0; particleNum < mParticleCount; particleNum++)
 		{
-			part = &(mParticles[particleNum]);
-			if (!part->mFlags.get_bit(WFXParticle::FLAG_RENDER))
-			{
-				continue;
-			}
+			firstInstance = particleNum;
+			instanceCount = 0;
 
-			// If Oriented With Velocity, We Want To Calculate Vertx Offsets Differently For Each Particle
-			//---------------------------------------------------------------------------------------------
-			if (mOrientWithVelocity)
-			{
-				partDirection = part->mVelocity;
-				VectorNormalize(partDirection.v);
-				mCameraDown = partDirection;
-				mCameraDown *= (mHeight * -1);
-				if (mVertexCount==4)
-				{
-		 			mCameraLeftPlusUp  = (mCameraLeft - mCameraDown);
-					mCameraLeftMinusUp = (mCameraLeft + mCameraDown);
+			// Construct a batch of particles
+			while( particleNum < mParticleCount ) {
+				part = &( mParticles[particleNum] );
+				if( !part->mFlags.get_bit( WFXParticle::FLAG_RENDER ) ) {
+					break;
 				}
-				else
-				{
-					mCameraLeftPlusUp  = (mCameraDown + mCameraLeft);
-				}
+
+				instanceCount++;
+				particleNum++;
 			}
 
-			// Blend Mode Zero -> Apply Alpha Just To Alpha Channel
-			//------------------------------------------------------
-			if (mBlendMode==0)
-			{
-				qglColor4f(mColor[0], mColor[1], mColor[2], part->mAlpha);
-			}
-
-			// Otherwise Apply Alpha To All Channels
-			//---------------------------------------
-			else
-			{
-				qglColor4f(mColor[0]*part->mAlpha, mColor[1]*part->mAlpha, mColor[2]*part->mAlpha, mColor[3]*part->mAlpha);
-			}
-
-
-			// Render A Triangle
-			//-------------------
-			if (mVertexCount==3)
-			{
- 				qglTexCoord2f(1.0, 0.0);
-				qglVertex3f(part->mPosition[0],
-							part->mPosition[1],
-							part->mPosition[2]);
-
-				qglTexCoord2f(0.0, 1.0);
-				qglVertex3f(part->mPosition[0] + mCameraLeft[0],
-							part->mPosition[1] + mCameraLeft[1],
-							part->mPosition[2] + mCameraLeft[2]);
-
-				qglTexCoord2f(0.0, 0.0);
-				qglVertex3f(part->mPosition[0] + mCameraLeftPlusUp[0],
-							part->mPosition[1] + mCameraLeftPlusUp[1],
-							part->mPosition[2] + mCameraLeftPlusUp[2]);
-			}
-
-			// Render A Quad
-			//---------------
-			else
-			{
-				// Left bottom.
-				qglTexCoord2f( 0.0, 0.0 );
-				qglVertex3f(part->mPosition[0] - mCameraLeftMinusUp[0],
-							part->mPosition[1] - mCameraLeftMinusUp[1],
-							part->mPosition[2] - mCameraLeftMinusUp[2] );
-
-				// Right bottom.
-				qglTexCoord2f( 1.0, 0.0 );
-				qglVertex3f(part->mPosition[0] - mCameraLeftPlusUp[0],
-							part->mPosition[1] - mCameraLeftPlusUp[1],
-							part->mPosition[2] - mCameraLeftPlusUp[2] );
-
-				// Right top.
-				qglTexCoord2f( 1.0, 1.0 );
-				qglVertex3f(part->mPosition[0] + mCameraLeftMinusUp[0],
-							part->mPosition[1] + mCameraLeftMinusUp[1],
-							part->mPosition[2] + mCameraLeftMinusUp[2] );
-
-				// Left top.
-				qglTexCoord2f( 0.0, 1.0 );
-				qglVertex3f(part->mPosition[0] + mCameraLeftPlusUp[0],
-							part->mPosition[1] + mCameraLeftPlusUp[1],
-							part->mPosition[2] + mCameraLeftPlusUp[2] );
+			// Render the batch if not empty
+			if (instanceCount > 0) {
+				vkCmdDraw( backEndData->cmdbuf, 6, instanceCount, 0, firstInstance );
 			}
 		}
-		qglEnd();
-
-		qglEnable(GL_CULL_FACE);
-		qglPopMatrix();
 
 		mParticlesRendered += mParticleCountRender;
 	}
@@ -1596,9 +1562,7 @@ void RB_RenderWorldEffects(void)
 		return;
 	}
 
-	SetViewportAndScissor();
-	qglMatrixMode(GL_MODELVIEW);
-	qglLoadMatrixf(backEnd.viewParms.world.modelMatrix);
+	SetViewportAndScissor( 0 );
 
 
 	// Calculate Elapsed Time For Scale Purposes
@@ -1879,6 +1843,8 @@ void R_WorldEffectCommand(const char *command)
 		nCloud.mColor		= 0.5f;
 		nCloud.mOrientWithVelocity = true;
 		nCloud.mWaterParticles = true;
+
+		nCloud.Compile();
 	}
 
 	// Create A Rain Storm
@@ -1901,6 +1867,8 @@ void R_WorldEffectCommand(const char *command)
 		nCloud.mColor		= 0.5f;
 		nCloud.mOrientWithVelocity = true;
 		nCloud.mWaterParticles = true;
+
+		nCloud.Compile();
 	}
 
 	// Create A Rain Storm
@@ -1929,6 +1897,8 @@ void R_WorldEffectCommand(const char *command)
 		nCloud.mOrientWithVelocity = true;
 		nCloud.mWaterParticles = true;
 
+		nCloud.Compile();
+
 		mOutside.mOutsidePain = 0.1f;
 	}
 
@@ -1952,6 +1922,8 @@ void R_WorldEffectCommand(const char *command)
 		nCloud.mColor		= 0.5f;
 		nCloud.mOrientWithVelocity = true;
 		nCloud.mWaterParticles = true;
+
+		nCloud.Compile();
 	}
 
 	#if 0
@@ -1970,6 +1942,8 @@ void R_WorldEffectCommand(const char *command)
 		nCloud.mRotationChangeNext	= 0;
 		nCloud.mColor		= 0.75f;
 		nCloud.mWaterParticles = true;
+		
+		nCloud.Compile();
 	}
 	#endif
 
@@ -2003,6 +1977,8 @@ void R_WorldEffectCommand(const char *command)
 		nCloud.mSpawnRange.mMaxs[0]	= 1500.0f;
 		nCloud.mSpawnRange.mMaxs[1]	= 1500.0f;
 		nCloud.mSpawnRange.mMaxs[2]	= 1500.0f;
+
+		nCloud.Compile();
 	}
 
 	// Create A Sand Storm
@@ -2031,6 +2007,8 @@ void R_WorldEffectCommand(const char *command)
 		nCloud.mSpawnRange.mMaxs[2]	= 150;
 
 		nCloud.mRotationChangeNext	= 0;
+
+		nCloud.Compile();
 	}
 
 	// Create Blowing Clouds Of Fog
@@ -2056,6 +2034,8 @@ void R_WorldEffectCommand(const char *command)
 		nCloud.mSpawnRange.mMaxs[2]	= 150;
 
 		nCloud.mRotationChangeNext	= 0;
+
+		nCloud.Compile();
 	}
 
 	// Create Heavy Rain Particle Cloud
@@ -2084,6 +2064,8 @@ void R_WorldEffectCommand(const char *command)
 		nCloud.mSpawnRange.mMaxs[2]	=  150;
 
 		nCloud.mRotationChangeNext	= 0;
+
+		nCloud.Compile();
 	}
 
 	// Create Blowing Clouds Of Fog
@@ -2112,6 +2094,8 @@ void R_WorldEffectCommand(const char *command)
 		nCloud.mSpawnRange.mMaxs[2]	= 150;
 
 		nCloud.mRotationChangeNext	= 0;
+
+		nCloud.Compile();
 	}
 	else if (Q_stricmp(token, "outsideshake") == 0)
 	{

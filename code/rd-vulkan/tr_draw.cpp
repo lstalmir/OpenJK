@@ -27,6 +27,52 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 #include "tr_common.h"
 #include "tr_local.h"
 
+#include "tr_dissolve_VS.h"
+#include "tr_dissolve_PS.h"
+
+
+static void RB_UploadCinematic( int cols, int rows, const byte *data, int &client, qboolean dirty ) {
+	image_t *image = tr.scratchImage[client];
+
+	// if the scratchImage isn't in the format we want, specify it as a new texture
+	if( cols != image->width || rows != image->height ) {
+
+		// if the image has been used recently, it can't be destroyed yet
+		// use any other available client
+		if( image->iLastFrameUsedOn > tr.frameCount - vkState.imgcount ) {
+			int i;
+
+			image = NULL;
+			for( i = 0; i < NUM_SCRATCH_IMAGES; ++i ) {
+				if( ( cols == tr.scratchImage[i]->width ) &&
+					( rows == tr.scratchImage[i]->height ) &&
+					( tr.scratchImage[i]->iLastFrameUsedOn > tr.frameCount - vkState.imgcount ) ) {
+					image = tr.scratchImage[i];
+					client = i;
+					break;
+				}
+			}
+		}
+
+		if( !image ) {
+			Com_Error( ERR_DROP, "RE_UploadCinematic: out of scratch images\n" );
+		}
+
+		// recreate the scratch image with the new size
+		image = tr.scratchImage[client] = R_CreateImage( image->imgName, data, cols, rows, VK_FORMAT_B8G8R8A8_UNORM, qfalse, qfalse, qfalse, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER );
+
+		dirty = qfalse;
+	}
+
+	if( dirty ) {
+		VK_UploadImage( image, data, cols, rows, 0 );
+	}
+}
+
+void RE_UploadCinematic( int cols, int rows, const byte *data, int client, qboolean dirty ) {
+	RB_UploadCinematic( cols, rows, data, client, dirty );
+}
+
 /*
 =============
 RE_StretchRaw
@@ -37,130 +83,62 @@ Used for cinematics.
 */
 
 // param 'bDirty' should be true 99% of the time
-void RE_StretchRaw (int x, int y, int w, int h, int cols, int rows, const byte *data, int iClient, qboolean bDirty )
-{
-	if ( !tr.registered ) {
+void RE_StretchRaw( int x, int y, int w, int h, int cols, int rows, const byte *data, int iClient, qboolean bDirty ) {
+	image_t *scratchImage;
+	frameBuffer_t *frameBuffer;
+
+	if( !tr.registered ) {
 		return;
 	}
 
+	frameBuffer = backEndData->frameBuffer;
+
 	R_IssuePendingRenderCommands();
+	R_BindFrameBuffer( NULL );
 
-	if ( tess.numIndexes ) {
-		RB_EndSurface();
-	}
-
-	// we definately want to sync every frame for the cinematics
-	qglFinish();
-
-#ifdef TIMEBIND
-	int start, end;
-	start = end = 0;	// only to stop compiler whining, don't need to be initialised
-#endif
 	// make sure rows and cols are powers of 2
-	if ( (cols&(cols-1)) || (rows&(rows-1)) )
-	{
-		Com_Error (ERR_DROP, "Draw_StretchRaw: size not a power of 2: %i by %i", cols, rows);
+	if ( (cols&(cols-1)) || (rows&(rows-1)) ) {
+		Com_Error( ERR_DROP, "Draw_StretchRaw: size not a power of 2: %i by %i", cols, rows );
 	}
 
-	GL_Bind( tr.scratchImage[iClient] );
+	RB_UploadCinematic( cols, rows, data, iClient, bDirty );
+	scratchImage = tr.scratchImage[iClient];
 
-	// if the scratchImage isn't in the format we want, specify it as a new texture...
-	//
-	if ( cols != tr.scratchImage[iClient]->width || rows != tr.scratchImage[iClient]->height )
-	{
-		tr.scratchImage[iClient]->width = cols;
-		tr.scratchImage[iClient]->height = rows;
-#ifdef TIMEBIND
-		if ( r_ignore->integer )
-		{
-			start = ri.Milliseconds();
-		}
-#endif
+	VK_SetImageLayout( scratchImage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_ACCESS_TRANSFER_READ_BIT );
+	VK_SetImageLayout( tr.screenImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_ACCESS_TRANSFER_WRITE_BIT );
 
-		qglTexImage2D( GL_TEXTURE_2D, 0, GL_RGB8, cols, rows, 0, GL_RGBA, GL_UNSIGNED_BYTE, data );
+	if( frameBuffer ) {
+		image_t *src = frameBuffer->images[0].i;
+		VK_SetImageLayout( src, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_ACCESS_TRANSFER_READ_BIT );
 
-		qglTexParameterf( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR );
-		qglTexParameterf( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR );
-		qglTexParameterf( GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, glConfig.clampToEdgeAvailable ? GL_CLAMP_TO_EDGE : GL_CLAMP );
-		qglTexParameterf( GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, glConfig.clampToEdgeAvailable ? GL_CLAMP_TO_EDGE : GL_CLAMP );
+		VkImageCopy imageCopy = {};
+		imageCopy.extent.width = tr.screenImage->width;
+		imageCopy.extent.height = tr.screenImage->height;
+		imageCopy.extent.depth = 1;
+		imageCopy.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+		imageCopy.srcSubresource.layerCount = 1;
+		imageCopy.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+		imageCopy.dstSubresource.layerCount = 1;
 
-#ifdef TIMEBIND
-		if ( r_ignore->integer )
-		{
-			end = ri.Milliseconds();
-			ri.Printf( PRINT_ALL, "qglTexImage2D %i, %i: %i msec\n", cols, rows, end - start );
-		}
-#endif
-	}
-	else
-	{
-		if (bDirty)	// FIXME: some TA addition or other, not sure why, yet. Should probably be true 99% of the time?
-		{
-			// otherwise, just subimage upload it so that drivers can tell we are going to be changing
-			// it and don't try and do a texture compression
-
-	#ifdef TIMEBIND
-			if ( r_ignore->integer )
-			{
-				start = ri.Milliseconds();
-			}
-	#endif
-
-			qglTexSubImage2D( GL_TEXTURE_2D, 0, 0, 0, cols, rows, GL_RGBA, GL_UNSIGNED_BYTE, data );
-
-	#ifdef TIMEBIND
-			if ( r_ignore->integer )
-			{
-				end = ri.Milliseconds();
-				ri.Printf( PRINT_ALL, "qglTexSubImage2D %i, %i: %i msec\n", cols, rows, end - start );
-			}
-	#endif
-		}
+		vkCmdCopyImage( backEndData->cmdbuf, src->tex, src->layout, tr.screenImage->tex, tr.screenImage->layout, 1, &imageCopy );
 	}
 
+	// blit the the uploaded image on the screen
+	VkImageBlit imageBlit = {};
+	imageBlit.srcOffsets[1].x = cols;
+	imageBlit.srcOffsets[1].y = rows;
+	imageBlit.srcOffsets[1].z = 1;
+	imageBlit.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+	imageBlit.srcSubresource.layerCount = 1;
+	imageBlit.dstOffsets[0].x = x;
+	imageBlit.dstOffsets[0].y = y;
+	imageBlit.dstOffsets[1].x = x + w;
+	imageBlit.dstOffsets[1].y = y + h;
+	imageBlit.dstOffsets[1].z = 1;
+	imageBlit.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+	imageBlit.dstSubresource.layerCount = 1;
 
-	extern void	RB_SetGL2D (void);
-	if (!backEnd.projection2D)
-	{
-		RB_SetGL2D();
-	}
-	qglColor3f( tr.identityLight, tr.identityLight, tr.identityLight );
-
-	qglBegin (GL_QUADS);
-	qglTexCoord2f ( 0.5f / cols,  0.5f / rows );
-	qglVertex2f (x, y);
-	qglTexCoord2f ( ( cols - 0.5f ) / cols ,  0.5f / rows );
-	qglVertex2f (x+w, y);
-	qglTexCoord2f ( ( cols - 0.5f ) / cols, ( rows - 0.5f ) / rows );
-	qglVertex2f (x+w, y+h);
-	qglTexCoord2f ( 0.5f / cols, ( rows - 0.5f ) / rows );
-	qglVertex2f (x, y+h);
-	qglEnd ();
-}
-
-
-
-void RE_UploadCinematic (int cols, int rows, const byte *data, int client, qboolean dirty) {
-
-	GL_Bind( tr.scratchImage[client] );
-
-	// if the scratchImage isn't in the format we want, specify it as a new texture
-	if ( cols != tr.scratchImage[client]->width || rows != tr.scratchImage[client]->height ) {
-		tr.scratchImage[client]->width = cols;
-		tr.scratchImage[client]->height = rows;
-		qglTexImage2D( GL_TEXTURE_2D, 0, GL_RGB8, cols, rows, 0, GL_RGBA, GL_UNSIGNED_BYTE, data );
-
-		qglTexParameterf( GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR );
-		qglTexParameterf( GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR );
-		qglTexParameterf( GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, glConfig.clampToEdgeAvailable ? GL_CLAMP_TO_EDGE : GL_CLAMP );
-		qglTexParameterf( GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, glConfig.clampToEdgeAvailable ? GL_CLAMP_TO_EDGE : GL_CLAMP );
-	} else {
-		if (dirty) {
-			// otherwise, just subimage upload it so that drivers can tell we are going to be changing
-			// it and don't try and do a texture compression
-			qglTexSubImage2D( GL_TEXTURE_2D, 0, 0, 0, cols, rows, GL_RGBA, GL_UNSIGNED_BYTE, data );
-		}
-	}
+	vkCmdBlitImage( backEndData->cmdbuf, scratchImage->tex, scratchImage->layout, tr.screenImage->tex, tr.screenImage->layout, 1, &imageBlit, VK_FILTER_LINEAR );
 }
 
 extern byte *RB_ReadPixels(int x, int y, int width, int height, size_t *offset, int *padlen);
@@ -182,7 +160,7 @@ void RE_GetScreenShot(byte *buffer, int w, int h)
 
 	// gamma correct
 	if(glConfig.deviceSupportsGamma)
-		R_GammaCorrect(source + offset, memcount);
+		R_GammaCorrect(source + offset, (int)memcount);
 
 	// resample from source
 	xScale = glConfig.vidWidth / (4.0*w);
@@ -367,131 +345,82 @@ typedef enum
 	//
 	eDISSOLVE_CIRCULAR_IN,	// new image comes in from edges
 	//
-	eDISSOLVE_NUMBEROF
+	eDISSOLVE_NUMBEROF,
 
+	eDISSOLVE_FORCE_DWORD = 0x7fffffff
 } Dissolve_e;
+
+typedef struct {
+	Dissolve_e	type;
+	int			width;
+	int			height;
+	float		percentage;
+} DissolveParms_t;
 
 typedef struct
 {
-	int			iWidth;
-	int			iHeight;
-	int			iUploadWidth;
-	int			iUploadHeight;
-	int			iScratchPadNumber;
-	image_t		*pImage;	// old image screen
-	image_t		*pDissolve;	// fuzzy thing
-	image_t		*pBlack;	// small black image for clearing
-	int			iStartTime;	// 0 = not processing
-	Dissolve_e	eDissolveType;
-	qboolean	bTouchNeeded;
+	image_t					*pImage; // old image screen
+	image_t					*pDissolve;	// fuzzy thing
+
+	int						iStartTime;	// 0 = not processing
+	qboolean				bTouchNeeded;
+
+	DissolveParms_t			dissolveParms;
+	buffer_t				*dissolveParmsBuffer;
+
+	// used for binding images to the dissolve pipelines
+	VkDescriptorSetLayout	dissolvePipelineDescriptorSetLayout;
+	VkDescriptorSet			dissolvePipelineDescriptorSet;
+
+	VkPipelineLayout		dissolvePipelineLayout;
+	VkPipeline				dissolvePipeline;
 
 } Dissolve_t;
 
-static int PowerOf2(int iArg)
-{
-	if ( (iArg & (iArg-1)) != 0)
-	{
-		int iShift=0;
-		while (iArg)
-		{
-			iArg>>=1;
-			iShift++;
-		}
-
-		iArg = 1<<iShift;
-	}
-
-	return iArg;
-}
-
-Dissolve_t Dissolve={0};
+Dissolve_t Dissolve = { 0 };
 #define fDISSOLVE_SECONDS 0.75f
 
-// leave the UV stuff in for now as comments in case I ever need to do some sneaky stuff, but for now...
-//
-static void RE_Blit(float fX0, float fY0, float fX1, float fY1, float fX2, float fY2, float fX3, float fY3,
-					//float fU0, float fV0, float fU1, float fV1, float fU2, float fV2, float fU3, float fV3,
-					image_t *pSrcImage, image_t *pDstImage
-					)
-{
-	//
-	// some junk they had at the top of other StretchRaw code...
-	//
-	R_IssuePendingRenderCommands();
-//	qglFinish();
+static void RE_KillDissolve( qboolean deleteResources ) {
 
-	VkImageBlit imageBlit;
-	imageBlit.srcOffsets->x = fX0;
-
-	// Describe the source subresource.
-	imageBlit.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-	imageBlit.srcSubresource.mipLevel = 0;
-	imageBlit.srcSubresource.baseArrayLayer = 0;
-	imageBlit.srcSubresource.layerCount = 1;
-
-	// Describe the destination subresource.
-	imageBlit.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-	imageBlit.dstSubresource.mipLevel = 0;
-	imageBlit.dstSubresource.baseArrayLayer = 0;
-	imageBlit.dstSubresource.layerCount = 1;
-
-	vkCmdBlitImage( vkCtx.cmdbuffer,
-		pSrcImage->tex, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-		pDstImage->tex, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-		1, );
-
-	GL_Bind( pImage );
-	GL_State(iGLState);
-	GL_Cull( CT_TWO_SIDED ) ;
-
-	qglColor3f( 1.0f, 1.0f, 1.0f );
-
-
-	qglBegin (GL_QUADS);
-	{
-		// TL...
-		//
-//		qglTexCoord2f( fU0 / (float)pImage->width,  fV0 / (float)pImage->height );
-		qglTexCoord2f( 0,0 );
-		qglVertex2f( fX0, fY0 );
-
-		// TR...
-		//
-//		qglTexCoord2f( fU1 / (float)pImage->width,  fV1 / (float)pImage->height );
-		qglTexCoord2f( 1,0 );
-		qglVertex2f( fX1, fY1 );
-
-		// BR...
-		//
-//		qglTexCoord2f( fU2 / (float)pImage->width,  fV2 / (float)pImage->height );
-		qglTexCoord2f( 1,1 );
-		qglVertex2f( fX2, fY2);
-
-		// BL...
-		//
-//		qglTexCoord2f( fU3 / (float)pImage->width,  fV3 / (float)pImage->height );
-		qglTexCoord2f( 0,1 );
-		qglVertex2f( fX3, fY3);
-	}
-	qglEnd ();
-}
-
-static void RE_KillDissolve(void)
-{
 	Dissolve.iStartTime = 0;
 
-	if (Dissolve.pImage)
-	{
-		R_Images_DeleteImage(	Dissolve.pImage );
-								Dissolve.pImage = NULL;
+	if( deleteResources ) {
+		if( Dissolve.dissolveParmsBuffer ) {
+			R_Buffers_DeleteBuffer( Dissolve.dissolveParmsBuffer );
+			Dissolve.dissolveParmsBuffer = NULL;
+		}
+		if( Dissolve.dissolvePipelineDescriptorSetLayout ) {
+			vkDestroyDescriptorSetLayout( vkState.device, Dissolve.dissolvePipelineDescriptorSetLayout, NULL );
+			Dissolve.dissolvePipelineDescriptorSetLayout = VK_NULL_HANDLE;
+		}
+		if( Dissolve.dissolvePipelineDescriptorSet ) {
+			vkFreeDescriptorSets( vkState.device, vkState.descriptorPool, 1, &Dissolve.dissolvePipelineDescriptorSet );
+			Dissolve.dissolvePipelineDescriptorSet = VK_NULL_HANDLE;
+		}
+		if( Dissolve.dissolvePipelineLayout ) {
+			vkDestroyPipelineLayout( vkState.device, Dissolve.dissolvePipelineLayout, NULL );
+			Dissolve.dissolvePipelineLayout = VK_NULL_HANDLE;
+		}
+		if( Dissolve.dissolvePipeline ) {
+			vkDestroyPipeline( vkState.device, Dissolve.dissolvePipeline, NULL );
+			Dissolve.dissolvePipeline = VK_NULL_HANDLE;
+		}
+		if( Dissolve.pDissolve ) {
+			R_Images_DeleteImage( Dissolve.pDissolve );
+			Dissolve.pDissolve = NULL;
+		}
+		if( Dissolve.pImage ) {
+			R_Images_DeleteImage( Dissolve.pImage );
+			Dissolve.pImage = NULL;
+		}
 	}
 }
+
 // Draw the dissolve pic to the screen, over the top of what's already been rendered.
 //
 // return = qtrue while still processing, for those interested...
 //
-#define iSAFETY_SPRITE_OVERLAP 2	// #pixels to overlap blit region by, in case some drivers leave onscreen seams
-qboolean RE_ProcessDissolve(void)
+qboolean RE_ProcessDissolve( void )
 {
 	if (Dissolve.iStartTime)
 	{
@@ -511,264 +440,35 @@ qboolean RE_ProcessDissolve(void)
 			Dissolve.iStartTime = ri.Milliseconds();
 		}
 
-		int iDissolvePercentage = ((ri.Milliseconds() - Dissolve.iStartTime)*100) / (1000.0f * fDISSOLVE_SECONDS);
+		Dissolve.dissolveParms.percentage = (ri.Milliseconds() - Dissolve.iStartTime) / (1000.0f * fDISSOLVE_SECONDS);
 
-//		ri.Printf(PRINT_ALL,"iDissolvePercentage %d\n",iDissolvePercentage);
+		Dissolve.dissolveParms.width = backEndData->frameBuffer->width;
+		Dissolve.dissolveParms.height = backEndData->frameBuffer->height;
 
-		if (iDissolvePercentage <= 100)
+//		ri.Printf(PRINT_ALL,"iDissolvePercentage %d\n",Dissolve.dissolveParms.percentage);
+
+		if( Dissolve.dissolveParms.percentage <= 1.f )
 		{
-			extern void	RB_SetGL2D (void);
-			RB_SetGL2D();
+			VkBufferMemoryBarrier bufferMemoryBarrier = {};
+			bufferMemoryBarrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
+			bufferMemoryBarrier.buffer = Dissolve.dissolveParmsBuffer->buf;
+			bufferMemoryBarrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+			bufferMemoryBarrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+			bufferMemoryBarrier.offset = 0;
+			bufferMemoryBarrier.size = sizeof( Dissolve.dissolveParms );
 
-//			GLdouble glD;
-//			qglGetDoublev(GL_DEPTH_CLEAR_VALUE,&glD);
-//			qglClearColor(0,0,0,1);
-			vkCmdClearAttachments( vkCtx.cmdbuffer, 1, )
-			qglClearDepth(1.0f);
-			qglClear( GL_DEPTH_BUFFER_BIT );
+			vkCmdUpdateBuffer( backEndData->cmdbuf, Dissolve.dissolveParmsBuffer->buf, 0, sizeof( Dissolve.dissolveParms ), &Dissolve.dissolveParms );
+			vkCmdPipelineBarrier( backEndData->cmdbuf, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_DEPENDENCY_BY_REGION_BIT,
+				0, NULL, 1, &bufferMemoryBarrier, 0, NULL );
 
-
-			float fXScaleFactor = (float)SCREEN_WIDTH / (float)Dissolve.iWidth;
-			float fYScaleFactor = (float)SCREEN_HEIGHT/ (float)Dissolve.iHeight;
-			float x0,y0, x1,y1,	x2,y2, x3,y3;
-
-			switch (Dissolve.eDissolveType)
-			{
-				case eDISSOLVE_RT_TO_LT:
-				{
-					float fXboundary = (float) Dissolve.iWidth - (((float)(Dissolve.iWidth+Dissolve.pDissolve->width)*(float)iDissolvePercentage)/100.0f);
-
-					// blit the fuzzy-dissolve sprite...
-					//
-					x0 = fXScaleFactor * fXboundary;
-					y0 = 0.0f;
-					x1 = fXScaleFactor * (fXboundary + Dissolve.pDissolve->width);
-					y1 = 0.0f;
-					x2 = x1;
-					y2 = fYScaleFactor * Dissolve.iHeight;
-					x3 = x0;
-					y3 = y2;
-
-					RE_Blit(x0,y0,x1,y1,x2,y2,x3,y3, Dissolve.pDissolve, GLS_DEPTHMASK_TRUE | GLS_SRCBLEND_ZERO | GLS_DSTBLEND_ONE | GLS_ATEST_LT_80);
-
-					// blit a blank thing over the area the old screen is to be displayed on to enable screen-writing...
-					// (to the left of fXboundary)
-					//
-					x0 = 0.0f;
-					y0 = 0.0f;
-					x1 = fXScaleFactor * (fXboundary + iSAFETY_SPRITE_OVERLAP);
-					y1 = 0.0f;
-					x2 = x1;
-					y2 = fYScaleFactor * Dissolve.iHeight;
-					x3 = x0;
-					y3 = y2;
-					RE_Blit(x0,y0,x1,y1,x2,y2,x3,y3, Dissolve.pBlack, GLS_DEPTHMASK_TRUE | GLS_SRCBLEND_ZERO | GLS_DSTBLEND_ONE);
-				}
-				break;
-
-				case eDISSOLVE_LT_TO_RT:
-				{
-					float fXboundary = (((float)(Dissolve.iWidth+(2*Dissolve.pDissolve->width))*(float)iDissolvePercentage)/100.0f) - Dissolve.pDissolve->width;
-
-					// blit the fuzzy-dissolve sprite...
-					//
-					x0 = fXScaleFactor * (fXboundary + Dissolve.pDissolve->width);
-					y0 = 0.0f;
-					x1 = fXScaleFactor * fXboundary;
-					y1 = 0.0f;
-					x2 = x1;
-					y2 = fYScaleFactor * Dissolve.iHeight;
-					x3 = x0;
-					y3 = y2;
-
-					RE_Blit(x0,y0,x1,y1,x2,y2,x3,y3, Dissolve.pDissolve, GLS_DEPTHMASK_TRUE | GLS_SRCBLEND_ZERO | GLS_DSTBLEND_ONE | GLS_ATEST_LT_80);
-
-					// blit a blank thing over the area the old screen is to be displayed on to enable screen-writing...
-					// (to the right of fXboundary)
-					//
-					x0 = fXScaleFactor * (( fXboundary + Dissolve.pDissolve->width) - iSAFETY_SPRITE_OVERLAP);
-					y0 = 0.0f;
-					x1 = fXScaleFactor * Dissolve.iWidth;
-					y0 = 0.0f;
-					x2 = x1;
-					y2 = fYScaleFactor * Dissolve.iHeight;
-					x3 = x0;
-					y3 = y2;
-					RE_Blit(x0,y0,x1,y1,x2,y2,x3,y3, Dissolve.pBlack, GLS_DEPTHMASK_TRUE | GLS_SRCBLEND_ZERO | GLS_DSTBLEND_ONE);
-				}
-				break;
-
-				case eDISSOLVE_TP_TO_BT:
-				{
-					float fYboundary = (((float)(Dissolve.iHeight+(2*Dissolve.pDissolve->width))*(float)iDissolvePercentage)/100.0f) - Dissolve.pDissolve->width;
-
-					// blit the fuzzy-dissolve sprite...
-					//
-					x0 = 0.0f;
-					y0 = fYScaleFactor * (fYboundary + Dissolve.pDissolve->width);
-					x1 = x0;
-					y1 = fYScaleFactor * fYboundary;
-					x2 = fXScaleFactor * Dissolve.iWidth;
-					y2 = y1;
-					x3 = x2;
-					y3 = y0;
-
-					RE_Blit(x0,y0,x1,y1,x2,y2,x3,y3, Dissolve.pDissolve, GLS_DEPTHMASK_TRUE | GLS_SRCBLEND_ZERO | GLS_DSTBLEND_ONE | GLS_ATEST_LT_80);
-
-					// blit a blank thing over the area the old screen is to be displayed on to enable screen-writing...
-					// (underneath fYboundary)
-					//
-					x0 = 0.0f;
-					y0 = fYScaleFactor * ( (fYboundary + Dissolve.pDissolve->width) - iSAFETY_SPRITE_OVERLAP);
-					x1 = fXScaleFactor * Dissolve.iWidth;
-					y1 = y0;
-					x2 = x1;
-					y2 = fYScaleFactor * Dissolve.iHeight;
-					x3 = x0;
-					y3 = y2;
-					RE_Blit(x0,y0,x1,y1,x2,y2,x3,y3, Dissolve.pBlack, GLS_DEPTHMASK_TRUE | GLS_SRCBLEND_ZERO | GLS_DSTBLEND_ONE);
-				}
-				break;
-
-				case eDISSOLVE_BT_TO_TP:
-				{
-					float fYboundary = Dissolve.iHeight - (((float)(Dissolve.iHeight+Dissolve.pDissolve->width)*(float)iDissolvePercentage)/100.0f);
-
-					// blit the fuzzy-dissolve sprite...
-					//
-					x0 = 0.0f;
-					y0 = fYScaleFactor * fYboundary;
-					x1 = x0;
-					y1 = fYScaleFactor * (fYboundary + Dissolve.pDissolve->width);
-					x2 = fXScaleFactor * Dissolve.iWidth;
-					y2 = y1;
-					x3 = x2;
-					y3 = y0;
-
-					RE_Blit(x0,y0,x1,y1,x2,y2,x3,y3, Dissolve.pDissolve, GLS_DEPTHMASK_TRUE | GLS_SRCBLEND_ZERO | GLS_DSTBLEND_ONE | GLS_ATEST_LT_80);
-
-					// blit a blank thing over the area the old screen is to be displayed on to enable screen-writing...
-					// (above fYboundary)
-					//
-					x0 = 0.0f;
-					y0 = 0.0f;
-					x1 = fXScaleFactor * Dissolve.iWidth;
-					y1 = y0;
-					x2 = x1;
-					y2 = fYScaleFactor * (fYboundary + iSAFETY_SPRITE_OVERLAP);
-					x3 = x0;
-					y3 = y2;
-					RE_Blit(x0,y0,x1,y1,x2,y2,x3,y3, Dissolve.pBlack, GLS_DEPTHMASK_TRUE | GLS_SRCBLEND_ZERO | GLS_DSTBLEND_ONE);
-				}
-				break;
-
-				case eDISSOLVE_CIRCULAR_IN:
-				{
-					float fDiagZoom = ( ((float)Dissolve.iWidth*0.8) * (100-iDissolvePercentage))/100.0f;
-
-					//
-					// blit circular graphic...
-					//
-					x0 = fXScaleFactor * ((Dissolve.iWidth/2) - fDiagZoom);
-					y0 = fYScaleFactor * ((Dissolve.iHeight/2)- fDiagZoom);
-					x1 = fXScaleFactor * ((Dissolve.iWidth/2) + fDiagZoom);
-					y1 = y0;
-					x2 = x1;
-					y2 = fYScaleFactor * ((Dissolve.iHeight/2)+ fDiagZoom);
-					x3 = x0;
-					y3 = y2;
-
-					RE_Blit(x0,y0,x1,y1,x2,y2,x3,y3, Dissolve.pDissolve, GLS_DEPTHMASK_TRUE | GLS_SRCBLEND_ZERO | GLS_DSTBLEND_ONE | GLS_ATEST_LT_80);
-				}
-				break;
-
-				case eDISSOLVE_CIRCULAR_OUT:
-				{
-					float fDiagZoom = ( ((float)Dissolve.iWidth*0.8) * iDissolvePercentage)/100.0f;
-
-					//
-					// blit circular graphic...
-					//
-					x0 = fXScaleFactor * ((Dissolve.iWidth/2) - fDiagZoom);
-					y0 = fYScaleFactor * ((Dissolve.iHeight/2)- fDiagZoom);
-					x1 = fXScaleFactor * ((Dissolve.iWidth/2) + fDiagZoom);
-					y1 = y0;
-					x2 = x1;
-					y2 = fYScaleFactor * ((Dissolve.iHeight/2)+ fDiagZoom);
-					x3 = x0;
-					y3 = y2;
-
-					RE_Blit(x0,y0,x1,y1,x2,y2,x3,y3, Dissolve.pDissolve, GLS_DEPTHMASK_TRUE | GLS_SRCBLEND_ZERO | GLS_DSTBLEND_ONE | GLS_ATEST_LT_80);
-					// now blit the 4 black squares around it to mask off the rest of the screen...
-					//
-					// LHS, top to bottom...
-					//
-					RE_Blit(0,0,								// x0,y0
-							x0+iSAFETY_SPRITE_OVERLAP,0,		// x1,y1
-							x0+iSAFETY_SPRITE_OVERLAP,(fYScaleFactor * Dissolve.iHeight),// x2,y2
-							0,(fYScaleFactor * Dissolve.iHeight),	// x3,y3,
-							Dissolve.pBlack, GLS_DEPTHMASK_TRUE | GLS_SRCBLEND_ZERO | GLS_DSTBLEND_ONE
-							);
-
-					// RHS top to bottom...
-					//
-					RE_Blit(x1-iSAFETY_SPRITE_OVERLAP,0,		// x0,y0
-							(fXScaleFactor * Dissolve.iWidth),0,	// x1,y1
-							(fXScaleFactor * Dissolve.iWidth),(fYScaleFactor * Dissolve.iHeight),// x2,y2
-							x1-iSAFETY_SPRITE_OVERLAP,(fYScaleFactor * Dissolve.iHeight),	// x3,y3,
-							Dissolve.pBlack, GLS_DEPTHMASK_TRUE | GLS_SRCBLEND_ZERO | GLS_DSTBLEND_ONE
-							);
-
-					// top...
-					//
-					RE_Blit(x0-iSAFETY_SPRITE_OVERLAP,0,		// x0,y0
-							x1+iSAFETY_SPRITE_OVERLAP,0,		// x1,y1
-							x1+iSAFETY_SPRITE_OVERLAP,y0 + iSAFETY_SPRITE_OVERLAP,	// x2,y2
-							x0-iSAFETY_SPRITE_OVERLAP,y0 + iSAFETY_SPRITE_OVERLAP,	// x3,y3
-							Dissolve.pBlack, GLS_DEPTHMASK_TRUE | GLS_SRCBLEND_ZERO | GLS_DSTBLEND_ONE
-							);
-
-					// bottom...
-					//
-					RE_Blit(x0-iSAFETY_SPRITE_OVERLAP,y3-iSAFETY_SPRITE_OVERLAP,	// x0,y0
-							x1+iSAFETY_SPRITE_OVERLAP,y2-iSAFETY_SPRITE_OVERLAP,		// x1,y1
-							x1+iSAFETY_SPRITE_OVERLAP,(fYScaleFactor * Dissolve.iHeight),	// x2,y2
-							x0-iSAFETY_SPRITE_OVERLAP,(fYScaleFactor * Dissolve.iHeight),	// x3,y3
-							Dissolve.pBlack, GLS_DEPTHMASK_TRUE | GLS_SRCBLEND_ZERO | GLS_DSTBLEND_ONE
-							);
-				}
-				break;
-
-				default:
-				{
-					assert(0);
-					iDissolvePercentage = 101;	// force a dissolve-kill
-					break;
-				}
-			}
-
-			// re-check in case we hit the default case above...
-			//
-			if (iDissolvePercentage <= 100)
-			{
-				// still dissolving, so now (finally), blit old image over top...
-				//
-				x0 = 0.0f;
-				y0 = 0.0f;
-				x1 = fXScaleFactor * Dissolve.pImage->width;
-				y1 = y0;
-				x2 = x1;
-				y2 = fYScaleFactor * Dissolve.pImage->height;
-				x3 = x0;
-				y3 = y2;
-
-				RE_Blit(x0,y0,x1,y1,x2,y2,x3,y3, Dissolve.pImage,GLS_DEPTHFUNC_EQUAL);
-			}
+			vkCmdBindPipeline( backEndData->cmdbuf, VK_PIPELINE_BIND_POINT_GRAPHICS, Dissolve.dissolvePipeline );
+			vkCmdBindDescriptorSets( backEndData->cmdbuf, VK_PIPELINE_BIND_POINT_GRAPHICS, Dissolve.dissolvePipelineLayout, 4, 1, &Dissolve.dissolvePipelineDescriptorSet, 0, NULL );
+			vkCmdDraw( backEndData->cmdbuf, 3, 1, 0, 0 );
 		}
 
-		if (iDissolvePercentage > 100)
+		if( Dissolve.dissolveParms.percentage > 1.f )
 		{
-			RE_KillDissolve();
+			RE_KillDissolve( qfalse ); // resources can't be freed if the previous frames haven't been rendered yet
 		}
 	}
 
@@ -777,190 +477,167 @@ qboolean RE_ProcessDissolve(void)
 
 // return = qtrue(success) else fail, for those interested...
 //
-qboolean RE_InitDissolve(qboolean bForceCircularExtroWipe)
-{
-	R_IssuePendingRenderCommands();
+qboolean RE_InitDissolve( qboolean bForceCircularExtroWipe ) {
+	VkResult res;
 
 //	ri.Printf( PRINT_ALL, "RE_InitDissolve()\n");
 	qboolean bReturn = qfalse;
 
-	if (//Dissolve.iStartTime == 0	// no point in interruping an existing one
-		//&&
-		tr.registered == qtrue		// ... stops it crashing during first cinematic before the menus... :-)
-		)
-	{
-		RE_KillDissolve();	// kill any that are already running
+	if( tr.registered == qtrue ) { // ... stops it crashing during first cinematic before the menus... :-)
 
-		int iPow2VidWidth	= PowerOf2( glConfig.vidWidth );
-		int iPow2VidHeight	= PowerOf2( glConfig.vidHeight);
+		RE_KillDissolve( qfalse );	// kill any that are already running
 
-		int iBufferBytes	= iPow2VidWidth * iPow2VidHeight * 4;
-		byte *pBuffer = (byte *) R_Malloc( iBufferBytes, TAG_TEMP_WORKSPACE, qfalse);
-		if (pBuffer)
-		{
-			// read current screen image...  (GL_RGBA should work even on 3DFX in that the RGB parts will be valid at least)
-			//
-			qglReadPixels (0, 0, glConfig.vidWidth, glConfig.vidHeight, GL_RGBA, GL_UNSIGNED_BYTE, pBuffer );
-			//
-			// now expand the pic over the top of itself so that it has a stride value of {PowerOf2(glConfig.vidWidth)}
-			//	(for GL power-of-2 rules)
-			//
-			byte *pbSrc = &pBuffer[	glConfig.vidWidth	* glConfig.vidHeight * 4];
-			byte *pbDst = &pBuffer[ iPow2VidWidth		* glConfig.vidHeight * 4];
-			//
-			// ( clear to end, since we've got pbDst nicely setup here)
-			//
-			int iClearBytes = &pBuffer[iBufferBytes] - pbDst;
-			memset(pbDst, 0, iClearBytes);
-			//
-			// work out copy/stride vals...
-			//
-				iClearBytes = ( iPow2VidWidth - glConfig.vidWidth ) * 4;
-			int iCopyBytes	= glConfig.vidWidth * 4;
-			//
-			// do it...
-			//
-			for (int y = 0; y < glConfig.vidHeight; y++)
-			{
-				pbDst -= iClearBytes;
-				memset(pbDst,0,iClearBytes);
-				pbDst -= iCopyBytes;
-				pbSrc -= iCopyBytes;
-				memmove(pbDst, pbSrc, iCopyBytes);
+		if( Dissolve.dissolveParmsBuffer == NULL ) {
+			Dissolve.dissolveParmsBuffer = R_CreateBuffer( sizeof( Dissolve.dissolveParms ), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, 0 );
+		}
+
+		if( Dissolve.dissolvePipelineDescriptorSetLayout == VK_NULL_HANDLE ) {
+			CDescriptorSetLayoutBuilder descriptorSetLayoutBuilder;
+
+			// create the descriptor set layout
+			descriptorSetLayoutBuilder.addBinding( VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER );
+			descriptorSetLayoutBuilder.addBinding( VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE );
+			descriptorSetLayoutBuilder.build( &Dissolve.dissolvePipelineDescriptorSetLayout );
+		}
+
+		if( Dissolve.dissolvePipelineDescriptorSet == VK_NULL_HANDLE ) {
+			VkDescriptorSetAllocateInfo descriptorSetAllocateInfo = {};
+
+			// allocate the descriptor set
+			descriptorSetAllocateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+			descriptorSetAllocateInfo.descriptorPool = vkState.descriptorPool;
+			descriptorSetAllocateInfo.descriptorSetCount = 1;
+			descriptorSetAllocateInfo.pSetLayouts = &Dissolve.dissolvePipelineDescriptorSetLayout;
+
+			res = vkAllocateDescriptorSets( vkState.device, &descriptorSetAllocateInfo, &Dissolve.dissolvePipelineDescriptorSet );
+			if( res != VK_SUCCESS ) {
+				Com_Error( ERR_FATAL, "RE_InitDissolve: failed to allocate descriptor set (%d)\n", res );
 			}
-			//
-			// ok, now we've got the screen image in the top left of the power-of-2 texture square,
-			//	but of course the damn thing's upside down (thanks, GL), so invert it, but only within
-			//	the picture pixels, NOT the upload texture as a whole...
-			//
-			byte *pbSwapLineBuffer = (byte *)R_Malloc( iCopyBytes, TAG_TEMP_WORKSPACE, qfalse);
-			pbSrc = &pBuffer[0];
-			pbDst = &pBuffer[(glConfig.vidHeight-1) * iPow2VidWidth * 4];
-			for (int y = 0; y < glConfig.vidHeight/2; y++)
-			{
-				memcpy(pbSwapLineBuffer, pbDst, iCopyBytes);
-				memcpy(pbDst, pbSrc, iCopyBytes);
-				memcpy(pbSrc, pbSwapLineBuffer, iCopyBytes);
-				pbDst -= iPow2VidWidth*4;
-				pbSrc += iPow2VidWidth*4;
-			}
-			R_Free(pbSwapLineBuffer);
+		}
 
-			//
-			// Now, in case of busted drivers, 3DFX cards, etc etc we stomp the alphas to 255...
-			//
-			byte *pPix = pBuffer;
-			for (int i=0; i<iBufferBytes/4; i++, pPix += 4)
-			{
-				pPix[3] = 255;
-			}
+		if( Dissolve.dissolvePipelineLayout == VK_NULL_HANDLE ) {
+			CPipelineLayoutBuilder pipelineLayoutBuilder;
 
-			// work out what res we're capable of storing/xfading this "screen sprite"...
-			//
-			Dissolve.iWidth			= glConfig.vidWidth;
-			Dissolve.iHeight		= glConfig.vidHeight;
-			Dissolve.iUploadWidth	= iPow2VidWidth;
-			Dissolve.iUploadHeight	= iPow2VidHeight;
-			int	iTexSize			= glConfig.maxTextureSize;
+			// create the pipeline layout
+			pipelineLayoutBuilder.addDescriptorSetLayout( Dissolve.dissolvePipelineDescriptorSetLayout );
+			pipelineLayoutBuilder.build( &Dissolve.dissolvePipelineLayout );
+		}
 
-			if ( glConfig.maxTextureSize < 256 )	// jic the driver sucks
-			{
-				iTexSize = 256;
+		if( Dissolve.dissolvePipeline == VK_NULL_HANDLE ) {
+			CPipelineBuilder pipelineBuilder;
+			pipelineBuilder.pipelineCreateInfo.layout = Dissolve.dissolvePipelineLayout;
+			pipelineBuilder.pipelineCreateInfo.renderPass = tr.postProcessFrameBuffer->renderPass;
+
+			// shaders
+			pipelineBuilder.setShader( VK_SHADER_STAGE_VERTEX_BIT, tr_dissolve_VS );
+			pipelineBuilder.setShader( VK_SHADER_STAGE_FRAGMENT_BIT, tr_dissolve_PS );
+
+			// color blend
+			VkPipelineColorBlendAttachmentState attachmentBlend = {};
+			attachmentBlend.colorWriteMask = 0xf;
+			attachmentBlend.blendEnable = VK_TRUE;
+			attachmentBlend.colorBlendOp = VK_BLEND_OP_ADD;
+			attachmentBlend.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+			attachmentBlend.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+			attachmentBlend.alphaBlendOp = VK_BLEND_OP_ADD;
+			attachmentBlend.srcAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
+			attachmentBlend.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
+
+			pipelineBuilder.colorBlend.attachmentCount = 1;
+			pipelineBuilder.colorBlend.pAttachments = &attachmentBlend;
+
+			// disable depth test
+			pipelineBuilder.depthStencil.depthTestEnable = VK_FALSE;
+			pipelineBuilder.depthStencil.depthWriteEnable = VK_FALSE;
+
+			pipelineBuilder.build( &Dissolve.dissolvePipeline );
+		}
+
+		// create a copy of the current screen image
+		if( Dissolve.pImage == NULL ||
+			Dissolve.pImage->width != glConfig.vidWidth ||
+			Dissolve.pImage->height != glConfig.vidHeight ) {
+
+			if( Dissolve.pImage ) {
+				R_Images_DeleteImage( Dissolve.pImage );
 			}
 
-			if (Dissolve.iUploadWidth > iTexSize) {
-				Dissolve.iUploadWidth = iTexSize;
-			}
+			Dissolve.pImage = R_CreateTransientImage(	"*DissolveImage",
+														tr.screenshotImage->width,
+														tr.screenshotImage->height,
+														tr.screenshotImage->internalFormat,
+														VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE );
 
-			if (Dissolve.iUploadHeight > iTexSize) {
-				Dissolve.iUploadHeight = iTexSize;
-			}
+			VK_SetImageLayout( Dissolve.pImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_ACCESS_TRANSFER_WRITE_BIT );
+			VK_CopyImage( Dissolve.pImage, tr.screenshotImage );
 
-			// alloc resample buffer...  (note slight optimisation to avoid spurious alloc)
-			//
-			byte *pbReSampleBuffer =	(	iPow2VidWidth == Dissolve.iUploadWidth &&
-											iPow2VidHeight == Dissolve.iUploadHeight
-										)?
-										NULL :
-										(byte*) R_Malloc( iPow2VidWidth * iPow2VidHeight * 4, TAG_TEMP_WORKSPACE, qfalse);
+			// transition the image to read-only optimal layout
+			VK_SetImageLayout( Dissolve.pImage, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_ACCESS_SHADER_READ_BIT );
+		}
 
-			// re-sample screen...
-			//
-			byte *pbScreenSprite = RE_ReSample(	pBuffer,				// byte *pbLoadedPic
-												iPow2VidWidth,			// int iLoadedWidth
-												iPow2VidHeight,			// int iLoadedHeight
-												//
-												pbReSampleBuffer,		// byte *pbReSampleBuffer
-												&Dissolve.iUploadWidth,	// int *piWidth
-												&Dissolve.iUploadHeight	// int *piHeight
-												);
-
-			Dissolve.pImage = R_CreateImage("*DissolveImage",						// const char *name
-											pbScreenSprite,							// const byte *pic
-											Dissolve.iUploadWidth,					// int width
-											Dissolve.iUploadHeight,					// int height
-											GL_RGBA,
-											qfalse,									// qboolean mipmap
-											qfalse,									// qboolean allowPicmip
-											qfalse,									// qboolean allowTC
-											VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE	// VkSamplerAdderssMode wrapClampMode
-											);
-
-
-			static byte bBlack[8*8*4]={0};
-			for (int j=0; j<8*8*4; j+=4)	// itu?
-				bBlack[j+3]=255;		//
-
-			Dissolve.pBlack = R_CreateImage( "*DissolveBlack",						// const char *name
-											bBlack,									// const byte *pic
-											8,										// int width
-											8,										// int height
-											GL_RGBA,
-											qfalse,									// qboolean mipmap
-											qfalse,									// qboolean allowPicmip
-											qfalse,									// qboolean allowTC
-											VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE	// VkSamplerAdderssMode wrapClampMode
-											);
-
-			if (pbReSampleBuffer)
-			{
-				R_Free(pbReSampleBuffer);
-			}
-			R_Free(pBuffer);
-
-			// pick dissolve type...
-			//
+		// pick dissolve type...
 #if 0
-			// cycles through every dissolve type, for testing...
-			//
-			static Dissolve_e eDissolve = (Dissolve_e) 0;
-			Dissolve.eDissolveType =	eDissolve;
-										eDissolve = (Dissolve_e) (eDissolve+1);
-									if (eDissolve == eDISSOLVE_RAND_LIMIT)
-										eDissolve = (Dissolve_e) (eDissolve+1);
-									if (eDissolve >= eDISSOLVE_NUMBEROF)
-										eDissolve = (Dissolve_e) 0;
+		// cycles through every dissolve type, for testing...
+		//
+		static Dissolve_e eDissolve = (Dissolve_e) 0;
+		Dissolve.dissolveParms.type =	eDissolve;
+									eDissolve = (Dissolve_e) (eDissolve+1);
+								if (eDissolve == eDISSOLVE_RAND_LIMIT)
+									eDissolve = (Dissolve_e) (eDissolve+1);
+								if (eDissolve >= eDISSOLVE_NUMBEROF)
+									eDissolve = (Dissolve_e) 0;
 #else
-			// final (& random) version...
-			//
-			Dissolve.eDissolveType = (Dissolve_e) Q_irand( 0, eDISSOLVE_RAND_LIMIT-1);
+		// final (& random) version...
+		//
+		Dissolve.dissolveParms.type = (Dissolve_e)Q_irand( 0, eDISSOLVE_RAND_LIMIT - 1 );
 #endif
 
-			if (bForceCircularExtroWipe)
-			{
-				Dissolve.eDissolveType = eDISSOLVE_CIRCULAR_IN;
-			}
+		if( bForceCircularExtroWipe )
+		{
+			Dissolve.dissolveParms.type = eDISSOLVE_CIRCULAR_IN;
+		}
 
-			// ... and load appropriate graphics...
+		// ... and load appropriate graphics...
+		//
+
+		// special tweak, although this code is normally called just before client spawns into world (and
+		//	is therefore pretty much immune to precache issues) I also need to make sure that the inverse
+		//	iris graphic is loaded so for the special case of doing a circular wipe at the end of the last
+		//	level doesn't stall on loading the image. So I'll load it here anyway - to prime the image -
+		//	then allow the random wiper to overwrite the ptr if needed. This way the end of level call
+		//	will be instant.  Downside: every level has one extra 256x256 texture.
+	 	// Trying to decipher these comments - looks like no problem taking this out. I want the RAM.
+		{
+			Dissolve.pDissolve = R_FindImageFile(	"gfx/2d/iris_mono_rev",					// const char *name
+													qfalse,									// qboolean mipmap
+													qfalse,									// qboolean allowPicmip
+													qfalse,									// qboolean allowTC
+													VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE	// VkSamplerAdderssMode wrapClampMode
+												);
+		}
+
+		extern cvar_t *com_buildScript;
+		if (com_buildScript->integer)
+		{
+			// register any/all of the possible CASE statements below...
 			//
+			Dissolve.pDissolve = R_FindImageFile(	"gfx/2d/iris_mono",						// const char *name
+													qfalse,									// qboolean mipmap
+													qfalse,									// qboolean allowPicmip
+													qfalse,									// qboolean allowTC
+													VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE	// VkSamplerAdderssMode wrapClampMode
+												);
+			Dissolve.pDissolve = R_FindImageFile(	"textures/common/dissolve",				// const char *name
+													qfalse,									// qboolean mipmap
+													qfalse,									// qboolean allowPicmip
+													qfalse,									// qboolean allowTC
+													VK_SAMPLER_ADDRESS_MODE_REPEAT			// VkSamplerAdderssMode wrapClampMode
+												);
+		}
 
-			// special tweak, although this code is normally called just before client spawns into world (and
-			//	is therefore pretty much immune to precache issues) I also need to make sure that the inverse
-			//	iris graphic is loaded so for the special case of doing a circular wipe at the end of the last
-			//	level doesn't stall on loading the image. So I'll load it here anyway - to prime the image -
-			//	then allow the random wiper to overwrite the ptr if needed. This way the end of level call
-			//	will be instant.  Downside: every level has one extra 256x256 texture.
-	 		// Trying to decipher these comments - looks like no problem taking this out. I want the RAM.
+		switch( Dissolve.dissolveParms.type )
+		{
+			case eDISSOLVE_CIRCULAR_IN:
 			{
 				Dissolve.pDissolve = R_FindImageFile(	"gfx/2d/iris_mono_rev",					// const char *name
 														qfalse,									// qboolean mipmap
@@ -969,77 +646,53 @@ qboolean RE_InitDissolve(qboolean bForceCircularExtroWipe)
 														VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE	// VkSamplerAdderssMode wrapClampMode
 													);
 			}
+			break;
 
-			extern cvar_t *com_buildScript;
-			if (com_buildScript->integer)
+			case eDISSOLVE_CIRCULAR_OUT:
 			{
-				// register any/all of the possible CASE statements below...
-				//
 				Dissolve.pDissolve = R_FindImageFile(	"gfx/2d/iris_mono",						// const char *name
 														qfalse,									// qboolean mipmap
 														qfalse,									// qboolean allowPicmip
 														qfalse,									// qboolean allowTC
 														VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE	// VkSamplerAdderssMode wrapClampMode
 													);
-				Dissolve.pDissolve = R_FindImageFile(	"textures/common/dissolve",				// const char *name
-														qfalse,									// qboolean mipmap
-														qfalse,									// qboolean allowPicmip
-														qfalse,									// qboolean allowTC
-														VK_SAMPLER_ADDRESS_MODE_REPEAT			// VkSamplerAdderssMode wrapClampMode
+			}
+			break;
+
+			default:
+			{
+				Dissolve.pDissolve = R_FindImageFile(	"textures/common/dissolve",		// const char *name
+														qfalse,							// qboolean mipmap
+														qfalse,							// qboolean allowPicmip
+														qfalse,							// qboolean allowTC
+														VK_SAMPLER_ADDRESS_MODE_REPEAT	// VkSamplerAdderssMode wrapClampMode
 													);
 			}
+			break;
+		}
 
-			switch (Dissolve.eDissolveType)
-			{
-				case eDISSOLVE_CIRCULAR_IN:
-				{
-					Dissolve.pDissolve = R_FindImageFile(	"gfx/2d/iris_mono_rev",					// const char *name
-															qfalse,									// qboolean mipmap
-															qfalse,									// qboolean allowPicmip
-															qfalse,									// qboolean allowTC
-															VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE	// VkSamplerAdderssMode wrapClampMode
-														);
-				}
-				break;
+		// all good?...
+		//
+		if( Dissolve.pDissolve )	// test if image was found, if not, don't do dissolves
+		{
+			Dissolve.iStartTime = ri.Milliseconds();	// gets overwritten first time, but MUST be set to NZ
+			Dissolve.bTouchNeeded = qtrue;
+			bReturn = qtrue;
+		}
+		else
+		{
+			RE_KillDissolve( qtrue );
+		}
 
-				case eDISSOLVE_CIRCULAR_OUT:
-				{
-					Dissolve.pDissolve = R_FindImageFile(	"gfx/2d/iris_mono",						// const char *name
-															qfalse,									// qboolean mipmap
-															qfalse,									// qboolean allowPicmip
-															qfalse,									// qboolean allowTC
-															VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE	// VkSamplerAdderssMode wrapClampMode
-														);
-				}
-				break;
-
-				default:
-				{
-					Dissolve.pDissolve = R_FindImageFile(	"textures/common/dissolve",		// const char *name
-															qfalse,							// qboolean mipmap
-															qfalse,							// qboolean allowPicmip
-															qfalse,							// qboolean allowTC
-															VK_SAMPLER_ADDRESS_MODE_REPEAT	// VkSamplerAdderssMode wrapClampMode
-														);
-				}
-				break;
-			}
-
-			// all good?...
-			//
-			if (Dissolve.pDissolve)	// test if image was found, if not, don't do dissolves
-			{
-				Dissolve.iStartTime = ri.Milliseconds();	// gets overwritten first time, but MUST be set to NZ
-				Dissolve.bTouchNeeded = qtrue;
-				bReturn = qtrue;
-			}
-			else
-			{
-				RE_KillDissolve();
-			}
+		if( bReturn ) {
+			// write immutable descriptors
+			CDescriptorSetWriter writer( Dissolve.dissolvePipelineDescriptorSet );
+			writer.writeBuffer( 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, Dissolve.dissolveParmsBuffer );
+			writer.writeImage( 1, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, Dissolve.pDissolve );
+			writer.writeImage( 2, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, Dissolve.pImage );
+			writer.flush();
 		}
 	}
 
 	return bReturn;
 }
-

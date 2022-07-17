@@ -55,7 +55,7 @@ static const float s_flipMatrix[16] = {
 
 
 static VkPipelineStageFlags VK_GetPipelineStageFlagsForAccess( VkAccessFlags access ) {
-	VkPipelineStageFlags stage = 0;
+	VkPipelineStageFlags stage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
 
 	// Barrier on the host operations.
 	if( ( access & VK_ACCESS_HOST_READ_BIT ) || ( access & VK_ACCESS_HOST_WRITE_BIT ) )
@@ -93,6 +93,116 @@ static VkPipelineStageFlags VK_GetPipelineStageFlagsForAccess( VkAccessFlags acc
 }
 
 /*
+** VK_BeginFrame
+*/
+void VK_BeginFrame( void ) {
+	VkResult res;
+
+	if( vkState.imagenum == UINT32_MAX ) {
+		// move to the next resource
+		vkState.resnum = ( vkState.resnum + 1 ) % vkState.imgcount;
+		backEndData->cmdbuf = vkState.cmdbuffers[vkState.resnum];
+		backEndData->semaphore = vkState.semaphores[vkState.resnum];
+
+		res = vkAcquireNextImageKHR(
+			vkState.device, vkState.swapchain, UINT64_MAX, backEndData->semaphore, VK_NULL_HANDLE, &vkState.imagenum );
+
+		if( res != VK_SUCCESS ) {
+			Com_Error( ERR_FATAL, "VK_BeginFrame: failed to acquire next swapchain image (%d)\n", res );
+		}
+
+		backEndData->image = &vkState.images[vkState.imagenum];
+		backEndData->imageArraySlice = 0; // todo: stereo
+
+		backEndData->frameBuffer = NULL;
+		backEndData->pipeline = VK_NULL_HANDLE;
+		backEndData->pipelineLayout = VK_NULL_HANDLE;
+
+		// wait until the resources are available
+		res = vkWaitForFences( vkState.device, 1, &vkState.fences[vkState.resnum], VK_FALSE, UINT64_MAX );
+		if( res != VK_SUCCESS ) {
+			Com_Error( ERR_FATAL, "VK_BeginFrame: failed to wait for resource availability (%d)\n", res );
+		}
+
+		vkResetFences( vkState.device, 1, &vkState.fences[vkState.resnum] );
+
+		// free the upload buffers for this frame to the pool
+		VK_PrepareUploadBuffers();
+
+		// begin the command buffer
+		VkCommandBufferBeginInfo commandBufferBeginInfo = {};
+		commandBufferBeginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+		commandBufferBeginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+
+		res = vkBeginCommandBuffer( backEndData->cmdbuf, &commandBufferBeginInfo );
+		if( res != VK_SUCCESS ) {
+			Com_Error( ERR_FATAL, "VK_BeginFrame: failed to begin recording the next command buffer (%d)\n", res );
+		}
+	}
+}
+
+/*
+** VK_EndFrame
+*/
+void VK_EndFrame( void ) {
+	VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+	VkResult res;
+
+	assert( vkState.imagenum != UINT32_MAX );
+
+	// copy rendered image to swapchain image
+	VK_SetImageLayout( tr.screenImage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_ACCESS_TRANSFER_READ_BIT );
+	VK_SetImageLayout( tr.screenshotImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_ACCESS_TRANSFER_WRITE_BIT );
+	VK_SetImageLayout( backEndData->image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_ACCESS_TRANSFER_WRITE_BIT );
+
+	VK_CopyImage( tr.screenshotImage, tr.screenImage );
+	VK_CopyImage( backEndData->image, tr.screenImage );
+
+	// transition the swapchain image to presentable layout
+	VK_SetImageLayout( backEndData->image, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_ACCESS_TRANSFER_READ_BIT );
+
+	// finish recording of the command buffer and submit it for execution
+	vkEndCommandBuffer( backEndData->cmdbuf );
+
+	VkSubmitInfo submitInfo = {};
+	submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+	submitInfo.commandBufferCount = 1;
+	submitInfo.pCommandBuffers = &backEndData->cmdbuf;
+	submitInfo.waitSemaphoreCount = 1;
+	submitInfo.pWaitSemaphores = &backEndData->semaphore;
+	submitInfo.pWaitDstStageMask = &waitStage;
+
+	res = vkQueueSubmit( vkState.queue, 1, &submitInfo, vkState.fences[vkState.resnum] );
+	if( res != VK_SUCCESS ) {
+		Com_Error( ERR_FATAL, "RB_SwapBuffers: failed to submit command buffer for execution (%d)\n", res );
+	}
+
+	// in Vulkan the buffers are managed by the swap chain
+	VkPresentInfoKHR presentInfo = {};
+	presentInfo.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
+	presentInfo.swapchainCount = 1;
+	presentInfo.pSwapchains = &vkState.swapchain;
+	presentInfo.pImageIndices = &vkState.imagenum;
+
+	res = vkQueuePresentKHR( vkState.queue, &presentInfo );
+
+	if( res == VK_ERROR_OUT_OF_DATE_KHR ) {
+		// swap chain needs to be recreated
+
+		// before we do that, we have to sync with gpu on all pending frames
+		res = vkWaitForFences( vkState.device, vkState.imgcount, vkState.fences, VK_TRUE, UINT64_MAX );
+		if( res != VK_SUCCESS ) {
+			Com_Error( ERR_FATAL, "RB_SwapBuffers: failed to synchronize with the command queue (%d)\n", res );
+		}
+
+		// reinitialize the swapchain
+		VK_InitSwapchain();
+	}
+
+	vkState.imagenum = UINT32_MAX;
+}
+
+/*
 ** VK_SetImageLayout
 */
 void VK_SetImageLayout( image_t *im, VkImageLayout dstLayout, VkAccessFlags dstAccess ) {
@@ -116,7 +226,7 @@ void VK_SetImageLayout( image_t *im, VkImageLayout dstLayout, VkAccessFlags dstA
 		imageMemoryBarrier.subresourceRange.levelCount = VK_REMAINING_MIP_LEVELS;
 
 		vkCmdPipelineBarrier(
-			vkCtx.cmdbuffer,
+			backEndData->cmdbuf,
 			VK_GetPipelineStageFlagsForAccess( imageMemoryBarrier.srcAccessMask ),
 			VK_GetPipelineStageFlagsForAccess( imageMemoryBarrier.dstAccessMask ),
 			VK_DEPENDENCY_BY_REGION_BIT,
@@ -130,253 +240,32 @@ void VK_SetImageLayout( image_t *im, VkImageLayout dstLayout, VkAccessFlags dstA
 	}
 }
 
-
 /*
-** GL_Cull
+** VK_AlignUniformBufferSize
 */
-void GL_Cull( int cullType ) {
-	if( glState.faceCulling == cullType ) {
-		return;
-	}
-	glState.faceCulling = cullType;
-	if( backEnd.projection2D ) { // don't care, we're in 2d when it's always disabled
-		return;
-	}
+int VK_AlignUniformBufferSize(int structureSize) {
+	int alignment = vkState.physicalDeviceProperties.limits.minUniformBufferOffsetAlignment;
 
-	if( cullType == CT_TWO_SIDED ) {
-		qglDisable( GL_CULL_FACE );
-	}
-	else {
-		qglEnable( GL_CULL_FACE );
-
-		if( cullType == CT_BACK_SIDED ) {
-			if( backEnd.viewParms.isMirror ) {
-				qglCullFace( GL_FRONT );
-			}
-			else {
-				qglCullFace( GL_BACK );
-			}
-		}
-		else {
-			if( backEnd.viewParms.isMirror ) {
-				qglCullFace( GL_BACK );
-			}
-			else {
-				qglCullFace( GL_FRONT );
-			}
-		}
-	}
+	// return the next multiple of the alignemt that can fit the whole structure size
+	return PAD( structureSize, alignment );
 }
 
 /*
-** GL_TexEnv
+** VK_CopyImage
 */
-void GL_TexEnv( int env ) {
-	if( env == glState.texEnv[glState.currenttmu] ) {
-		return;
-	}
+void VK_CopyImage( image_t *dst, image_t *src ) {
+	VkImageCopy imageCopy = {};
 
-	glState.texEnv[glState.currenttmu] = env;
+	imageCopy.extent.width = dst->width;
+	imageCopy.extent.height = dst->height;
+	imageCopy.extent.depth = 1;
+	imageCopy.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+	imageCopy.srcSubresource.layerCount = 1;
+	imageCopy.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+	imageCopy.dstSubresource.layerCount = 1;
 
-
-	switch( env ) {
-	case GL_MODULATE:
-		qglTexEnvf( GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE );
-		break;
-	case GL_REPLACE:
-		qglTexEnvf( GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE );
-		break;
-	case GL_DECAL:
-		qglTexEnvf( GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_DECAL );
-		break;
-	case GL_ADD:
-		qglTexEnvf( GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_ADD );
-		break;
-	default:
-		Com_Error( ERR_DROP, "GL_TexEnv: invalid env '%d' passed\n", env );
-		break;
-	}
+	vkCmdCopyImage( backEndData->cmdbuf, src->tex, src->layout, dst->tex, dst->layout, 1, &imageCopy );
 }
-
-/*
-** GL_State
-**
-** This routine is responsible for setting the most commonly changed state
-** in Q3.
-*/
-void GL_State( uint32_t stateBits ) {
-	uint32_t diff = stateBits ^ glState.glStateBits;
-
-	if( !diff ) {
-		return;
-	}
-
-	VkGraphicsPipelineCreateInfo pipelineCreateInfo = {};
-	pipelineCreateInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
-
-	//
-	// check depthFunc bits
-	//
-	if( diff & GLS_DEPTHFUNC_EQUAL ) {
-		if( stateBits & GLS_DEPTHFUNC_EQUAL ) {
-			qglDepthFunc( GL_EQUAL );
-		}
-		else {
-			qglDepthFunc( GL_LEQUAL );
-		}
-	}
-
-	//
-	// check blend bits
-	//
-	if( diff & ( GLS_SRCBLEND_BITS | GLS_DSTBLEND_BITS ) ) {
-		VkBlendFactor srcFactor, dstFactor;
-
-		if( stateBits & ( GLS_SRCBLEND_BITS | GLS_DSTBLEND_BITS ) ) {
-			switch( stateBits & GLS_SRCBLEND_BITS ) {
-			case GLS_SRCBLEND_ZERO:
-				srcFactor = VK_BLEND_FACTOR_ZERO;
-				break;
-			case GLS_SRCBLEND_ONE:
-				srcFactor = VK_BLEND_FACTOR_ONE;
-				break;
-			case GLS_SRCBLEND_DST_COLOR:
-				srcFactor = VK_BLEND_FACTOR_DST_COLOR;
-				break;
-			case GLS_SRCBLEND_ONE_MINUS_DST_COLOR:
-				srcFactor = VK_BLEND_FACTOR_ONE_MINUS_DST_COLOR;
-				break;
-			case GLS_SRCBLEND_SRC_ALPHA:
-				srcFactor = VK_BLEND_FACTOR_SRC_ALPHA;
-				break;
-			case GLS_SRCBLEND_ONE_MINUS_SRC_ALPHA:
-				srcFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-				break;
-			case GLS_SRCBLEND_DST_ALPHA:
-				srcFactor = VK_BLEND_FACTOR_DST_ALPHA;
-				break;
-			case GLS_SRCBLEND_ONE_MINUS_DST_ALPHA:
-				srcFactor = VK_BLEND_FACTOR_ONE_MINUS_DST_ALPHA;
-				break;
-			case GLS_SRCBLEND_ALPHA_SATURATE:
-				srcFactor = VK_BLEND_FACTOR_SRC_ALPHA_SATURATE;
-				break;
-			default:
-				srcFactor = VK_BLEND_FACTOR_ONE; // to get warning to shut up
-				Com_Error( ERR_DROP, "GL_State: invalid src blend state bits\n" );
-				break;
-			}
-
-			switch( stateBits & GLS_DSTBLEND_BITS ) {
-			case GLS_DSTBLEND_ZERO:
-				dstFactor = VK_BLEND_FACTOR_ZERO;
-				break;
-			case GLS_DSTBLEND_ONE:
-				dstFactor = VK_BLEND_FACTOR_ONE;
-				break;
-			case GLS_DSTBLEND_SRC_COLOR:
-				dstFactor = VK_BLEND_FACTOR_SRC_COLOR;
-				break;
-			case GLS_DSTBLEND_ONE_MINUS_SRC_COLOR:
-				dstFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_COLOR;
-				break;
-			case GLS_DSTBLEND_SRC_ALPHA:
-				dstFactor = VK_BLEND_FACTOR_SRC_ALPHA;
-				break;
-			case GLS_DSTBLEND_ONE_MINUS_SRC_ALPHA:
-				dstFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-				break;
-			case GLS_DSTBLEND_DST_ALPHA:
-				dstFactor = VK_BLEND_FACTOR_DST_ALPHA;
-				break;
-			case GLS_DSTBLEND_ONE_MINUS_DST_ALPHA:
-				dstFactor = VK_BLEND_FACTOR_ONE_MINUS_DST_ALPHA;
-				break;
-			default:
-				dstFactor = VK_BLEND_FACTOR_ONE; // to get warning to shut up
-				Com_Error( ERR_DROP, "GL_State: invalid dst blend state bits\n" );
-				break;
-			}
-
-			qglEnable( GL_BLEND );
-			qglBlendFunc( srcFactor, dstFactor );
-		}
-		else {
-			qglDisable( GL_BLEND );
-		}
-	}
-
-	//
-	// check depthmask
-	//
-	if( diff & GLS_DEPTHMASK_TRUE ) {
-		if( stateBits & GLS_DEPTHMASK_TRUE ) {
-			qglDepthMask( GL_TRUE );
-		}
-		else {
-			qglDepthMask( GL_FALSE );
-		}
-	}
-
-	//
-	// fill/line mode
-	//
-	if( diff & GLS_POLYMODE_LINE ) {
-		VkPolygonMode polygonMode;
-
-		if( stateBits & GLS_POLYMODE_LINE ) {
-			polygonMode = VK_POLYGON_MODE_LINE;
-		}
-		else {
-			polygonMode = VK_POLYGON_MODE_FILL;
-		}
-	}
-
-	//
-	// depthtest
-	//
-	if( diff & GLS_DEPTHTEST_DISABLE ) {
-		if( stateBits & GLS_DEPTHTEST_DISABLE ) {
-			qglDisable( GL_DEPTH_TEST );
-		}
-		else {
-			qglEnable( GL_DEPTH_TEST );
-		}
-	}
-
-	//
-	// alpha test
-	//
-	if( diff & GLS_ATEST_BITS ) {
-		switch( stateBits & GLS_ATEST_BITS ) {
-		case 0:
-			qglDisable( GL_ALPHA_TEST );
-			break;
-		case GLS_ATEST_GT_0:
-			qglEnable( GL_ALPHA_TEST );
-			qglAlphaFunc( GL_GREATER, 0.0f );
-			break;
-		case GLS_ATEST_LT_80:
-			qglEnable( GL_ALPHA_TEST );
-			qglAlphaFunc( GL_LESS, 0.5f );
-			break;
-		case GLS_ATEST_GE_80:
-			qglEnable( GL_ALPHA_TEST );
-			qglAlphaFunc( GL_GEQUAL, 0.5f );
-			break;
-		case GLS_ATEST_GE_C0:
-			qglEnable( GL_ALPHA_TEST );
-			qglAlphaFunc( GL_GEQUAL, 0.75f );
-			break;
-		default:
-			assert( 0 );
-			break;
-		}
-	}
-
-	glState.glStateBits = stateBits;
-}
-
 
 
 /*
@@ -386,7 +275,7 @@ RB_Hyperspace
 A player has predicted a teleport, but hasn't arrived yet
 ================
 */
-static void RB_Hyperspace( VkClearColorValue* clearColor ) {
+static void RB_Hyperspace( VkClearColorValue *clearColor ) {
 	float c;
 
 	if( !backEnd.isHyperspace ) {
@@ -403,16 +292,44 @@ static void RB_Hyperspace( VkClearColorValue* clearColor ) {
 }
 
 
-void SetViewportAndScissor( void ) {
-	qglMatrixMode( GL_PROJECTION );
-	qglLoadMatrixf( backEnd.viewParms.projectionMatrix );
-	qglMatrixMode( GL_MODELVIEW );
+void SetViewportAndScissor( int depthRange ) {
+	VkViewport viewport;
+	VkRect2D scissor;
+	float minDepth, maxDepth;
+
+	switch( depthRange ) {
+	default:
+	case 0:
+		minDepth = 0;
+		maxDepth = 1;
+		break;
+
+	case 1:
+		minDepth = 0;
+		maxDepth = .3f;
+		break;
+
+	case 2:
+		minDepth = 0;
+		maxDepth = 0;
+		break;
+	}
 
 	// set the window clipping
-	qglViewport( backEnd.viewParms.viewportX, backEnd.viewParms.viewportY,
-		backEnd.viewParms.viewportWidth, backEnd.viewParms.viewportHeight );
-	qglScissor( backEnd.viewParms.viewportX, backEnd.viewParms.viewportY,
-		backEnd.viewParms.viewportWidth, backEnd.viewParms.viewportHeight );
+	viewport.x = backEnd.viewParms.viewportX;
+	viewport.y = backEnd.viewParms.viewportY;
+	viewport.width = backEnd.viewParms.viewportWidth;
+	viewport.height = backEnd.viewParms.viewportHeight;
+	viewport.minDepth = minDepth;
+	viewport.maxDepth = maxDepth;
+	vkCmdSetViewport( backEndData->cmdbuf, 0, 1, &viewport );
+
+	// set the scissor rect
+	scissor.offset.x = backEnd.viewParms.viewportX;
+	scissor.offset.y = backEnd.viewParms.viewportY;
+	scissor.extent.width = backEnd.viewParms.viewportWidth;
+	scissor.extent.height = backEnd.viewParms.viewportHeight;
+	vkCmdSetScissor( backEndData->cmdbuf, 0, 1, &scissor );
 }
 
 /*
@@ -424,36 +341,17 @@ to actually render the visible surfaces for this view
 =================
 */
 static void RB_BeginDrawingView( void ) {
-	VkClearValue clearValues[2] = {};
-	VkClearDepthStencilValue* depthStencilClearValue = &clearValues[0].depthStencil;
-	VkClearColorValue* colorClearValue = &clearValues[1].color;
-	VkRenderPassBeginInfo passBeginInfo = {};
+	frameBuffer_t *frameBuffer = tr.sceneFrameBuffer;
+	frameBuffer->clearValues[1].depthStencil.depth = 1.f;
+	frameBuffer->clearValues[1].depthStencil.stencil = 0;
 
-	passBeginInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-	passBeginInfo.renderPass = tr.sceneRenderPass;
-	passBeginInfo.framebuffer = tr.sceneFramebuffer;
-	passBeginInfo.renderArea.extent.width = tr.sceneImage->width;
-	passBeginInfo.renderArea.extent.height = tr.sceneImage->height;
-	passBeginInfo.clearValueCount = 1;	// clear only depth-stencil by default
-	passBeginInfo.pClearValues = clearValues;
-
-	depthStencilClearValue->depth = 1.f;
-	depthStencilClearValue->stencil = 0;
-
-	if (g_bRenderGlowingObjects) {
-		passBeginInfo.renderPass = tr.glowRenderPass;
-		passBeginInfo.framebuffer = tr.glowFramebuffer;
+	if( g_bRenderGlowingObjects ) {
+		frameBuffer = tr.glowFrameBuffer;
 	}
 
 	// we will need to change the projection matrix before drawing
 	// 2D images again
 	backEnd.projection2D = qfalse;
-
-	// set the modelview matrix for the viewer
-	SetViewportAndScissor();
-
-	// ensures that depth writes are enabled for the depth clear
-	GL_State( GLS_DEFAULT );
 
 	// clear relevant buffers
 	if( r_measureOverdraw->integer || r_shadows->integer == 2 || tr_stencilled ) {
@@ -466,18 +364,17 @@ static void RB_BeginDrawingView( void ) {
 				// try clearing first with the portal sky fog color, then the world fog color, then finally a default
 				if( tr.world && tr.world->globalFog != -1 ) {
 					const fog_t *fog = &tr.world->fogs[tr.world->globalFog];
-					colorClearValue->float32[0] = fog->parms.color[0];
-					colorClearValue->float32[1] = fog->parms.color[1];
-					colorClearValue->float32[2] = fog->parms.color[2];
-					colorClearValue->float32[3] = 1.0f;
+					frameBuffer->clearValues[0].color.float32[0] = fog->parms.color[0];
+					frameBuffer->clearValues[0].color.float32[1] = fog->parms.color[1];
+					frameBuffer->clearValues[0].color.float32[2] = fog->parms.color[2];
+					frameBuffer->clearValues[0].color.float32[3] = 1.0f;
 				}
 				else {
-					colorClearValue->float32[0] = 0.3f;
-					colorClearValue->float32[1] = 0.3f;
-					colorClearValue->float32[2] = 0.3f;
-					colorClearValue->float32[3] = 1.0f;
+					frameBuffer->clearValues[0].color.float32[0] = 0.3f;
+					frameBuffer->clearValues[0].color.float32[1] = 0.3f;
+					frameBuffer->clearValues[0].color.float32[2] = 0.3f;
+					frameBuffer->clearValues[0].color.float32[3] = 1.0f;
 				}
-				passBeginInfo.clearValueCount = 2;
 			}
 		}
 	}
@@ -485,35 +382,33 @@ static void RB_BeginDrawingView( void ) {
 		if( r_fastsky->integer && !( backEnd.refdef.rdflags & RDF_NOWORLDMODEL ) && !g_bRenderGlowingObjects ) {
 			if( tr.world && tr.world->globalFog != -1 ) {
 				const fog_t *fog = &tr.world->fogs[tr.world->globalFog];
-				colorClearValue->float32[0] = fog->parms.color[0];
-				colorClearValue->float32[1] = fog->parms.color[1];
-				colorClearValue->float32[2] = fog->parms.color[2];
-				colorClearValue->float32[3] = 1.0f;
+				frameBuffer->clearValues[0].color.float32[0] = fog->parms.color[0];
+				frameBuffer->clearValues[0].color.float32[1] = fog->parms.color[1];
+				frameBuffer->clearValues[0].color.float32[2] = fog->parms.color[2];
+				frameBuffer->clearValues[0].color.float32[3] = 1.0f;
 			}
 			else {
 				// FIXME: get color of sky
-				colorClearValue->float32[0] = 0.3f;
-				colorClearValue->float32[1] = 0.3f;
-				colorClearValue->float32[2] = 0.3f;
-				colorClearValue->float32[3] = 1.0f;
+				frameBuffer->clearValues[0].color.float32[0] = 0.3f;
+				frameBuffer->clearValues[0].color.float32[1] = 0.3f;
+				frameBuffer->clearValues[0].color.float32[2] = 0.3f;
+				frameBuffer->clearValues[0].color.float32[3] = 1.0f;
 			}
-			passBeginInfo.clearValueCount = 2;
 		}
 	}
 
 	if( !( backEnd.refdef.rdflags & RDF_NOWORLDMODEL ) && ( r_DynamicGlow->integer && !g_bRenderGlowingObjects ) ) {
 		if( tr.world && tr.world->globalFog != -1 ) { // this is because of a bug in multiple scenes I think, it needs to clear for the second scene but it doesn't normally.
 			const fog_t *fog = &tr.world->fogs[tr.world->globalFog];
-			colorClearValue->float32[0] = fog->parms.color[0];
-			colorClearValue->float32[1] = fog->parms.color[1];
-			colorClearValue->float32[2] = fog->parms.color[2];
-			colorClearValue->float32[3] = 1.0f;
-			passBeginInfo.clearValueCount = 2;
+			frameBuffer->clearValues[0].color.float32[0] = fog->parms.color[0];
+			frameBuffer->clearValues[0].color.float32[1] = fog->parms.color[1];
+			frameBuffer->clearValues[0].color.float32[2] = fog->parms.color[2];
+			frameBuffer->clearValues[0].color.float32[3] = 1.0f;
 		}
 	}
 
 	if( ( backEnd.refdef.rdflags & RDF_HYPERSPACE ) ) {
-		RB_Hyperspace( colorClearValue );
+		RB_Hyperspace( &frameBuffer->clearValues[0].color );
 		return;
 	}
 	else {
@@ -523,6 +418,7 @@ static void RB_BeginDrawingView( void ) {
 	// we will only draw a sun if there was sky rendered in this view
 	backEnd.skyRenderedThisView = qfalse;
 
+#if 0
 	// clip to the plane of the portal
 	if( backEnd.viewParms.isPortal ) {
 		float plane[4];
@@ -545,8 +441,9 @@ static void RB_BeginDrawingView( void ) {
 	else {
 		qglDisable( GL_CLIP_PLANE0 );
 	}
+#endif
 
-	vkCmdBeginRenderPass(vkCtx.cmdbuffer, &passBeginInfo, VK_SUBPASS_CONTENTS_INLINE);
+	R_BindFrameBuffer( frameBuffer );
 }
 
 // used by RF_DISTORTION
@@ -631,6 +528,8 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 	float originalTime;
 	trRefEntity_t *curEnt;
 	postRender_t *pRender;
+	frameBuffer_t *frameBuffer;
+	image_t *frameBufferImage;
 	bool didShadowPass = false;
 
 	// save original time for entity shader offsets
@@ -648,6 +547,9 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 	oldDlighted = qfalse;
 	oldSort = (unsigned int)-1;
 	depthRange = qfalse;
+
+	// set default viewport and scissor
+	SetViewportAndScissor( depthRange );
 
 	backEnd.pc.c_surfaces += numDrawSurfs;
 
@@ -721,14 +623,11 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 
 		if( shader != oldShader || fogNum != oldFogNum || dlighted != oldDlighted || ( entityNum != oldEntityNum && !shader->entityMergable ) ) {
 			if( oldShader != NULL ) {
-				RB_EndSurface();
-
 				if( !didShadowPass && shader && shader->sort > SS_BANNER ) {
 					RB_ShadowFinish();
 					didShadowPass = true;
 				}
 			}
-			RB_BeginSurface( shader, fogNum );
 			oldShader = shader;
 			oldFogNum = fogNum;
 			oldDlighted = dlighted;
@@ -768,27 +667,11 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 				R_TransformDlights( backEnd.refdef.num_dlights, backEnd.refdef.dlights, &backEnd.ori );
 			}
 
-			qglLoadMatrixf( backEnd.ori.modelMatrix );
-
 			//
 			// change depthrange if needed
 			//
 			if( oldDepthRange != depthRange ) {
-				switch( depthRange ) {
-				default:
-				case 0:
-					qglDepthRange( 0, 1 );
-					break;
-
-				case 1:
-					qglDepthRange( 0, .3 );
-					break;
-
-				case 2:
-					qglDepthRange( 0, 0 );
-					break;
-				}
-
+				SetViewportAndScissor( depthRange );
 				oldDepthRange = depthRange;
 			}
 
@@ -799,17 +682,14 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 		rb_surfaceTable[*drawSurf->surface]( drawSurf->surface );
 	}
 
-	// draw the contents of the last shader batch
-	if( oldShader != NULL ) {
-		RB_EndSurface();
-	}
-
 	if( tr_stencilled && tr_distortionPrePost ) { // ok, cap it now
 		RB_CaptureScreenImage();
 		RB_DistortionFill();
 	}
 
-	vkCmdEndRenderPass(vkCtx.cmdbuffer);
+	// get the frame buffer
+	frameBuffer = backEndData->frameBuffer;
+	frameBufferImage = frameBuffer->images[0].i;
 
 	// render distortion surfs (or anything else that needs to be post-rendered)
 	if( g_numPostRenders > 0 ) {
@@ -822,7 +702,6 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 			RB_BeginSurface( pRender->shader, pRender->fogNum );
 
 			backEnd.currentEntity = &backEnd.refdef.entities[pRender->entNum];
-
 			backEnd.refdef.floatTime = originalTime - backEnd.currentEntity->e.shaderTime;
 
 			// set up the transformation matrix
@@ -833,33 +712,15 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 				R_TransformDlights( backEnd.refdef.num_dlights, backEnd.refdef.dlights, &backEnd.ori );
 			}
 
-			qglLoadMatrixf( backEnd.ori.modelMatrix );
-
-			depthRange = pRender->depthRange;
-			switch( depthRange ) {
-			default:
-			case 0:
-				qglDepthRange( 0, 1 );
-				break;
-
-			case 1:
-				qglDepthRange( 0, .3 );
-				break;
-
-			case 2:
-				qglDepthRange( 0, 0 );
-				break;
-			}
+			SetViewportAndScissor( pRender->depthRange );
 
 			if( ( backEnd.currentEntity->e.renderfx & RF_DISTORTION ) &&
 				lastPostEnt != pRender->entNum ) { // do the capture now, we only need to do it once per ent
 				int x, y;
 				int rad = backEnd.currentEntity->e.radius;
-				// We are going to just bind this, and then the CopyTexImage is going to
-				// stomp over this texture num in texture memory.
-				GL_Bind( tr.screenImage );
 
 				if( R_WorldCoordToScreenCoord( backEnd.currentEntity->e.origin, &x, &y ) ) {
+					VkImageCopy imageCopy = {};
 					int cX, cY;
 					cX = glConfig.vidWidth - x - ( rad / 2 );
 					cY = glConfig.vidHeight - y - ( rad / 2 );
@@ -878,8 +739,27 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 						cY = 0;
 					}
 
+					// unbind the frame buffer to copy it to screenImage
+					R_BindFrameBuffer( NULL );
+
+					VK_SetImageLayout( frameBufferImage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_ACCESS_TRANSFER_READ_BIT );
+					VK_SetImageLayout( tr.screenImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_ACCESS_TRANSFER_WRITE_BIT );
+
 					// now copy a portion of the screen to this texture
-					qglCopyTexImage2D( GL_TEXTURE_2D, 0, GL_RGBA16, cX, cY, rad, rad, 0 );
+					imageCopy.extent.width = rad;
+					imageCopy.extent.height = rad;
+					imageCopy.extent.depth = 1;
+					imageCopy.srcOffset.x = cX;
+					imageCopy.srcOffset.y = cY;
+					imageCopy.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+					imageCopy.srcSubresource.layerCount = 1;
+					imageCopy.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+					imageCopy.dstSubresource.layerCount = 1;
+
+					vkCmdCopyImage( backEndData->cmdbuf, frameBufferImage->tex, frameBufferImage->layout, tr.screenImage->tex, tr.screenImage->layout, 1, &imageCopy );
+
+					// rebind the frame buffer
+					R_BindFrameBuffer( frameBuffer );
 
 					lastPostEnt = pRender->entNum;
 				}
@@ -889,6 +769,8 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 			RB_EndSurface();
 		}
 	}
+
+	R_BindFrameBuffer( NULL );
 
 #if 0
 	RB_DrawSun();
@@ -916,37 +798,6 @@ RENDER BACK END FUNCTIONS
 */
 
 /*
-================
-RB_SetGL2D
-
-================
-*/
-void RB_SetGL2D( void ) {
-	backEnd.projection2D = qtrue;
-
-	// set 2D virtual screen size
-	qglViewport( 0, 0, glConfig.vidWidth, glConfig.vidHeight );
-	qglScissor( 0, 0, glConfig.vidWidth, glConfig.vidHeight );
-	qglMatrixMode( GL_PROJECTION );
-	qglLoadIdentity();
-	qglOrtho( 0, 640, 480, 0, 0, 1 );
-	qglMatrixMode( GL_MODELVIEW );
-	qglLoadIdentity();
-
-	GL_State( GLS_DEPTHTEST_DISABLE |
-			  GLS_SRCBLEND_SRC_ALPHA |
-			  GLS_DSTBLEND_ONE_MINUS_SRC_ALPHA );
-
-	qglDisable( GL_CULL_FACE );
-	qglDisable( GL_CLIP_PLANE0 );
-
-	// set time for 2D shaders
-	backEnd.refdef.time = ri.Milliseconds();
-	backEnd.refdef.floatTime = backEnd.refdef.time * 0.001f;
-}
-
-
-/*
 =============
 RB_SetColor
 
@@ -957,10 +808,10 @@ const void *RB_SetColor( const void *data ) {
 
 	cmd = (const setColorCommand_t *)data;
 
-	backEnd.color2D[0] = cmd->color[0] * 255;
-	backEnd.color2D[1] = cmd->color[1] * 255;
-	backEnd.color2D[2] = cmd->color[2] * 255;
-	backEnd.color2D[3] = cmd->color[3] * 255;
+	backEnd.color2D.r = (byte)(cmd->color[0] * 255);
+	backEnd.color2D.g = (byte)(cmd->color[1] * 255);
+	backEnd.color2D.b = (byte)(cmd->color[2] * 255);
+	backEnd.color2D.a = (byte)(cmd->color[3] * 255);
 
 	return (const void *)( cmd + 1 );
 }
@@ -970,77 +821,74 @@ const void *RB_SetColor( const void *data ) {
 RB_StretchPic
 =============
 */
+typedef struct stretchPicVertexData_s {
+	uint32_t indices[6];
+	tr_shader::vertex_t vertices[4];
+} strectPicVertexData_t;
+
 const void *RB_StretchPic( const void *data ) {
+	strectPicVertexData_t vertexData;
+	const VkDeviceSize vertexOffset = offsetof( strectPicVertexData_t, vertices );
 	const stretchPicCommand_t *cmd;
 	shader_t *shader;
-	int numVerts, numIndexes;
 
 	cmd = (const stretchPicCommand_t *)data;
 
-	if( !backEnd.projection2D ) {
-		RB_SetGL2D();
-	}
-
 	shader = cmd->shader;
 	if( shader != tess.shader ) {
-		if( tess.numIndexes ) {
+		if( tess.numDraws ) {
 			RB_EndSurface();
 		}
 		backEnd.currentEntity = &backEnd.entity2D;
 		RB_BeginSurface( shader, 0 );
 	}
 
-	RB_CHECKOVERFLOW( 4, 6 );
-	numVerts = tess.numVertexes;
-	numIndexes = tess.numIndexes;
+	RB_CHECKOVERFLOW();
 
-	tess.numVertexes += 4;
-	tess.numIndexes += 6;
+	tr.dynamicVertexBuffer->numIndexes += 6;
+	tr.dynamicVertexBuffer->numVertexes += 4;
 
-	tess.indexes[numIndexes] = numVerts + 3;
-	tess.indexes[numIndexes + 1] = numVerts + 0;
-	tess.indexes[numIndexes + 2] = numVerts + 2;
-	tess.indexes[numIndexes + 3] = numVerts + 2;
-	tess.indexes[numIndexes + 4] = numVerts + 0;
-	tess.indexes[numIndexes + 5] = numVerts + 1;
+	vertexData.indices[0] = 0;
+	vertexData.indices[1] = 1;
+	vertexData.indices[2] = 2;
+	vertexData.indices[3] = 0;
+	vertexData.indices[4] = 2;
+	vertexData.indices[5] = 3;
 
-	byteAlias_t *baDest = NULL, *baSource = (byteAlias_t *)&backEnd.color2D;
-	baDest = (byteAlias_t *)&tess.vertexColors[numVerts + 0];
-	baDest->ui = baSource->ui;
-	baDest = (byteAlias_t *)&tess.vertexColors[numVerts + 1];
-	baDest->ui = baSource->ui;
-	baDest = (byteAlias_t *)&tess.vertexColors[numVerts + 2];
-	baDest->ui = baSource->ui;
-	baDest = (byteAlias_t *)&tess.vertexColors[numVerts + 3];
-	baDest->ui = baSource->ui;
+	vertexData.vertices[0].position.x = cmd->x;
+	vertexData.vertices[0].position.y = cmd->y;
+	vertexData.vertices[0].position.z = 0;
+	vertexData.vertices[0].texCoord0.x = cmd->s1;
+	vertexData.vertices[0].texCoord0.y = cmd->t1;
+	vertexData.vertices[0].vertexColor[0] = backEnd.color2D;
 
-	tess.xyz[numVerts][0] = cmd->x;
-	tess.xyz[numVerts][1] = cmd->y;
-	tess.xyz[numVerts][2] = 0;
+	vertexData.vertices[1].position.x = cmd->x + cmd->w;
+	vertexData.vertices[1].position.y = cmd->y;
+	vertexData.vertices[1].position.z = 0;
+	vertexData.vertices[1].texCoord0.x = cmd->s2;
+	vertexData.vertices[1].texCoord0.y = cmd->t1;
+	vertexData.vertices[1].vertexColor[0] = backEnd.color2D;
 
-	tess.texCoords[numVerts][0][0] = cmd->s1;
-	tess.texCoords[numVerts][0][1] = cmd->t1;
+	vertexData.vertices[2].position.x = cmd->x + cmd->w;
+	vertexData.vertices[2].position.y = cmd->y + cmd->h;
+	vertexData.vertices[2].position.z = 0;
+	vertexData.vertices[2].texCoord0.x = cmd->s2;
+	vertexData.vertices[2].texCoord0.y = cmd->t2;
+	vertexData.vertices[2].vertexColor[0] = backEnd.color2D;
 
-	tess.xyz[numVerts + 1][0] = cmd->x + cmd->w;
-	tess.xyz[numVerts + 1][1] = cmd->y;
-	tess.xyz[numVerts + 1][2] = 0;
+	vertexData.vertices[3].position.x = cmd->x;
+	vertexData.vertices[3].position.y = cmd->y + cmd->h;
+	vertexData.vertices[3].position.z = 0;
+	vertexData.vertices[3].texCoord0.x = cmd->s1;
+	vertexData.vertices[3].texCoord0.y = cmd->t2;
+	vertexData.vertices[3].vertexColor[0] = backEnd.color2D;
 
-	tess.texCoords[numVerts + 1][0][0] = cmd->s2;
-	tess.texCoords[numVerts + 1][0][1] = cmd->t1;
+	vkCmdUpdateBuffer( backEndData->cmdbuf, tr.dynamicVertexBuffer->b.buf, 0, sizeof( vertexData ), &vertexData );
 
-	tess.xyz[numVerts + 2][0] = cmd->x + cmd->w;
-	tess.xyz[numVerts + 2][1] = cmd->y + cmd->h;
-	tess.xyz[numVerts + 2][2] = 0;
+	RB_DrawSurface( tr.dynamicVertexBuffer );
 
-	tess.texCoords[numVerts + 2][0][0] = cmd->s2;
-	tess.texCoords[numVerts + 2][0][1] = cmd->t2;
-
-	tess.xyz[numVerts + 3][0] = cmd->x;
-	tess.xyz[numVerts + 3][1] = cmd->y + cmd->h;
-	tess.xyz[numVerts + 3][2] = 0;
-
-	tess.texCoords[numVerts + 3][0][0] = cmd->s1;
-	tess.texCoords[numVerts + 3][0][1] = cmd->t2;
+	// todo: remove
+	RB_EndSurface();
 
 	return (const void *)( cmd + 1 );
 }
@@ -1052,29 +900,23 @@ RB_RotatePic
 =============
 */
 const void *RB_RotatePic( const void *data ) {
+	strectPicVertexData_t vertexData;
+	const VkDeviceSize vertexOffset = offsetof( strectPicVertexData_t, vertices );
 	const rotatePicCommand_t *cmd;
 	shader_t *shader;
 
 	cmd = (const rotatePicCommand_t *)data;
 
 	shader = cmd->shader;
-
-	if( !backEnd.projection2D ) {
-		RB_SetGL2D();
-	}
-
-	shader = cmd->shader;
 	if( shader != tess.shader ) {
-		if( tess.numIndexes ) {
+		if( tess.numDraws ) {
 			RB_EndSurface();
 		}
 		backEnd.currentEntity = &backEnd.entity2D;
 		RB_BeginSurface( shader, 0 );
 	}
 
-	RB_CHECKOVERFLOW( 4, 6 );
-	int numVerts = tess.numVertexes;
-	int numIndexes = tess.numIndexes;
+	RB_CHECKOVERFLOW();
 
 	float angle = DEG2RAD( cmd->a );
 	float s = sinf( angle );
@@ -1086,53 +928,50 @@ const void *RB_RotatePic( const void *data ) {
 		{ cmd->x + cmd->w, cmd->y, 1.0f }
 	};
 
-	tess.numVertexes += 4;
-	tess.numIndexes += 6;
+	tr.dynamicVertexBuffer->numIndexes += 6;
+	tr.dynamicVertexBuffer->numVertexes += 4;
 
-	tess.indexes[numIndexes] = numVerts + 3;
-	tess.indexes[numIndexes + 1] = numVerts + 0;
-	tess.indexes[numIndexes + 2] = numVerts + 2;
-	tess.indexes[numIndexes + 3] = numVerts + 2;
-	tess.indexes[numIndexes + 4] = numVerts + 0;
-	tess.indexes[numIndexes + 5] = numVerts + 1;
+	vertexData.indices[0] = 0;
+	vertexData.indices[1] = 1;
+	vertexData.indices[2] = 2;
+	vertexData.indices[3] = 0;
+	vertexData.indices[4] = 2;
+	vertexData.indices[5] = 3;
 
-	byteAlias_t *baDest = NULL, *baSource = (byteAlias_t *)&backEnd.color2D;
-	baDest = (byteAlias_t *)&tess.vertexColors[numVerts + 0];
-	baDest->ui = baSource->ui;
-	baDest = (byteAlias_t *)&tess.vertexColors[numVerts + 1];
-	baDest->ui = baSource->ui;
-	baDest = (byteAlias_t *)&tess.vertexColors[numVerts + 2];
-	baDest->ui = baSource->ui;
-	baDest = (byteAlias_t *)&tess.vertexColors[numVerts + 3];
-	baDest->ui = baSource->ui;
+	vertexData.vertices[0].position.x = m[0][0] * ( -cmd->w ) + m[2][0];
+	vertexData.vertices[0].position.y = m[0][1] * ( -cmd->w ) + m[2][1];
+	vertexData.vertices[0].position.z = 0;
+	vertexData.vertices[0].texCoord0.x = cmd->s1;
+	vertexData.vertices[0].texCoord0.y = cmd->t1;
+	vertexData.vertices[0].vertexColor[0] = backEnd.color2D;
 
-	tess.xyz[numVerts][0] = m[0][0] * ( -cmd->w ) + m[2][0];
-	tess.xyz[numVerts][1] = m[0][1] * ( -cmd->w ) + m[2][1];
-	tess.xyz[numVerts][2] = 0;
+	vertexData.vertices[1].position.x = m[2][0];
+	vertexData.vertices[1].position.y = m[2][1];
+	vertexData.vertices[1].position.z = 0;
+	vertexData.vertices[1].texCoord0.x = cmd->s2;
+	vertexData.vertices[1].texCoord0.y = cmd->t1;
+	vertexData.vertices[1].vertexColor[0] = backEnd.color2D;
 
-	tess.texCoords[numVerts][0][0] = cmd->s1;
-	tess.texCoords[numVerts][0][1] = cmd->t1;
+	vertexData.vertices[2].position.x = m[1][0] * ( cmd->h ) + m[2][0];
+	vertexData.vertices[2].position.y = m[1][1] * ( cmd->h ) + m[2][1];
+	vertexData.vertices[2].position.z = 0;
+	vertexData.vertices[2].texCoord0.x = cmd->s2;
+	vertexData.vertices[2].texCoord0.y = cmd->t2;
+	vertexData.vertices[2].vertexColor[0] = backEnd.color2D;
 
-	tess.xyz[numVerts + 1][0] = m[2][0];
-	tess.xyz[numVerts + 1][1] = m[2][1];
-	tess.xyz[numVerts + 1][2] = 0;
+	vertexData.vertices[3].position.x = m[0][0] * ( -cmd->w ) + m[1][0] * ( cmd->h ) + m[2][0];
+	vertexData.vertices[3].position.y = m[0][1] * ( -cmd->w ) + m[1][1] * ( cmd->h ) + m[2][1];
+	vertexData.vertices[3].position.z = 0;
+	vertexData.vertices[3].texCoord0.x = cmd->s1;
+	vertexData.vertices[3].texCoord0.y = cmd->t2;
+	vertexData.vertices[3].vertexColor[0] = backEnd.color2D;
 
-	tess.texCoords[numVerts + 1][0][0] = cmd->s2;
-	tess.texCoords[numVerts + 1][0][1] = cmd->t1;
+	vkCmdUpdateBuffer( backEndData->cmdbuf, tr.dynamicVertexBuffer->b.buf, 0, sizeof( vertexData ), &vertexData );
 
-	tess.xyz[numVerts + 2][0] = m[1][0] * ( cmd->h ) + m[2][0];
-	tess.xyz[numVerts + 2][1] = m[1][1] * ( cmd->h ) + m[2][1];
-	tess.xyz[numVerts + 2][2] = 0;
+	RB_DrawSurface( tr.dynamicVertexBuffer );
 
-	tess.texCoords[numVerts + 2][0][0] = cmd->s2;
-	tess.texCoords[numVerts + 2][0][1] = cmd->t2;
-
-	tess.xyz[numVerts + 3][0] = m[0][0] * ( -cmd->w ) + m[1][0] * ( cmd->h ) + m[2][0];
-	tess.xyz[numVerts + 3][1] = m[0][1] * ( -cmd->w ) + m[1][1] * ( cmd->h ) + m[2][1];
-	tess.xyz[numVerts + 3][2] = 0;
-
-	tess.texCoords[numVerts + 3][0][0] = cmd->s1;
-	tess.texCoords[numVerts + 3][0][1] = cmd->t2;
+	// todo: remove
+	RB_EndSurface();
 
 	return (const void *)( cmd + 1 );
 }
@@ -1143,31 +982,25 @@ RB_RotatePic2
 =============
 */
 const void *RB_RotatePic2( const void *data ) {
+	strectPicVertexData_t vertexData;
+	const VkDeviceSize vertexOffset = offsetof( strectPicVertexData_t, vertices );
 	const rotatePicCommand_t *cmd;
 	shader_t *shader;
 
 	cmd = (const rotatePicCommand_t *)data;
-
 	shader = cmd->shader;
 
 	// FIXME is this needed
 	if( shader->numUnfoggedPasses ) {
-		if( !backEnd.projection2D ) {
-			RB_SetGL2D();
-		}
-
-		shader = cmd->shader;
 		if( shader != tess.shader ) {
-			if( tess.numIndexes ) {
+			if( tess.numDraws ) {
 				RB_EndSurface();
 			}
 			backEnd.currentEntity = &backEnd.entity2D;
 			RB_BeginSurface( shader, 0 );
 		}
 
-		RB_CHECKOVERFLOW( 4, 6 );
-		int numVerts = tess.numVertexes;
-		int numIndexes = tess.numIndexes;
+		RB_CHECKOVERFLOW();
 
 		float angle = DEG2RAD( cmd->a );
 		float s = sinf( angle );
@@ -1179,53 +1012,50 @@ const void *RB_RotatePic2( const void *data ) {
 			{ cmd->x, cmd->y, 1.0f }
 		};
 
-		tess.numVertexes += 4;
-		tess.numIndexes += 6;
+		tr.dynamicVertexBuffer->numIndexes += 6;
+		tr.dynamicVertexBuffer->numVertexes += 4;
 
-		tess.indexes[numIndexes] = numVerts + 3;
-		tess.indexes[numIndexes + 1] = numVerts + 0;
-		tess.indexes[numIndexes + 2] = numVerts + 2;
-		tess.indexes[numIndexes + 3] = numVerts + 2;
-		tess.indexes[numIndexes + 4] = numVerts + 0;
-		tess.indexes[numIndexes + 5] = numVerts + 1;
+		vertexData.indices[0] = 0;
+		vertexData.indices[1] = 1;
+		vertexData.indices[2] = 2;
+		vertexData.indices[3] = 0;
+		vertexData.indices[4] = 2;
+		vertexData.indices[5] = 3;
 
-		byteAlias_t *baDest = NULL, *baSource = (byteAlias_t *)&backEnd.color2D;
-		baDest = (byteAlias_t *)&tess.vertexColors[numVerts + 0];
-		baDest->ui = baSource->ui;
-		baDest = (byteAlias_t *)&tess.vertexColors[numVerts + 1];
-		baDest->ui = baSource->ui;
-		baDest = (byteAlias_t *)&tess.vertexColors[numVerts + 2];
-		baDest->ui = baSource->ui;
-		baDest = (byteAlias_t *)&tess.vertexColors[numVerts + 3];
-		baDest->ui = baSource->ui;
+		vertexData.vertices[0].position.x = m[0][0] * ( -cmd->w ) + m[2][0];
+		vertexData.vertices[0].position.y = m[0][1] * ( -cmd->w ) + m[2][1];
+		vertexData.vertices[0].position.z = 0;
+		vertexData.vertices[0].texCoord0.x = cmd->s1;
+		vertexData.vertices[0].texCoord0.y = cmd->t1;
+		vertexData.vertices[0].vertexColor[0] = backEnd.color2D;
 
-		tess.xyz[numVerts][0] = m[0][0] * ( -cmd->w * 0.5f ) + m[1][0] * ( -cmd->h * 0.5f ) + m[2][0];
-		tess.xyz[numVerts][1] = m[0][1] * ( -cmd->w * 0.5f ) + m[1][1] * ( -cmd->h * 0.5f ) + m[2][1];
-		tess.xyz[numVerts][2] = 0;
+		vertexData.vertices[1].position.x = m[2][0];
+		vertexData.vertices[1].position.y = m[2][1];
+		vertexData.vertices[1].position.z = 0;
+		vertexData.vertices[1].texCoord0.x = cmd->s2;
+		vertexData.vertices[1].texCoord0.y = cmd->t1;
+		vertexData.vertices[1].vertexColor[0] = backEnd.color2D;
 
-		tess.texCoords[numVerts][0][0] = cmd->s1;
-		tess.texCoords[numVerts][0][1] = cmd->t1;
+		vertexData.vertices[2].position.x = m[1][0] * ( cmd->h ) + m[2][0];
+		vertexData.vertices[2].position.y = m[1][1] * ( cmd->h ) + m[2][1];
+		vertexData.vertices[2].position.z = 0;
+		vertexData.vertices[2].texCoord0.x = cmd->s2;
+		vertexData.vertices[2].texCoord0.y = cmd->t2;
+		vertexData.vertices[2].vertexColor[0] = backEnd.color2D;
 
-		tess.xyz[numVerts + 1][0] = m[0][0] * ( cmd->w * 0.5f ) + m[1][0] * ( -cmd->h * 0.5f ) + m[2][0];
-		tess.xyz[numVerts + 1][1] = m[0][1] * ( cmd->w * 0.5f ) + m[1][1] * ( -cmd->h * 0.5f ) + m[2][1];
-		tess.xyz[numVerts + 1][2] = 0;
+		vertexData.vertices[3].position.x = m[0][0] * ( -cmd->w ) + m[1][0] * ( cmd->h ) + m[2][0];
+		vertexData.vertices[3].position.y = m[0][1] * ( -cmd->w ) + m[1][1] * ( cmd->h ) + m[2][1];
+		vertexData.vertices[3].position.z = 0;
+		vertexData.vertices[3].texCoord0.x = cmd->s1;
+		vertexData.vertices[3].texCoord0.y = cmd->t2;
+		vertexData.vertices[3].vertexColor[0] = backEnd.color2D;
 
-		tess.texCoords[numVerts + 1][0][0] = cmd->s2;
-		tess.texCoords[numVerts + 1][0][1] = cmd->t1;
+		vkCmdUpdateBuffer( backEndData->cmdbuf, tr.dynamicVertexBuffer->b.buf, 0, sizeof( vertexData ), &vertexData );
 
-		tess.xyz[numVerts + 2][0] = m[0][0] * ( cmd->w * 0.5f ) + m[1][0] * ( cmd->h * 0.5f ) + m[2][0];
-		tess.xyz[numVerts + 2][1] = m[0][1] * ( cmd->w * 0.5f ) + m[1][1] * ( cmd->h * 0.5f ) + m[2][1];
-		tess.xyz[numVerts + 2][2] = 0;
+		RB_DrawSurface( tr.dynamicVertexBuffer );
 
-		tess.texCoords[numVerts + 2][0][0] = cmd->s2;
-		tess.texCoords[numVerts + 2][0][1] = cmd->t2;
-
-		tess.xyz[numVerts + 3][0] = m[0][0] * ( -cmd->w * 0.5f ) + m[1][0] * ( cmd->h * 0.5f ) + m[2][0];
-		tess.xyz[numVerts + 3][1] = m[0][1] * ( -cmd->w * 0.5f ) + m[1][1] * ( cmd->h * 0.5f ) + m[2][1];
-		tess.xyz[numVerts + 3][2] = 0;
-
-		tess.texCoords[numVerts + 3][0][0] = cmd->s1;
-		tess.texCoords[numVerts + 3][0][1] = cmd->t2;
+		// todo: remove
+		RB_EndSurface();
 	}
 
 	return (const void *)( cmd + 1 );
@@ -1238,14 +1068,9 @@ RB_ScissorPic
 */
 const void *RB_Scissor( const void *data ) {
 	const scissorCommand_t *cmd;
+	VkRect2D scissorRect;
 
 	cmd = (const scissorCommand_t *)data;
-
-	if( !backEnd.projection2D ) {
-		RB_SetGL2D();
-	}
-
-	VkRect2D scissorRect;
 
 	if( cmd->x >= 0 ) {
 		scissorRect.offset.x = cmd->x;
@@ -1260,7 +1085,7 @@ const void *RB_Scissor( const void *data ) {
 		scissorRect.extent.height = glConfig.vidHeight;
 	}
 
-	vkCmdSetScissor( vkCtx.cmdbuffer, 0, 1, &scissorRect );
+	vkCmdSetScissor( backEndData->cmdbuf, 0, 1, &scissorRect );
 
 	return (const void *)( cmd + 1 );
 }
@@ -1273,11 +1098,6 @@ RB_DrawSurfs
 */
 const void *RB_DrawSurfs( const void *data ) {
 	const drawSurfsCommand_t *cmd;
-
-	// finish any 2D drawing if needed
-	if( tess.numIndexes ) {
-		RB_EndSurface();
-	}
 
 	cmd = (const drawSurfsCommand_t *)data;
 
@@ -1308,7 +1128,7 @@ const void *RB_DrawSurfs( const void *data ) {
 		const int oldViewHeight = backEnd.viewParms.viewportHeight;
 		backEnd.viewParms.viewportWidth = r_DynamicGlowWidth->integer;
 		backEnd.viewParms.viewportHeight = r_DynamicGlowHeight->integer;
-		SetViewportAndScissor();
+		SetViewportAndScissor( 0 );
 
 		// Blur the scene.
 		RB_BlurGlowTexture();
@@ -1329,24 +1149,31 @@ RB_DrawBuffer
 */
 const void *RB_DrawBuffer( const void *data ) {
 	const drawBufferCommand_t *cmd;
+	VkClearColorValue colorClearValue = { 0, 0, 0, 1 };
 
 	cmd = (const drawBufferCommand_t *)data;
 
-	qglDrawBuffer( cmd->buffer );
+	// Stereo rendering not supported.
+	assert( cmd->buffer == 0 );
+	backEndData->imageArraySlice = cmd->buffer;
 
 	// clear screen for debugging
 	if( !( backEnd.refdef.rdflags & RDF_NOWORLDMODEL ) && tr.world && tr.refdef.rdflags & RDF_doLAGoggles ) {
 		const fog_t *fog = &tr.world->fogs[tr.world->numfogs];
 
-		qglClearColor( fog->parms.color[0], fog->parms.color[1], fog->parms.color[2], 1.0f );
-		qglClear( GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT );
+		colorClearValue.float32[0] = fog->parms.color[0];
+		colorClearValue.float32[1] = fog->parms.color[1];
+		colorClearValue.float32[2] = fog->parms.color[2];
+		colorClearValue.float32[3] = 1.0f;
 	}
 	else if( !( backEnd.refdef.rdflags & RDF_NOWORLDMODEL ) && tr.world && tr.world->globalFog != -1 && tr.sceneCount ) // don't clear during menus, wait for real scene
 	{
 		const fog_t *fog = &tr.world->fogs[tr.world->globalFog];
 
-		qglClearColor( fog->parms.color[0], fog->parms.color[1], fog->parms.color[2], 1.0f );
-		qglClear( GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT );
+		colorClearValue.float32[0] = fog->parms.color[0];
+		colorClearValue.float32[1] = fog->parms.color[1];
+		colorClearValue.float32[2] = fog->parms.color[2];
+		colorClearValue.float32[3] = 1.0f;
 	}
 	else if( r_clear->integer ) { // clear screen for debugging
 		int i = r_clear->integer;
@@ -1355,35 +1182,64 @@ const void *RB_DrawBuffer( const void *data ) {
 		}
 		switch( i ) {
 		default:
-			qglClearColor( 1, 0, 0.5, 1 );
+			colorClearValue.float32[0] = 1;
+			colorClearValue.float32[1] = 0;
+			colorClearValue.float32[2] = 0.5f;
+			colorClearValue.float32[3] = 1;
 			break;
-		case 1:
-			qglClearColor( 1.0, 0.0, 0.0, 1.0 ); // red
+		case 1: // red
+			colorClearValue.float32[0] = 1;
+			colorClearValue.float32[1] = 0;
+			colorClearValue.float32[2] = 0;
+			colorClearValue.float32[3] = 1;
 			break;
-		case 2:
-			qglClearColor( 0.0, 1.0, 0.0, 1.0 ); // green
+		case 2: // green
+			colorClearValue.float32[0] = 0;
+			colorClearValue.float32[1] = 1;
+			colorClearValue.float32[2] = 0;
+			colorClearValue.float32[3] = 1;
 			break;
-		case 3:
-			qglClearColor( 1.0, 1.0, 0.0, 1.0 ); // yellow
+		case 3: // yellow
+			colorClearValue.float32[0] = 1;
+			colorClearValue.float32[1] = 1;
+			colorClearValue.float32[2] = 0;
+			colorClearValue.float32[3] = 1;
 			break;
-		case 4:
-			qglClearColor( 0.0, 0.0, 1.0, 1.0 ); // blue
+		case 4: // blue
+			colorClearValue.float32[0] = 0;
+			colorClearValue.float32[1] = 0;
+			colorClearValue.float32[2] = 1;
+			colorClearValue.float32[3] = 1;
 			break;
-		case 5:
-			qglClearColor( 0.0, 1.0, 1.0, 1.0 ); // cyan
+		case 5: // cyan
+			colorClearValue.float32[0] = 0;
+			colorClearValue.float32[1] = 1;
+			colorClearValue.float32[2] = 1;
+			colorClearValue.float32[3] = 1;
 			break;
-		case 6:
-			qglClearColor( 1.0, 0.0, 1.0, 1.0 ); // magenta
+		case 6: // magenta
+			colorClearValue.float32[0] = 1;
+			colorClearValue.float32[1] = 0;
+			colorClearValue.float32[2] = 1;
+			colorClearValue.float32[3] = 1;
 			break;
-		case 7:
-			qglClearColor( 1.0, 1.0, 1.0, 1.0 ); // white
+		case 7: // white
+			colorClearValue.float32[0] = 1;
+			colorClearValue.float32[1] = 1;
+			colorClearValue.float32[2] = 1;
+			colorClearValue.float32[3] = 1;
 			break;
-		case 8:
-			qglClearColor( 0.0, 0.0, 0.0, 1.0 ); // black
+		case 8: // black
+			colorClearValue.float32[0] = 0;
+			colorClearValue.float32[1] = 0;
+			colorClearValue.float32[2] = 0;
+			colorClearValue.float32[3] = 1;
 			break;
 		}
-		qglClear( GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT );
 	}
+
+	// the buffer will be cleared at the beginning of the render pass
+	backEndData->defaultClearValue = colorClearValue;
 
 	return (const void *)( cmd + 1 );
 }
@@ -1405,7 +1261,7 @@ void RB_ShowImages( void ) {
 
 	// start = ri.Milliseconds();
 
-	VK_SetImageLayout(vkCtx.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_ACCESS_TRANSFER_WRITE_BIT);
+	VK_SetImageLayout( backEndData->image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_ACCESS_TRANSFER_WRITE_BIT );
 
 	int i = 0;
 	//	int iNumImages =
@@ -1438,14 +1294,14 @@ void RB_ShowImages( void ) {
 		blitRegion.dstOffsets[1].y = y + h;
 		blitRegion.dstOffsets[1].z = 1;
 
-		VK_SetImageLayout(image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_ACCESS_TRANSFER_READ_BIT);
-		vkCmdBlitImage(vkCtx.cmdbuffer,
+		VK_SetImageLayout( image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_ACCESS_TRANSFER_READ_BIT );
+		vkCmdBlitImage( backEndData->cmdbuf,
 			image->tex,
 			VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-			vkCtx.image->tex,
+			backEndData->image->tex,
 			VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
 			1, &blitRegion,
-			VK_FILTER_LINEAR);
+			VK_FILTER_LINEAR );
 
 		i++;
 	}
@@ -1466,7 +1322,7 @@ const void *RB_SwapBuffers( const void *data ) {
 	const swapBuffersCommand_t *cmd;
 
 	// finish any 2D drawing if needed
-	if( tess.numIndexes ) {
+	if( tess.numDraws ) {
 		RB_EndSurface();
 	}
 
@@ -1499,6 +1355,8 @@ const void *RB_SwapBuffers( const void *data ) {
 
 	GLimp_LogComment( "***************** RB_SwapBuffers *****************\n\n\n" );
 
+	VK_EndFrame();
+
 	ri.WIN_Present( &window );
 
 	backEnd.projection2D = qfalse;
@@ -1512,7 +1370,7 @@ const void *RB_WorldEffects( const void *data ) {
 	cmd = (const setModeCommand_t *)data;
 
 	// Always flush the tess buffer
-	if( tess.shader && tess.numIndexes ) {
+	if( tess.shader && tess.numDraws ) {
 		RB_EndSurface();
 	}
 	RB_RenderWorldEffects();
@@ -1580,6 +1438,8 @@ void RB_ExecuteRenderCommands( const void *data ) {
 extern bool g_bTextureRectangleHack;
 
 static inline void RB_BlurGlowTexture() {
+	image_t *glow = tr.glowFrameBuffer->images[0].i;
+
 	/////////////////////////////////////////////////////////
 	// Setup vertex and pixel programs.
 	/////////////////////////////////////////////////////////
@@ -1589,18 +1449,20 @@ static inline void RB_BlurGlowTexture() {
 	float fBlurDistribution = r_DynamicGlowIntensity->value * 0.25f;
 	float fBlurWeight[4] = { fBlurDistribution, fBlurDistribution, fBlurDistribution, 1.0f };
 
-	// Begin the post-process render pass.
-	VkRenderPassBeginInfo beginInfo = {};
-	beginInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-	beginInfo.renderPass = tr.postProcessPass;
-	beginInfo.renderArea.extent.width = tr.glowImage->width;
-	beginInfo.renderArea.extent.height = tr.glowImage->height;
-	beginInfo.framebuffer = tr.glowBlurFramebuffer;
+	// end the glow render pass before transitioning the image to shader read-only layout
+	R_BindFrameBuffer( NULL );
+	VK_SetImageLayout( glow, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_ACCESS_SHADER_READ_BIT );
 
-	vkCmdBeginRenderPass(vkCtx.cmdbuffer, &beginInfo, VK_SUBPASS_CONTENTS_INLINE);
-	vkCmdBindPipeline(vkCtx.cmdbuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, tr.glowBlurPipeline);
-	vkCmdBindDescriptorSets(vkCtx.cmdbuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, tr.glowBlurPipelineLayout, 0, 1, &tr.glowBlurDescriptorSet, 0, NULL);
-	vkCmdPushConstants(vkCtx.cmdbuffer, tr.glowBlurPipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(fBlurWeight), fBlurWeight);
+	// begin the post-process render pass
+	R_BindFrameBuffer( tr.glowBlurFrameBuffer );
+
+	vkCmdBindPipeline( backEndData->cmdbuf, VK_PIPELINE_BIND_POINT_GRAPHICS, tr.glowBlurPipeline );
+	backEndData->pipeline = tr.glowBlurPipeline;
+	backEndData->pipelineLayout = tr.glowBlurPipelineLayout;
+
+	VK_BindImage( glow );
+
+	vkCmdPushConstants( backEndData->cmdbuf, tr.glowBlurPipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof( fBlurWeight ), fBlurWeight );
 
 	/////////////////////////////////////////////////////////
 	// Draw the blur passes (each pass blurs it more, increasing the blur radius ).
@@ -1618,17 +1480,14 @@ static inline void RB_BlurGlowTexture() {
 			-fTexelWidthOffset, -fTexelWidthOffset, 0.0f, 0.0f,
 			-fTexelWidthOffset, fTexelWidthOffset, 0.0f, 0.0f,
 			fTexelWidthOffset, -fTexelWidthOffset, 0.0f, 0.0f,
-			fTexelWidthOffset, fTexelWidthOffset, 0.0f, 0.0f };
+			fTexelWidthOffset, fTexelWidthOffset, 0.0f, 0.0f
+		};
 
-		vkCmdPushConstants(vkCtx.cmdbuffer, tr.glowBlurPipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(fTexelOffsets), fTexelOffsets);
+		vkCmdPushConstants( backEndData->cmdbuf, tr.glowBlurPipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof( fTexelOffsets ), fTexelOffsets );
 
 		// After first pass put the tex coords to the viewport size.
 		if( iNumBlurPasses == 1 ) {
-			if( !g_bTextureRectangleHack ) {
-				iTexWidth = backEnd.viewParms.viewportWidth;
-				iTexHeight = backEnd.viewParms.viewportHeight;
-			}
-
+#if 0
 			uiTex = tr.blurImage;
 			qglActiveTextureARB( GL_TEXTURE3_ARB );
 			qglDisable( GL_TEXTURE_2D );
@@ -1650,27 +1509,16 @@ static inline void RB_BlurGlowTexture() {
 			// Copy the current image over.
 			qglBindTexture( GL_TEXTURE_RECTANGLE_ARB, uiTex );
 			qglCopyTexSubImage2D( GL_TEXTURE_RECTANGLE_ARB, 0, 0, 0, 0, 0, backEnd.viewParms.viewportWidth, backEnd.viewParms.viewportHeight );
+#endif
 		}
 
 		// Draw the fullscreen quad.
-		vkCmdDraw(vkCtx.cmdbuffer, 3, 1, 0, 0);
+		vkCmdDraw( backEndData->cmdbuf, 3, 1, 0, 0 );
 
-		qglBegin( GL_QUADS );
-		qglMultiTexCoord2fARB( GL_TEXTURE0_ARB, 0, iTexHeight );
-		qglVertex2f( 0, 0 );
-
-		qglMultiTexCoord2fARB( GL_TEXTURE0_ARB, 0, 0 );
-		qglVertex2f( 0, backEnd.viewParms.viewportHeight );
-
-		qglMultiTexCoord2fARB( GL_TEXTURE0_ARB, iTexWidth, 0 );
-		qglVertex2f( backEnd.viewParms.viewportWidth, backEnd.viewParms.viewportHeight );
-
-		qglMultiTexCoord2fARB( GL_TEXTURE0_ARB, iTexWidth, iTexHeight );
-		qglVertex2f( backEnd.viewParms.viewportWidth, 0 );
-		qglEnd();
-
+#if 0
 		qglBindTexture( GL_TEXTURE_RECTANGLE_ARB, tr.blurImage );
 		qglCopyTexSubImage2D( GL_TEXTURE_RECTANGLE_ARB, 0, 0, 0, 0, 0, backEnd.viewParms.viewportWidth, backEnd.viewParms.viewportHeight );
+#endif
 
 		// Increase the texel offsets.
 		// NOTE: This is possibly the most important input to the effect. Even by using an exponential function I've been able to
@@ -1680,27 +1528,72 @@ static inline void RB_BlurGlowTexture() {
 		fTexelWidthOffset += r_DynamicGlowDelta->value;
 		fTexelHeightOffset += r_DynamicGlowDelta->value;
 	}
-
-	vkCmdEndRenderPass(vkCtx.cmdbuffer);
 }
 
 // Draw the glow blur over the screen additively.
 static inline void RB_DrawGlowOverlay() {
+	image_t *glow = tr.glowBlurFrameBuffer->images[0].i;
 
-	// Begin the post-process render pass.
-	VkRenderPassBeginInfo beginInfo = {};
-	beginInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
-	beginInfo.renderPass = tr.postProcessPass;
-	beginInfo.renderArea.extent.width = tr.postProcessImage->width;
-	beginInfo.renderArea.extent.height = tr.postProcessImage->height;
-	beginInfo.framebuffer = tr.postProcessFramebuffer;
+	// end the glow blur render pass before transitioning the blurred image to shader read-only layout
+	R_BindFrameBuffer( NULL );
+	VK_SetImageLayout( glow, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_ACCESS_SHADER_READ_BIT );
 
-	vkCmdBeginRenderPass(vkCtx.cmdbuffer, &beginInfo, VK_SUBPASS_CONTENTS_INLINE);
-	vkCmdBindPipeline(vkCtx.cmdbuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, tr.glowCombinePipeline);
-	vkCmdBindDescriptorSets(vkCtx.cmdbuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, tr.glowCombinePipelineLayout, 0, 1, &tr.glowCombineDescriptorSet, 0, NULL);
+	R_BindFrameBuffer( tr.postProcessFrameBuffer );
 
-	// Now additively render the glow texture.
-	vkCmdDraw(vkCtx.cmdbuffer, 3, 1, 0, 0);
+	// additively render the glow texture
+	vkCmdBindPipeline( backEndData->cmdbuf, VK_PIPELINE_BIND_POINT_GRAPHICS, tr.glowCombinePipeline );
+	backEndData->pipeline = tr.glowCombinePipeline;
+	backEndData->pipelineLayout = tr.glowCombinePipelineLayout;
 
-	vkCmdEndRenderPass(vkCtx.cmdbuffer);
+	VK_BindImage( glow );
+
+	vkCmdDraw( backEndData->cmdbuf, 3, 1, 0, 0 );
+}
+
+/*
+====================
+R_BindFrameBuffer
+====================
+*/
+void R_BindFrameBuffer( frameBuffer_t *frameBuffer ) {
+	if( backEndData->frameBuffer ) {
+		vkCmdEndRenderPass( backEndData->cmdbuf );
+	}
+
+	if( frameBuffer ) {
+		for( int i = 0; i < frameBuffer->numImages; ++i ) {
+			VK_SetImageLayout( frameBuffer->images[i].i, frameBuffer->images[i].layout, 0 );
+		}
+
+		VkRenderPassBeginInfo renderPassBeginInfo = {};
+		renderPassBeginInfo.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+		renderPassBeginInfo.renderPass = frameBuffer->renderPass;
+		renderPassBeginInfo.framebuffer = frameBuffer->buf;
+		renderPassBeginInfo.renderArea.extent.width = frameBuffer->width;
+		renderPassBeginInfo.renderArea.extent.height = frameBuffer->height;
+		renderPassBeginInfo.clearValueCount = frameBuffer->numImages;
+		renderPassBeginInfo.pClearValues = frameBuffer->clearValues;
+
+		vkCmdBeginRenderPass( backEndData->cmdbuf, &renderPassBeginInfo, VK_SUBPASS_CONTENTS_INLINE );
+	}
+
+	// update the frame buffer
+	backEndData->frameBuffer = frameBuffer;
+}
+
+void R_DeleteFrameBuffer( frameBuffer_t *frameBuffer ) {
+	assert( frameBuffer );
+
+	if( frameBuffer->buf ) {
+		vkDestroyFramebuffer( vkState.device, frameBuffer->buf, NULL );
+	}
+	if( frameBuffer->renderPass ) {
+		vkDestroyRenderPass( vkState.device, frameBuffer->renderPass, NULL );
+	}
+	for( int i = 0; i < frameBuffer->numImages; ++i ) {
+		if( !frameBuffer->images[i].external ) {
+			R_Images_DeleteImage( frameBuffer->images[i].i );
+		}
+	}
+	R_Free( frameBuffer );
 }

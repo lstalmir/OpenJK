@@ -24,19 +24,22 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 
 #include "tr_local.h"
 
-/////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// Vertex and Pixel Shader definitions.	- AReis
-/***********************************************************************************************************/
-// This vertex shader basically passes through most values and calculates no lighting. The only
-// unusual thing it does is add the inputed texel offsets to all four texture units (this allows
-// nearest neighbor pixel peeking).
-#include "tr_blur_combine_vert.h"
+#define TR_SHADERS_BEGIN                                                                      \
+	/* enforce member alignment to 4 bytes to safely cast from unsigned char* to uint32_t* */ \
+	__pragma( pack( push, 4 ) );                                                              \
+	static struct alignas( alignof( uint32_t ) ) {
+#define TR_SHADERS_END \
+	}                  \
+	g_scShaders;       \
+	__pragma( pack( pop ) )
+#define TR_INCLUDE_SHADER inline static
 
-// This Pixel Shader loads four texture units and adds them all together (with a modifier
-// multiplied to each in the process). The final output is r0 = t0 + t1 + t2 + t3.
-#include "tr_blur_combine_frag.h"
-
-/***********************************************************************************************************/
+#include "tr_blur_combine_VS.h"
+#include "tr_blur_combine_PS.h"
+#include "tr_wireframe_VS.h"
+#include "tr_wireframe_PS.h"
+#include "tr_shade_VS.h"
+#include "tr_shade_PS.h"
 
 /**
 ===============
@@ -59,9 +62,11 @@ VkShaderModule SPV_FindShaderModuleFile( const char *name ) {
 	}
 
 	// create the shader module object
-	shaderModule = SPV_CreateShaderModule( ( const uint32_t * )shaderData, shaderDataLength );
+	shaderModule = SPV_CreateShaderModule( (const uint32_t *)shaderData, shaderDataLength );
 
 	ri.Z_Free( shaderData );
+
+	return shaderModule;
 }
 
 /**
@@ -89,113 +94,74 @@ VkShaderModule SPV_CreateShaderModule( const uint32_t *code, int codeSize ) {
 
 /***********************************************************************************************************/
 
+void SPV_InitDescriptorSetLayouts( void ) {
+	CDescriptorSetLayoutBuilder descriptorSetLayoutBuilder;
+
+	// space 0
+	descriptorSetLayoutBuilder.addBinding( VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER ); // tr
+	descriptorSetLayoutBuilder.addBinding( VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER ); // tr_funcs
+	descriptorSetLayoutBuilder.addBinding( VK_DESCRIPTOR_TYPE_STORAGE_BUFFER ); // tr_lightGridData
+	descriptorSetLayoutBuilder.addBinding( VK_DESCRIPTOR_TYPE_STORAGE_BUFFER ); // tr_lightGridArray
+	descriptorSetLayoutBuilder.addBinding( VK_DESCRIPTOR_TYPE_STORAGE_BUFFER ); // tr_fogs
+	descriptorSetLayoutBuilder.addBinding( VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE );	// tr_noise
+	descriptorSetLayoutBuilder.build( &tr.commonDescriptorSetLayout );
+
+	// space 1
+	descriptorSetLayoutBuilder.reset();
+	descriptorSetLayoutBuilder.addBinding( tr.pointClampSampler );
+	descriptorSetLayoutBuilder.addBinding( tr.pointWrapSampler );
+	descriptorSetLayoutBuilder.addBinding( tr.linearClampSampler );
+	descriptorSetLayoutBuilder.addBinding( tr.linearWrapSampler );
+	descriptorSetLayoutBuilder.build( &tr.samplerDescriptorSetLayout );
+
+	// space 2
+	descriptorSetLayoutBuilder.reset();
+	descriptorSetLayoutBuilder.addBinding( VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER );
+	descriptorSetLayoutBuilder.build( &tr.shaderDescriptorSetLayout );
+
+	// space 3
+	descriptorSetLayoutBuilder.build( &tr.modelDescriptorSetLayout );
+}
+
 void SPV_InitGlowShaders( void ) {
-	VkResult res;
+	CPipelineLayoutBuilder pipelineLayoutBuilder;
+	CPipelineBuilder pipelineBuilder;
 
-	// create the pipeline layout
-	VkPipelineLayoutCreateInfo pipelineLayoutCreateInfo = {};
-	pipelineLayoutCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
-	pipelineLayoutCreateInfo.setLayoutCount = 1;
-	pipelineLayoutCreateInfo.pSetLayouts = &tr.glowBlurDescriptorSetLayout;
+	// create the blur pipeline layout
+	pipelineLayoutBuilder.addPushConstantRange( VK_SHADER_STAGE_VERTEX_BIT, 64 );
+	pipelineLayoutBuilder.addPushConstantRange( VK_SHADER_STAGE_FRAGMENT_BIT, 16 );
+	pipelineLayoutBuilder.build( &tr.glowBlurPipelineLayout );
 
-	VkPushConstantRange pushConstants[2] = {};
-	pipelineLayoutCreateInfo.pushConstantRangeCount = ARRAY_LEN( pushConstants );
-	pipelineLayoutCreateInfo.pPushConstantRanges = pushConstants;
+	// create the pipeline
+	pipelineBuilder.pipelineCreateInfo.layout = tr.glowBlurPipelineLayout;
+	pipelineBuilder.pipelineCreateInfo.renderPass = tr.postProcessFrameBuffer->renderPass;
+	pipelineBuilder.pipelineCreateInfo.subpass = 0;
 
-	VkPushConstantRange *vertexConstants = &pushConstants[0];
-	vertexConstants->stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
-	vertexConstants->offset = 0;
-	vertexConstants->size = 64;
-
-	VkPushConstantRange *fragmentConstants = &pushConstants[1];
-	fragmentConstants->stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
-	fragmentConstants->offset = 0;
-	fragmentConstants->size = 16;
-
-	res = vkCreatePipelineLayout( vkState.device, &pipelineLayoutCreateInfo, NULL, &tr.glowBlurPipelineLayout );
-	if( res != VK_SUCCESS ) {
-		Com_Error( ERR_FATAL, "SPV_InitGlowShaders: failed to create glow blur pipeline layout (%d)\n", res );
-	}
-
-	// create the glow pipeline
-	VkGraphicsPipelineCreateInfo pipelineCreateInfo = {};
-	pipelineCreateInfo.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
-	pipelineCreateInfo.layout = tr.glowBlurPipelineLayout;
-	pipelineCreateInfo.renderPass = tr.postProcessPass;
-	pipelineCreateInfo.subpass = 0;
-
+#if 0
 	// setup the pipeline shader stages
-	VkPipelineShaderStageCreateInfo pipelineStages[2] = {};
-	pipelineCreateInfo.stageCount = ARRAY_LEN( pipelineStages );
-	pipelineCreateInfo.pStages = pipelineStages;
-
-	// vertex shader
-	VkPipelineShaderStageCreateInfo *vertexShaderStage = &pipelineStages[0];
-	vertexShaderStage->sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-	vertexShaderStage->stage = VK_SHADER_STAGE_VERTEX_BIT;
-	vertexShaderStage->module = SPV_CreateShaderModule( g_spvGlowVShader, sizeof( g_spvGlowVShader ) );
-	vertexShaderStage->pName = "main";
-
-	// fragment shader
-	VkPipelineShaderStageCreateInfo *fragmentShaderStage = &pipelineStages[1];
-	fragmentShaderStage->sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-	fragmentShaderStage->stage = VK_SHADER_STAGE_FRAGMENT_BIT;
-	fragmentShaderStage->module = SPV_CreateShaderModule( g_spvGlowPShader, sizeof( g_spvGlowPShader ) );
-	fragmentShaderStage->pName = "main";
-
-	// setup the rasterizer
-	VkPipelineRasterizationStateCreateInfo rasterizer = {};
-	pipelineCreateInfo.pRasterizationState = &rasterizer;
-	rasterizer.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO;
-	rasterizer.polygonMode = VK_POLYGON_MODE_FILL;
-	rasterizer.cullMode = VK_CULL_MODE_NONE;
-	rasterizer.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE;
-	rasterizer.lineWidth = 1.f;
-
-	// setup the multisampling
-	VkPipelineMultisampleStateCreateInfo multisample = {};
-	pipelineCreateInfo.pMultisampleState = &multisample;
-	multisample.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
-	multisample.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
+	pipelineBuilder.setShader( VK_SHADER_STAGE_VERTEX_BIT, g_spvGlowVShader );
+	pipelineBuilder.setShader( VK_SHADER_STAGE_FRAGMENT_BIT, g_spvGlowPShader );
+#endif
 
 	// setup the depth state
-	VkPipelineDepthStencilStateCreateInfo depthStencil = {};
-	pipelineCreateInfo.pDepthStencilState = &depthStencil;
-	depthStencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
-	depthStencil.depthTestEnable = VK_FALSE;
-	depthStencil.depthWriteEnable = VK_FALSE;
-	depthStencil.stencilTestEnable = VK_FALSE;
+	pipelineBuilder.depthStencil.depthTestEnable = VK_FALSE;
+	pipelineBuilder.depthStencil.depthWriteEnable = VK_FALSE;
 
 	// setup the color blend state
-	VkPipelineColorBlendStateCreateInfo colorBlend = {};
-	pipelineCreateInfo.pColorBlendState = &colorBlend;
-	colorBlend.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
-
 	VkPipelineColorBlendAttachmentState attachmentBlend = {};
-	colorBlend.attachmentCount = 1;
-	colorBlend.pAttachments = &attachmentBlend;
+	pipelineBuilder.colorBlend.attachmentCount = 1;
+	pipelineBuilder.colorBlend.pAttachments = &attachmentBlend;
 	attachmentBlend.blendEnable = VK_FALSE;
 	attachmentBlend.colorWriteMask = 0xF;
 
+#if 0
 	// create the blur pipeline
-	res = vkCreateGraphicsPipelines( vkState.device, VK_NULL_HANDLE, 1, &pipelineCreateInfo, NULL, &tr.glowBlurPipeline );
+	pipelineBuilder.build( &tr.glowBlurPipeline );
+#endif
 
-	vkDestroyShaderModule( vkState.device, vertexShaderStage->module, NULL );
-	vkDestroyShaderModule( vkState.device, fragmentShaderStage->module, NULL );
-
-	if( res != VK_SUCCESS ) {
-		Com_Error( ERR_FATAL, "SPV_InitGlowShaders: failed to create glow blur graphics pipeline (%d)\n", res );
-	}
-
-	// create the combine pipeline
-	pipelineLayoutCreateInfo.pushConstantRangeCount = 0;
-
-	res = vkCreatePipelineLayout( vkState.device, &pipelineLayoutCreateInfo, NULL, &tr.glowCombinePipelineLayout );
-	if( res != VK_SUCCESS ) {
-		Com_Error( ERR_FATAL, "SPV_InitGlowShaders: failed to create glow combine pipeline layout (%d)\n", res );
-	}
-
-	pipelineCreateInfo.layout = tr.glowCombinePipelineLayout;
+	// create the combine pipeline layout
+	pipelineLayoutBuilder.reset();
+	pipelineLayoutBuilder.build( &tr.glowCombinePipelineLayout );
 
 	// setup the blend state for combining the blur result
 	attachmentBlend.blendEnable = VK_TRUE;
@@ -212,16 +178,91 @@ void SPV_InitGlowShaders( void ) {
 		attachmentBlend.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_COLOR;
 	}
 
-	vertexShaderStage->module = SPV_CreateShaderModule( g_spvGlowVShader, sizeof( g_spvGlowVShader ) );
-	fragmentShaderStage->module = SPV_CreateShaderModule( g_spvGlowPShader, sizeof( g_spvGlowPShader ) );
+	pipelineBuilder.shaderStageCount = 0;
+	pipelineBuilder.setShader( VK_SHADER_STAGE_VERTEX_BIT, tr_blur_combine_VS );
+	pipelineBuilder.setShader( VK_SHADER_STAGE_FRAGMENT_BIT, tr_blur_combine_PS );
 
 	// create the combine pipeline
-	res = vkCreateGraphicsPipelines( vkState.device, VK_NULL_HANDLE, 1, &pipelineCreateInfo, NULL, &tr.glowCombinePipeline );
+	pipelineBuilder.build( &tr.glowCombinePipeline );
+}
 
-	vkDestroyShaderModule( vkState.device, vertexShaderStage->module, NULL );
-	vkDestroyShaderModule( vkState.device, fragmentShaderStage->module, NULL );
+void SPV_InitWireframeShaders( void ) {
+	CPipelineLayoutBuilder pipelineLayoutBuilder;
+	CPipelineBuilder pipelineBuilder;
 
-	if( res != VK_SUCCESS ) {
-		Com_Error( ERR_FATAL, "SPV_InitGlowShaders: failed to create glow combine graphics pipeline (%d)\n", res );
-	}
+	// create the pipeline layout
+	pipelineLayoutBuilder.addPushConstantRange( VK_SHADER_STAGE_VERTEX_BIT, 12 );
+	pipelineLayoutBuilder.build( &tr.wireframePipelineLayout );
+
+	// create the wireframe pipeline
+	pipelineBuilder.pipelineCreateInfo.layout = tr.wireframePipelineLayout;
+	pipelineBuilder.pipelineCreateInfo.renderPass = tr.sceneFrameBuffer->renderPass;
+	pipelineBuilder.pipelineCreateInfo.subpass = 0;
+
+	// setup the vertex input
+	pipelineBuilder.vertexBinding.binding = 0;
+	pipelineBuilder.vertexBinding.stride = sizeof( tr_shader::vertex_t );
+	pipelineBuilder.vertexBinding.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+
+	pipelineBuilder.addVertexAttributes<tr_shader::vertex_t>();
+
+	// setup the pipeline shader stages
+	pipelineBuilder.setShader( VK_SHADER_STAGE_VERTEX_BIT, tr_wireframe_VS );
+	pipelineBuilder.setShader( VK_SHADER_STAGE_FRAGMENT_BIT, tr_wireframe_PS );
+
+	// setup the rasterizer
+	pipelineBuilder.rasterization.polygonMode = VK_POLYGON_MODE_LINE;
+
+	// setup the depth state
+	pipelineBuilder.depthStencil.depthWriteEnable = VK_FALSE;
+	pipelineBuilder.depthStencil.depthCompareOp = VK_COMPARE_OP_EQUAL;
+
+	// setup the color blend state
+	VkPipelineColorBlendAttachmentState attachmentBlend = {};
+	pipelineBuilder.colorBlend.attachmentCount = 1;
+	pipelineBuilder.colorBlend.pAttachments = &attachmentBlend;
+	attachmentBlend.blendEnable = VK_FALSE;
+	attachmentBlend.colorWriteMask = 0xF;
+
+	// create the wireframe pipeline
+	pipelineBuilder.build( &tr.wireframePipeline );
+
+	// create the xray wireframe pipeline
+	pipelineBuilder.depthStencil.depthTestEnable = VK_FALSE;
+	pipelineBuilder.rasterization.cullMode = VK_CULL_MODE_NONE;
+
+	pipelineBuilder.build( &tr.wireframeXRayPipeline );
+}
+
+void SPV_InitShadeShaders( void ) {
+	CPipelineLayoutBuilder pipelineLayoutBuilder;
+	CPipelineBuilder pipelineBuilder;
+
+	// use the default pipeline layout
+	pipelineLayoutBuilder.build( &tr.shadePipelineLayout );
+
+	pipelineBuilder.pipelineCreateInfo.layout = tr.shadePipelineLayout;
+	pipelineBuilder.pipelineCreateInfo.renderPass = tr.sceneFrameBuffer->renderPass;
+	pipelineBuilder.pipelineCreateInfo.subpass = 0;
+
+	// setup the pipeline shader stages
+	pipelineBuilder.setShader( VK_SHADER_STAGE_VERTEX_BIT, tr_shade_VS );
+	pipelineBuilder.setShader( VK_SHADER_STAGE_FRAGMENT_BIT, tr_shade_PS );
+
+	// setup the vertex input
+	pipelineBuilder.vertexBinding.binding = 0;
+	pipelineBuilder.vertexBinding.stride = sizeof( tr_shader::vertex_t );
+	pipelineBuilder.vertexBinding.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+
+	pipelineBuilder.addVertexAttributes<tr_shader::vertex_t>();
+
+	// setup the color blend state
+	VkPipelineColorBlendAttachmentState attachmentBlend = {};
+	pipelineBuilder.colorBlend.attachmentCount = 1;
+	pipelineBuilder.colorBlend.pAttachments = &attachmentBlend;
+	attachmentBlend.blendEnable = VK_FALSE;
+	attachmentBlend.colorWriteMask = 0xF;
+
+	// create the shade pipeline
+	pipelineBuilder.build( &tr.shadePipeline );
 }

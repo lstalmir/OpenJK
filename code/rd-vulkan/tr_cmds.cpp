@@ -302,12 +302,14 @@ void RE_LAGoggles( void )
 
 	fog_t		*fog = &tr.world->fogs[tr.world->numfogs];
 
-	fog->parms.color[0] = 0.75f;
-	fog->parms.color[1] = 0.42f + Q_flrand(0.0f, 1.0f) * 0.025f;
-	fog->parms.color[2] = 0.07f;
+	fog->parms.color.r = 0.75f;
+	fog->parms.color.g = 0.42f + Q_flrand(0.0f, 1.0f) * 0.025f;
+	fog->parms.color.b = 0.07f;
 	fog->parms.depthForOpaque = 10000;
-	fog->colorInt = ColorBytes4(fog->parms.color[0], fog->parms.color[1], fog->parms.color[2], 1.0f);
+	fog->colorInt = ColorBytes4(fog->parms.color.r, fog->parms.color.g, fog->parms.color.b, 1.0f);
 	fog->tcScale = 2.0f / ( fog->parms.depthForOpaque * (1.0f + cos( tr.refdef.floatTime) * 0.1f));
+
+	VK_UploadBuffer( tr.world->fogsBuffer, (const byte *)fog, sizeof( *fog ), tr.world->numfogs * sizeof( *fog ) );
 }
 
 void RE_RenderWorldEffects(void)
@@ -360,28 +362,7 @@ void RE_BeginFrame( stereoFrame_t stereoFrame ) {
 	tr.frameCount++;
 	tr.frameSceneNum = 0;
 
-	// move to the next resource
-	vkState.resnum = (vkState.resnum + 1) % vkState.imgcount;
-	vkCtx.cmdbuffer = vkState.cmdbuffers[vkState.resnum];
-	vkCtx.semaphore = vkState.semaphores[vkState.resnum];
-
-	res = vkAcquireNextImageKHR(
-		vkState.device, vkState.swapchain, 0, vkCtx.semaphore, VK_NULL_HANDLE, &vkState.imagenum );
-
-	if (res != VK_SUCCESS) {
-		Com_Error( ERR_FATAL, "RE_BeginFrame: failed to acquire next swapchain image (%d)\n", res );
-	}
-
-	// wait until the resources are available
-	res = vkWaitForFences( vkState.device, 1, &vkState.fences[vkState.resnum], VK_FALSE, UINT64_MAX );
-	if (res != VK_SUCCESS) {
-		Com_Error( ERR_FATAL, "RE_BeginFrame: failed to wait for resource availability (%d)\n", res );
-	}
-
-	vkResetFences( vkState.device, 1, &vkState.fences[vkState.resnum] );
-
-	// free the upload buffers for this frame to the pool
-	VK_PrepareUploadBuffers();
+	VK_BeginFrame();
 
 #if 0
 	//

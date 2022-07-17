@@ -15,4 +15,5 @@
 
 #include <vulkan/vulkan.h>
 
+#define VMA_VULKAN_VERSION 1001000 // Vulkan 1.1
 #include "VulkanMemoryAllocator/vk_mem_alloc.h"

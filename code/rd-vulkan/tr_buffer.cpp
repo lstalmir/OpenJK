@@ -164,10 +164,12 @@ void VK_UploadBuffer( buffer_t *buffer, const byte *data, int size, int offset )
 		uploadRegion.dstOffset = offset;
 		uploadRegion.size = size;
 
-		vkCmdCopyBuffer( vkCtx.cmdbuffer,
+		vkCmdCopyBuffer( backEndData->cmdbuf,
 				 uploadBuffer->buffer->buf,
 				 buffer->buf,
 				 1, &uploadRegion );
+
+		uploadBuffer->offset += size;
 	}
 
 	else {
@@ -189,6 +191,41 @@ void VK_UploadBuffer( buffer_t *buffer, const byte *data, int size, int offset )
 					   memoryRange.offset, memoryRange.offset + size, res );
 			}
 		}
+	}
+}
+
+void *VK_UploadBuffer( buffer_t *buffer, int size, int offset ) {
+	VkResult res;
+
+	if( !buffer->allocationInfo.pMappedData ) {
+		uploadBuffer_t *uploadBuffer = VK_GetUploadBuffer( size );
+
+		assert( uploadBuffer );
+		assert( ( uploadBuffer->buffer->size - uploadBuffer->offset ) >= size );
+
+		// update the upload buffer
+		void* data = VK_UploadBuffer( uploadBuffer->buffer, size, offset );
+
+		// copy the data from the upload buffer to the final resource
+		VkBufferCopy uploadRegion = {};
+		uploadRegion.srcOffset = offset;
+		uploadRegion.dstOffset = offset;
+		uploadRegion.size = size;
+
+		vkCmdCopyBuffer( backEndData->cmdbuf,
+			uploadBuffer->buffer->buf,
+			buffer->buf,
+			1, &uploadRegion );
+
+		return data;
+	}
+
+	else {
+		// buffer is host-visible and can be updated directly
+		assert( buffer->allocationInfo.pMappedData );
+		assert( buffer->memoryPropertyFlags & VK_MEMORY_PROPERTY_HOST_COHERENT_BIT );
+
+		return buffer->allocationInfo.pMappedData;
 	}
 }
 
@@ -288,7 +325,7 @@ buffer_t *R_CreateBuffer( int size, VkBufferUsageFlags usage, VkMemoryPropertyFl
 	allocationCreateInfo.requiredFlags = requiredFlags;
 
 	if( requiredFlags & VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT ) {
-		allocationCreateInfo.flags |= VMA_ALLOCATION_CREATE_MAPPED_BIT;
+		allocationCreateInfo.flags |= VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
 	}
 
 	res = vmaCreateBuffer(
@@ -311,16 +348,67 @@ buffer_t *R_CreateBuffer( int size, VkBufferUsageFlags usage, VkMemoryPropertyFl
 }
 
 /*
+================
+R_CreateBuffer
+
+This is the only way any buffer_t are created
+================
+*/
+vertexBuffer_t *R_CreateVertexBuffer( int numVertexes, int numIndexes, int indexOffset ) {
+	VkResult res;
+	vertexBuffer_t *buffer;
+
+	buffer = (vertexBuffer_t *)R_Malloc( sizeof( vertexBuffer_t ), TAG_ALL, qtrue );
+	buffer->b.size = indexOffset +
+		sizeof( tr_shader::vertex_t ) * numVertexes +
+		sizeof( trIndex_t ) * numIndexes;
+
+	VkBufferCreateInfo bufferCreateInfo = {};
+	bufferCreateInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+	bufferCreateInfo.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+	bufferCreateInfo.size = (VkDeviceSize)buffer->b.size;
+
+	VmaAllocationCreateInfo allocationCreateInfo = {};
+	allocationCreateInfo.usage = VMA_MEMORY_USAGE_AUTO;
+
+	res = vmaCreateBuffer(
+		vkState.allocator,
+		&bufferCreateInfo,
+		&allocationCreateInfo,
+		&buffer->b.buf,
+		&buffer->b.allocation,
+		&buffer->b.allocationInfo );
+
+	if( res != VK_SUCCESS ) {
+		Com_Error( ERR_FATAL, "R_CreateBuffer: failed to allocate buffer with size = %llu (%d)\n",
+			bufferCreateInfo.size, res );
+	}
+
+	// get memory property flags of the allocation
+	vmaGetMemoryTypeProperties( vkState.allocator, buffer->b.allocationInfo.memoryType, &buffer->b.memoryPropertyFlags );
+
+	// fill vertex info
+	buffer->numVertexes = numVertexes;
+	buffer->numIndexes = numIndexes;
+	buffer->indexOffset = indexOffset;
+	buffer->vertexOffset = indexOffset + sizeof( trIndex_t ) * numIndexes;
+
+	return buffer;
+}
+
+/*
 ==================
 R_CreateBuiltinBuffers
 ==================
 */
 void R_CreateBuiltinBuffers( void ) {
-	// allocate a buffer for the view parameters
-	tr.viewParmsBuffer = R_CreateBuffer( sizeof( viewParms_t ), VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, 0 );
+	// allocate a buffer for global parameters
+	tr.globalsBuffer = R_CreateBuffer( sizeof( tr.globals ), VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, 0 );
 
-	// allocate a buffer for sun parameters
-	tr.sunParmsBuffer = R_CreateBuffer( sizeof( sunParms_t ), VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, 0 );
+	// allocate a buffer for dynamic vertex data
+	tr.dynamicVertexBuffer = R_CreateVertexBuffer( SHADER_MAX_VERTEXES, SHADER_MAX_INDEXES );
+	tr.dynamicVertexBuffer->numIndexes = 0;
+	tr.dynamicVertexBuffer->numVertexes = 0;
 }
 
 /*

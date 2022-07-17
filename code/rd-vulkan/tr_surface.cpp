@@ -50,24 +50,14 @@ use the shader system.
 RB_CheckOverflow
 ==============
 */
-void RB_CheckOverflow( int verts, int indexes ) {
-	if (tess.numVertexes + verts < SHADER_MAX_VERTEXES
-		&& tess.numIndexes + indexes < SHADER_MAX_INDEXES) {
+void RB_CheckOverflow() {
+	if (tess.numDraws + 1 < SHADER_MAX_VERTEXES) {
 		return;
 	}
 
 	RB_EndSurface();
-
-	if ( verts >= SHADER_MAX_VERTEXES ) {
-		Com_Error(ERR_DROP, "RB_CheckOverflow: verts > MAX (%d > %d)", verts, SHADER_MAX_VERTEXES );
-	}
-	if ( indexes >= SHADER_MAX_INDEXES ) {
-		Com_Error(ERR_DROP, "RB_CheckOverflow: indices > MAX (%d > %d)", indexes, SHADER_MAX_INDEXES );
-	}
-
 	RB_BeginSurface(tess.shader, tess.fogNum );
 }
-
 
 /*
 ==============
@@ -75,6 +65,7 @@ RB_AddQuadStampExt
 ==============
 */
 void RB_AddQuadStampExt( vec3_t origin, vec3_t left, vec3_t up, byte *color, float s1, float t1, float s2, float t2 ) {
+#if 0 // moved to bsp
 	vec3_t		normal;
 	int			ndx;
 
@@ -142,6 +133,7 @@ void RB_AddQuadStampExt( vec3_t origin, vec3_t left, vec3_t up, byte *color, flo
 
 	tess.numVertexes += 4;
 	tess.numIndexes += 6;
+#endif
 }
 
 /*
@@ -236,6 +228,7 @@ static void RB_SurfaceOrientedQuad( void )
 	RB_AddQuadStamp( backEnd.currentEntity->e.origin, left, up, backEnd.currentEntity->e.shaderRGBA );
 }
 
+#if 0
 /*
 ==============
 RB_SurfaceLine
@@ -543,7 +536,7 @@ static void RB_SurfaceCylinder( void )
 	e = &backEnd.currentEntity->e;
 
 	// check for tapering
-	if ( !( e->radius < 0.3f && e->backlerp < 0.3f) && ( e->radius < 0.3f || e->backlerp < 0.3f ))
+	if( !( e->radius < 0.3f && e->backlerp < 0.3f ) && ( e->radius < 0.3f || e->backlerp < 0.3f ) )
 	{
 		// One end is sufficiently tapered to consider changing it to a cone
 		RB_SurfaceCone();
@@ -862,6 +855,7 @@ static void RB_SurfaceElectricity()
 	f_count = 3;
     DoBoltSeg( start, end, right, radius );
 }
+#endif
 
 /*
 =============
@@ -909,6 +903,7 @@ void RB_SurfacePolychain( srfPoly_t *p ) {
 }
 */
 void RB_SurfacePolychain( srfPoly_t *p ) {
+#if 0
 	int		i;
 	int		numv;
 
@@ -934,6 +929,7 @@ void RB_SurfacePolychain( srfPoly_t *p ) {
 	}
 
 	tess.numVertexes = numv;
+#endif
 }
 
 inline static uint32_t ComputeFinalVertexColor( const byte *colors ) {
@@ -980,75 +976,10 @@ RB_SurfaceTriangles
 =============
 */
 void RB_SurfaceTriangles( srfTriangles_t *srf ) {
-	int			i, k;
-	drawVert_t	*dv;
-	float		*xyz, *normal, *texCoords;
-	byte		*color;
-	int			dlightBits;
-
-	dlightBits = srf->dlightBits;
-	tess.dlightBits |= dlightBits;
-
-	RB_CHECKOVERFLOW( srf->numVerts, srf->numIndexes );
-
-	for ( i = 0 ; i < srf->numIndexes ; i += 3 ) {
-		tess.indexes[ tess.numIndexes + i + 0 ] = tess.numVertexes + srf->indexes[ i + 0 ];
-		tess.indexes[ tess.numIndexes + i + 1 ] = tess.numVertexes + srf->indexes[ i + 1 ];
-		tess.indexes[ tess.numIndexes + i + 2 ] = tess.numVertexes + srf->indexes[ i + 2 ];
-	}
-	tess.numIndexes += srf->numIndexes;
-
-	dv = srf->verts;
-	xyz = tess.xyz[ tess.numVertexes ];
-	normal = tess.normal[ tess.numVertexes ];
-	texCoords = tess.texCoords[ tess.numVertexes ][0];
-	color = tess.vertexColors[ tess.numVertexes ];
-
-	for ( i = 0 ; i < srf->numVerts ; i++, dv++)
-	{
-		xyz[0] = dv->xyz[0];
-		xyz[1] = dv->xyz[1];
-		xyz[2] = dv->xyz[2];
-		xyz += 4;
-
-		//if ( needsNormal )
-		{
-			normal[0] = dv->normal[0];
-			normal[1] = dv->normal[1];
-			normal[2] = dv->normal[2];
-		}
-		normal += 4;
-
-		texCoords[0] = dv->st[0];
-		texCoords[1] = dv->st[1];
-
-		for(k=0;k<MAXLIGHTMAPS;k++)
-		{
-			if (tess.shader->lightmapIndex[k] >= 0)
-			{
-				texCoords[2+(k*2)] = dv->lightmap[k][0];
-				texCoords[2+(k*2)+1] = dv->lightmap[k][1];
-			}
-			else
-			{	// can't have an empty slot in the middle, so we are done
-				break;
-			}
-		}
-		texCoords += NUM_TEX_COORDS*2;
-
-		*(unsigned *)color = ComputeFinalVertexColor((byte *)dv->color);
-		color += 4;
-	}
-
-	for ( i = 0 ; i < srf->numVerts ; i++ ) {
-		tess.vertexDlightBits[ tess.numVertexes + i] = dlightBits;
-	}
-
-	tess.numVertexes += srf->numVerts;
+	RB_DrawSurface( srf->vertexBuffer );
 }
 
-
-
+#if 0 // moved to bsp
 /*
 ==============
 RB_SurfaceBeam
@@ -1092,7 +1023,7 @@ static void RB_SurfaceBeam( void )
 		VectorAdd( start_points[i], direction, end_points[i] );
 	}
 
-	GL_Bind( tr.whiteImage );
+	VK_BindImage( tr.whiteImage );
 
 	GL_State( GLS_SRCBLEND_ONE | GLS_DSTBLEND_ONE );
 
@@ -1170,12 +1101,13 @@ static void RB_SurfaceSaberGlow()
 	// Please don't kill me Jeff...  The pulse is good, but now I want the halo bigger if the saber is shorter...  --Pat
 	DoSprite( e->origin, 5.5f + Q_flrand(0.0f, 1.0f) * 0.25f, 0.0f );//Q_flrand(0.0f, 1.0f) * 360.0f );
 }
+#endif
 
 /*
 ** LerpMeshVertexes
 */
-static void LerpMeshVertexes (md3Surface_t *surf, float backlerp)
-{
+static void LerpMeshVertexes( md3Surface_t *surf, float backlerp ) {
+#if 0
 	short	*oldXyz, *newXyz, *oldNormals, *newNormals;
 	float	*outXyz, *outNormal;
 	float	oldXyzScale, newXyzScale;
@@ -1211,15 +1143,15 @@ static void LerpMeshVertexes (md3Surface_t *surf, float backlerp)
 
 			lat = ( newNormals[0] >> 8 ) & 0xff;
 			lng = ( newNormals[0] & 0xff );
-			lat *= (FUNCTABLE_SIZE/256);
-			lng *= (FUNCTABLE_SIZE/256);
+			lat *= (TR_FUNCTABLE_SIZE/256);
+			lng *= (TR_FUNCTABLE_SIZE/256);
 
 			// decode X as cos( lat ) * sin( long )
 			// decode Y as sin( lat ) * sin( long )
 			// decode Z as cos( long )
-			outNormal[0] = tr.sinTable[(lat+(FUNCTABLE_SIZE/4))&FUNCTABLE_MASK] * tr.sinTable[lng];
+			outNormal[0] = tr.sinTable[(lat+(TR_FUNCTABLE_SIZE/4))&TR_FUNCTABLE_MASK] * tr.sinTable[lng];
 			outNormal[1] = tr.sinTable[lat] * tr.sinTable[lng];
-			outNormal[2] = tr.sinTable[(lng+(FUNCTABLE_SIZE/4))&FUNCTABLE_MASK];
+			outNormal[2] = tr.sinTable[(lng+(TR_FUNCTABLE_SIZE/4))&TR_FUNCTABLE_MASK];
 		}
 	} else {
 		//
@@ -1248,18 +1180,18 @@ static void LerpMeshVertexes (md3Surface_t *surf, float backlerp)
 			lng = ( newNormals[0] & 0xff );
 			lat *= 4;
 			lng *= 4;
-			uncompressedNewNormal[0] = tr.sinTable[(lat+(FUNCTABLE_SIZE/4))&FUNCTABLE_MASK] * tr.sinTable[lng];
+			uncompressedNewNormal[0] = tr.sinTable[(lat+(TR_FUNCTABLE_SIZE/4))&TR_FUNCTABLE_MASK] * tr.sinTable[lng];
 			uncompressedNewNormal[1] = tr.sinTable[lat] * tr.sinTable[lng];
-			uncompressedNewNormal[2] = tr.sinTable[(lng+(FUNCTABLE_SIZE/4))&FUNCTABLE_MASK];
+			uncompressedNewNormal[2] = tr.sinTable[(lng+(TR_FUNCTABLE_SIZE/4))&TR_FUNCTABLE_MASK];
 
 			lat = ( oldNormals[0] >> 8 ) & 0xff;
 			lng = ( oldNormals[0] & 0xff );
 			lat *= 4;
 			lng *= 4;
 
-			uncompressedOldNormal[0] = tr.sinTable[(lat+(FUNCTABLE_SIZE/4))&FUNCTABLE_MASK] * tr.sinTable[lng];
+			uncompressedOldNormal[0] = tr.sinTable[(lat+(TR_FUNCTABLE_SIZE/4))&TR_FUNCTABLE_MASK] * tr.sinTable[lng];
 			uncompressedOldNormal[1] = tr.sinTable[lat] * tr.sinTable[lng];
-			uncompressedOldNormal[2] = tr.sinTable[(lng+(FUNCTABLE_SIZE/4))&FUNCTABLE_MASK];
+			uncompressedOldNormal[2] = tr.sinTable[(lng+(TR_FUNCTABLE_SIZE/4))&TR_FUNCTABLE_MASK];
 
 			outNormal[0] = uncompressedOldNormal[0] * oldNormalScale + uncompressedNewNormal[0] * newNormalScale;
 			outNormal[1] = uncompressedOldNormal[1] * oldNormalScale + uncompressedNewNormal[1] * newNormalScale;
@@ -1268,6 +1200,7 @@ static void LerpMeshVertexes (md3Surface_t *surf, float backlerp)
 			VectorNormalize (outNormal);
 		}
 	}
+#endif
 }
 
 /*
@@ -1275,7 +1208,8 @@ static void LerpMeshVertexes (md3Surface_t *surf, float backlerp)
 RB_SurfaceMesh
 =============
 */
-void RB_SurfaceMesh(md3Surface_t *surface) {
+void RB_SurfaceMesh( md3Surface_t *surface ) {
+#if 0
 	int				j;
 	float			backlerp;
 	int				*triangles;
@@ -1313,6 +1247,7 @@ void RB_SurfaceMesh(md3Surface_t *surface) {
 	}
 
 	tess.numVertexes += surface->numVerts;
+#endif
 }
 
 
@@ -1322,6 +1257,7 @@ RB_SurfaceFace
 ==============
 */
 void RB_SurfaceFace( srfSurfaceFace_t *surf ) {
+#if 0
 	int			i, j, k;
 	unsigned int *indices;
 	glIndex_t	*tessIndexes;
@@ -1385,6 +1321,7 @@ void RB_SurfaceFace( srfSurfaceFace_t *surf ) {
 	}
 
 	tess.numVertexes += surf->numPoints;
+#endif
 }
 
 
@@ -1426,6 +1363,7 @@ Just copy the grid of points and triangulate
 =============
 */
 void RB_SurfaceGrid( srfGridMesh_t *cv ) {
+#if 0
 	int		i, j, k;
 	float	*xyz;
 	float	*texCoords;
@@ -1578,8 +1516,10 @@ void RB_SurfaceGrid( srfGridMesh_t *cv ) {
 
 		used += rows - 1;
 	}
+#endif
 }
 
+#if 0 // moved to bsp
 #define LATHE_SEG_STEP	10
 #define BEZIER_STEP		0.05f	// must be in the range of 0 to 1
 
@@ -1917,7 +1857,7 @@ Draws x/y/z lines from the origin for orientation debugging
 ===================
 */
 static void RB_SurfaceAxis( void ) {
-	GL_Bind( tr.whiteImage );
+	VK_BindImage( tr.whiteImage );
 	GL_State( GLS_DEFAULT );
 	qglLineWidth( 3 );
 	qglBegin( GL_LINES );
@@ -1933,6 +1873,7 @@ static void RB_SurfaceAxis( void ) {
 	qglEnd();
 	qglLineWidth( 1 );
 }
+#endif
 
 //===========================================================================
 
@@ -1944,6 +1885,9 @@ Entities that have a single procedurally generated surface
 ====================
 */
 void RB_SurfaceEntity( surfaceType_t *surfType ) {
+	trRefEntity_t *e = backEnd.currentEntity;
+
+#if 0
 	switch( backEnd.currentEntity->e.reType ) {
 	case RT_SPRITE:
 		RB_SurfaceSprite();
@@ -1977,6 +1921,9 @@ void RB_SurfaceEntity( surfaceType_t *surfType ) {
 		break;
 	}
 	return;
+#endif
+
+	RB_DrawSurface( e->vertexBuffer );
 }
 
 void RB_SurfaceBad( surfaceType_t *surfType ) {
@@ -2023,10 +1970,11 @@ static bool RB_TestZFlare( vec3_t point) {
 	if ( r_flares->integer !=1 ) {	//skipping the the z-test
 		return true;
 	}
+#if 0
 	// doing a readpixels is as good as doing a glFinish(), so
 	// don't bother with another sync
-	glState.finishCalled = qfalse;
 	qglReadPixels( backEnd.viewParms.viewportX + window[0],backEnd.viewParms.viewportY + window[1], 1, 1, GL_DEPTH_COMPONENT, GL_FLOAT, &depth );
+#endif
 
 	screenZ = backEnd.viewParms.projectionMatrix[14] /
 		( ( 2*depth - 1 ) * backEnd.viewParms.projectionMatrix[11] - backEnd.viewParms.projectionMatrix[10] );
@@ -2090,9 +2038,11 @@ void RB_SurfaceFlare( srfFlare_t *surf ) {
 
 
 void RB_SurfaceDisplayList( srfDisplayList_t *surf ) {
+#if 0
 	// all appropriate state must be set in RB_BeginSurface
 	// this isn't implemented yet...
 	qglCallList( surf->listNum );
+#endif
 }
 
 void RB_SurfaceSkip( void *surf ) {

@@ -33,7 +33,20 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 #include "mdx_format.h"
 #include "qvk.h"
 
+#include "tr_shader.h"
+
 extern refimport_t ri;
+
+#ifndef TR_COMPACT_INDICES
+#define TR_COMPACT_INDICES 0
+#endif
+#if TR_COMPACT_INDICES
+typedef uint16_t trIndex_t;
+static constexpr VkIndexType g_scIndexType = VK_INDEX_TYPE_UINT16;
+#else
+typedef uint32_t trIndex_t;
+static constexpr VkIndexType g_scIndexType = VK_INDEX_TYPE_UINT32;
+#endif
 
 
 // 13 bits
@@ -51,6 +64,82 @@ typedef struct dlight_s {
 	vec3_t	transformed;		// origin in local coordinate system
 } dlight_t;
 
+typedef struct buffer_s {
+	int					size;
+
+	VkBuffer			buf;
+
+	VmaAllocation		allocation;
+	VmaAllocationInfo	allocationInfo;
+
+	VkMemoryPropertyFlags memoryPropertyFlags;
+
+} buffer_t;
+
+typedef struct image_s {
+	char				imgName[MAX_QPATH];		// game path, including extension
+	int					frameUsed;				// for texture usage in frame statistics
+	word				width, height;			// source image
+
+	VkImage				tex;
+	VkImageView			texview;
+
+	VmaAllocation		allocation;
+
+	VkFormat			internalFormat;
+
+	VkSamplerAddressMode wrapClampMode;
+
+	VkImageLayout		layout;
+	VkAccessFlags		access;
+
+	bool				mipmap;
+
+	bool				allowPicmip;
+	short				iLastLevelUsedOn;
+
+	int					iLastFrameUsedOn;
+
+	VkDescriptorSet		descriptorSet;
+
+} image_t;
+
+
+#define TR_MAX_FRAMEBUFFER_IMAGES 4
+
+typedef struct {
+	image_t					*i;
+	bool					external;			// true for images that are not owned by this frame buffer
+	VkImageLayout			layout;
+} frameBufferImage_t;
+
+typedef struct {
+	frameBufferImage_t		images[TR_MAX_FRAMEBUFFER_IMAGES];
+	int						numImages;
+
+	int						depthBufferIndex;
+
+	int						width;
+	int						height;
+
+	VkRenderPass			renderPass;
+	VkFramebuffer			buf;
+
+	VkClearValue			clearValues[TR_MAX_FRAMEBUFFER_IMAGES];
+
+} frameBuffer_t;
+
+typedef struct {
+	buffer_t	b;
+
+	int			vertexOffset;
+	int			indexOffset;
+
+	int			numVertexes;
+	int			numIndexes;
+
+} vertexBuffer_t;
+
 
 // a trRefEntity_t has all the information passed in by
 // the client game, as well as some locally derived info
@@ -66,6 +155,9 @@ typedef struct {
 	int			ambientLightInt;	// 32 bit rgba packed
 	vec3_t		directedLight;
 	int			dlightBits;
+	
+	vertexBuffer_t	*vertexBuffer;
+
 } trRefEntity_t;
 
 
@@ -115,42 +207,6 @@ typedef struct {
 	float		modelMatrix[16];
 } orientationr_t;
 
-typedef struct buffer_s {
-	int					size;
-
-	VkBuffer			buf;
-
-	VmaAllocation		allocation;
-	VmaAllocationInfo	allocationInfo;
-
-	VkMemoryPropertyFlags memoryPropertyFlags;
-
-} buffer_t;
-
-typedef struct image_s {
-	char				imgName[MAX_QPATH];		// game path, including extension
-	int					frameUsed;				// for texture usage in frame statistics
-	word				width, height;			// source image
-
-	VkImage				tex;
-	VkImageView			texview;
-
-	VmaAllocation		allocation;
-
-	VkFormat			internalFormat;
-
-	VkSamplerAddressMode wrapClampMode;
-
-	VkImageLayout		layout;
-	VkAccessFlags		access;
-
-	bool				mipmap;
-
-	bool				allowPicmip;
-	short				iLastLevelUsedOn;
-
-} image_t;
-
 
 //===============================================================================
 
@@ -190,86 +246,17 @@ typedef enum {
 
 #define MAX_SHADER_STAGES 8
 
-typedef enum {
-	GF_NONE,
+using tr_shader::genFunc_t;
+using tr_shader::deform_t;
+using tr_shader::alphaGen_t;
+using tr_shader::colorGen_t;
+using tr_shader::texCoordGen_t;
+using tr_shader::texMod_t;
 
-	GF_SIN,
-	GF_SQUARE,
-	GF_TRIANGLE,
-	GF_SAWTOOTH,
-	GF_INVERSE_SAWTOOTH,
-
-	GF_NOISE,
-	GF_RAND,
-
-} genFunc_t;
-
-
-typedef enum {
-	DEFORM_NONE,
-	DEFORM_WAVE,
-	DEFORM_NORMALS,
-	DEFORM_BULGE,
-	DEFORM_MOVE,
-	DEFORM_PROJECTION_SHADOW,
-	DEFORM_AUTOSPRITE,
-	DEFORM_AUTOSPRITE2,
-	DEFORM_TEXT0,
-	DEFORM_TEXT1,
-	DEFORM_TEXT2,
-	DEFORM_TEXT3,
-	DEFORM_TEXT4,
-	DEFORM_TEXT5,
-	DEFORM_TEXT6,
-	DEFORM_TEXT7
-} deform_t;
-
-typedef enum {
-	AGEN_IDENTITY,
-	AGEN_SKIP,
-	AGEN_ENTITY,
-	AGEN_ONE_MINUS_ENTITY,
-	AGEN_VERTEX,
-	AGEN_ONE_MINUS_VERTEX,
-	AGEN_LIGHTING_SPECULAR,
-	AGEN_WAVEFORM,
-	AGEN_PORTAL,
-	AGEN_BLEND,
-	AGEN_CONST,
-	AGEN_DOT,
-	AGEN_ONE_MINUS_DOT
-} alphaGen_t;
-
-typedef enum {
-	CGEN_BAD,
-	CGEN_IDENTITY_LIGHTING,	// tr.identityLight
-	CGEN_IDENTITY,			// always (1,1,1,1)
-	CGEN_SKIP,
-	CGEN_ENTITY,			// grabbed from entity's modulate field
-	CGEN_ONE_MINUS_ENTITY,	// grabbed from 1 - entity.modulate
-	CGEN_EXACT_VERTEX,		// tess.vertexColors
-	CGEN_VERTEX,			// tess.vertexColors * tr.identityLight
-	CGEN_ONE_MINUS_VERTEX,
-	CGEN_WAVEFORM,			// programmatically generated
-	CGEN_LIGHTING_DIFFUSE,
-	CGEN_LIGHTING_DIFFUSE_ENTITY, //diffuse lighting * entity
-	CGEN_FOG,				// standard fog
-	CGEN_CONST,				// fixed color
-	CGEN_LIGHTMAPSTYLE,
-} colorGen_t;
-
-typedef enum {
-	TCGEN_BAD,
-	TCGEN_IDENTITY,			// clear to 0,0
-	TCGEN_LIGHTMAP,
-	TCGEN_LIGHTMAP1,
-	TCGEN_LIGHTMAP2,
-	TCGEN_LIGHTMAP3,
-	TCGEN_TEXTURE,
-	TCGEN_ENVIRONMENT_MAPPED,
-	TCGEN_FOG,
-	TCGEN_VECTOR			// S and T from world coordinates
-} texCoordGen_t;
+using tr_shader::fog_t;
+using tr_shader::fogParms_t;
+using tr_shader::sunParms_t;
+using tr_shader::skyParms_t;
 
 typedef enum {
 	ACFF_NONE,
@@ -296,18 +283,6 @@ typedef struct {
 } waveForm_t;
 
 #define TR_MAX_TEXMODS 4
-
-typedef enum {
-	TMOD_NONE,
-	TMOD_TRANSFORM,
-	TMOD_TURBULENT,
-	TMOD_SCROLL,
-	TMOD_SCALE,
-	TMOD_STRETCH,
-	TMOD_ROTATE,
-	TMOD_ENTITY_TRANSLATE
-} texMod_t;
-
 #define	MAX_SHADER_DEFORMS	3
 typedef struct {
 	deform_t	deformation;			// vertex coordinate modification type
@@ -388,34 +363,22 @@ typedef struct {
 	int				videoMapHandle;
 } textureBundle_t;
 
-#define NUM_TEXTURE_BUNDLES 2
-
 typedef struct {
 	bool			active;
 	bool			isDetail;
+	bool			isLightmap;
 	byte			index;						// index of stage
 	byte			lightmapStyle;
-
-	textureBundle_t	bundle[NUM_TEXTURE_BUNDLES];
-
-	waveForm_t		rgbWave;
-	colorGen_t		rgbGen;
-
-	waveForm_t		alphaWave;
-	alphaGen_t		alphaGen;
-
-	byte			constantColor[4];			// for CGEN_CONST and AGEN_CONST
-
 	uint32_t		stateBits;					// GLS_xxxx mask
-
 	acff_t			adjustColorsForFog;
-
 	EGLFogOverride	mGLFogColorOverride;
-
 	surfaceSprite_t	*ss;
+	bool			glow;						// Whether this object emits a glow or not.
 
-	// Whether this object emits a glow or not.
-	bool			glow;
+	tr_shader::shaderStage_t	shaderData;
+	buffer_t					*shaderBuffer;
+
+	VkDescriptorSet	descriptorSet;
 } shaderStage_t;
 
 struct shaderCommands_s;
@@ -437,23 +400,6 @@ typedef enum {
 	FP_LE			// surface is trnaslucent, but still needs a fog pass (fog surface)
 } fogPass_t;
 
-typedef struct {
-	vec4_t		sunDirection;
-	vec4_t		sunAmbient;
-	vec4_t		sunLight;
-} sunParms_t;
-
-typedef struct {
-	float		cloudHeight;
-	//	image_t		*outerbox[6], *innerbox[6];
-	image_t		*outerbox[6];
-} skyParms_t;
-
-typedef struct {
-	vec3_t	color;
-	float	depthForOpaque;
-} fogParms_t;
-
 
 typedef struct shader_s {
 	char		name[MAX_QPATH];		// game path, including extension
@@ -465,8 +411,8 @@ typedef struct shader_s {
 
 	float		sort;					// lower numbered shaders draw before higher numbered
 
-	VkPipelineLayout layout; // layout of the pipeline inputs for this shader
-	VkPipeline pipeline;	 // precompiled pipeline state
+	VkPipelineLayout	layout;			// layout of the pipeline inputs for this shader
+	VkPipeline	pipeline;				// precompiled pipeline state
 
 	int			surfaceFlags;			// if explicitlyDefined, this will have SURF_* flags
 	int			contentFlags;
@@ -481,8 +427,6 @@ typedef struct shader_s {
 
 	skyParms_t	*sky;
 	fogParms_t	*fogParms;
-
-	float		portalRange;			// distance to fog out at
 
 	int			multitextureEnv;		// 0, GL_MODULATE, GL_ADD (FIXME: put in stage)
 
@@ -500,10 +444,12 @@ typedef struct shader_s {
 	short		numUnfoggedPasses;
 	shaderStage_t	*stages;
 
-	float			timeOffset;                                 // current time offset for this shader
+	float		timeOffset;                                 // current time offset for this shader
+
+	float		portalRange;
 
 	// True if this shader has a stage with glow in it (just an optimization).
-	bool hasGlow;
+	bool		hasGlow;
 
 	struct	shader_s	*next;
 } shader_t;
@@ -544,19 +490,6 @@ typedef struct skin_s {
 	skinSurface_t	*surfaces[128];
 } skin_t;
 
-
-typedef struct {
-	int			originalBrushNumber;
-	vec3_t		bounds[2];
-
-	unsigned	colorInt;				// in packed byte format
-	float		tcScale;				// texture coordinate vector scales
-	fogParms_t	parms;
-
-	// for clipping distance in fog when outside
-	qboolean	hasSurface;
-	float		surface[4];
-} fog_t;
 
 typedef struct {
 	orientationr_t	ori;
@@ -692,7 +625,7 @@ typedef struct {
 // misc_models in maps are turned into direct geometry by q3map
 typedef struct {
 	surfaceType_t	surfaceType;
-
+	
 	// dynamic lighting information
 	int				dlightBits;
 
@@ -701,12 +634,8 @@ typedef struct {
 	//	vec3_t			localOrigin;
 	//	float			radius;
 
-	// triangle definitions
-	int				numIndexes;
-	int				*indexes;
+	vertexBuffer_t	*vertexBuffer;
 
-	int				numVerts;
-	drawVert_t		*verts;
 } srfTriangles_t;
 
 
@@ -798,6 +727,8 @@ typedef struct {
 	int			numfogs;
 	fog_t		*fogs;
 	int			globalFog;
+
+	buffer_t	*fogsBuffer;
 
 	int			startLightMapIndex;
 
@@ -923,11 +854,6 @@ typedef struct {
 	int		c_dlightSurfacesCulled;
 } frontEndCounters_t;
 
-#define	FOG_TABLE_SIZE		256
-#define FUNCTABLE_SIZE		1024
-#define FUNCTABLE_SIZE2		10
-#define FUNCTABLE_MASK		(FUNCTABLE_SIZE-1)
-
 
 #define MAX_OUTIMAGES 4
 #define MIN_UPLOADBUFFER_SIZE 65536
@@ -952,6 +878,9 @@ typedef struct {
 	VkSurfaceKHR			surface;
 	VkSwapchainKHR			swapchain;
 
+	VkFormat				swapchainImageFormat;
+	VkExtent2D				swapchainImageExtent;
+
 	VkDescriptorPool		descriptorPool;
 
 	uint32_t				imgcount;
@@ -964,25 +893,17 @@ typedef struct {
 	VkSemaphore				semaphores[MAX_OUTIMAGES];
 
 	ratl::pool_vs<uploadBuffer_t, 48>	uploadBuffers;
-	ratl::vector_vs<int, 12>			frameUploadBuffers[MAX_OUTIMAGES]; // upload buffers used in each frame
+	ratl::vector_vs<int, 48>			frameUploadBuffers[MAX_OUTIMAGES]; // upload buffers used in each frame
 
 	int						resnum;
 	uint32_t				imagenum;
 
-	char					physicalDeviceName[VK_MAX_DESCRIPTION_SIZE];
+	bool					wireframeRasterizationSupported;
+
+	VkPhysicalDeviceProperties physicalDeviceProperties;
 	char					physicalDeviceDriverVersion[32];
 
 } vkstate_t;
-
-// context of the currently rendered frame
-typedef struct {
-	VkCommandBuffer			cmdbuffer;
-	VkSemaphore				semaphore;
-
-	// output texture
-	image_t					*image;
-
-} vkcontext_t;
 
 
 typedef struct {
@@ -1011,7 +932,7 @@ typedef struct {
 	qboolean	skyRenderedThisView;	// flag for drawing sun
 
 	qboolean	projection2D;	// if qtrue, drawstretchpic doesn't need to change modes
-	byte		color2D[4];
+	tr_shader::byte4	color2D;
 	qboolean	vertexes2D;		// shader needs to be finished
 	trRefEntity_t	entity2D;	// currentEntity will point at this when doing 2D rendering
 } backEndState_t;
@@ -1052,6 +973,8 @@ typedef struct {
 
 	image_t					*screenImage; //reserve us a gl texnum to use with RF_DISTORTION
 
+	image_t					*screenshotImage;
+
 	// samplers
 	VkSampler				wrapModeSampler;
 	VkSampler				clampModeSampler;
@@ -1062,39 +985,41 @@ typedef struct {
 	VkSampler				linearWrapSampler;
 
 	VkDescriptorSetLayout	commonDescriptorSetLayout;
+	VkDescriptorSetLayout	samplerDescriptorSetLayout;
+	VkDescriptorSetLayout	shaderDescriptorSetLayout;
+	VkDescriptorSetLayout	modelDescriptorSetLayout;
+	VkDescriptorSetLayout	textureDescriptorSetLayout;
+
 	VkDescriptorSet			commonDescriptorSet;
 
-	VkRenderPass			postProcessPass;
-	image_t					*postProcessImage;
-	VkFramebuffer			postProcessFramebuffer;
-
+	frameBuffer_t			*postProcessFrameBuffer;
+	
 	// A rectangular texture representing the normally rendered scene.
-	image_t					*sceneImage;
-	VkFramebuffer			sceneFramebuffer;
+	frameBuffer_t			*sceneFrameBuffer;
+	
+	// Image the glowing objects are rendered to. - AReis
+	frameBuffer_t			*glowFrameBuffer;
 
-	VkRenderPass			sceneRenderPass;
+	// Image used to downsample and blur scene to.	- AReis
+	frameBuffer_t			*glowBlurFrameBuffer;
+
+	VkPipeline				shadePipeline;
+	VkPipelineLayout		shadePipelineLayout;
+
+	// Debug pipelines
+	VkPipeline				wireframePipeline;
+	VkPipeline				wireframeXRayPipeline;
+	VkPipelineLayout		wireframePipelineLayout;
+
+	// Vertex buffer with data generated in runtime.
+	vertexBuffer_t			*dynamicVertexBuffer;
 
 	// Handles to the Glow Effect resources.
 	VkPipeline				glowBlurPipeline;
 	VkPipelineLayout		glowBlurPipelineLayout;
-	VkDescriptorSet			glowBlurDescriptorSet;
-	VkDescriptorSetLayout	glowBlurDescriptorSetLayout;
 
 	VkPipeline				glowCombinePipeline;
 	VkPipelineLayout		glowCombinePipelineLayout;
-	VkDescriptorSet			glowCombineDescriptorSet;
-	VkDescriptorSetLayout	glowCombineDescriptorSetLayout;
-
-	// Image the glowing objects are rendered to. - AReis
-	image_t					*glowImage;
-	VkFramebuffer			glowFramebuffer;
-
-	VkRenderPass			glowRenderPass;
-
-	// Image used to downsample and blur scene to.	- AReis
-	image_t					*glowBlurImage;
-	VkFramebuffer			glowBlurFramebuffer;
-
 
 	shader_t				*defaultShader;
 	shader_t				*shadowShader;
@@ -1112,7 +1037,6 @@ typedef struct {
 	unsigned				shiftedEntityNum;	// currentEntityNum << QSORT_REFENTITYNUM_SHIFT (possible with high bit set for RF_ALPHA_FADE)
 	model_t					*currentModel;
 
-	buffer_t				*viewParmsBuffer;
 	viewParms_t				viewParms;
 
 	float					identityLight;		// 1.0 / ( 1 << overbrightBits )
@@ -1125,15 +1049,21 @@ typedef struct {
 
 	int						viewCluster;
 
-	buffer_t				*sunParmsBuffer;
 	sunParms_t				sunParms;
 	int						sunSurfaceLight;	// from the sky shader for this level
 
 
-	VkDescriptorSet			sunDescriptorSet;
-
 	frontEndCounters_t		pc;
 	int						frontEndMsec;		// not in pc due to clearing issue
+
+	float					rangedFog;
+	float					distanceCull;
+
+	// GPU-visible buffer with data stored in this strucutre
+	buffer_t				*globalsBuffer;
+	tr_shader::trGlobals_t	globals;
+
+	buffer_t				*funcTablesBuffer;
 
 	//
 	// put large tables at the end, so most elements will be
@@ -1155,18 +1085,6 @@ typedef struct {
 
 	int						numSkins;
 	skin_t					*skins[MAX_SKINS];
-
-	float					sinTable[FUNCTABLE_SIZE];
-
-	float					squareTable[FUNCTABLE_SIZE];
-	float					triangleTable[FUNCTABLE_SIZE];
-	float					sawToothTable[FUNCTABLE_SIZE];
-	float					inverseSawToothTable[FUNCTABLE_SIZE];
-	float					fogTable[FOG_TABLE_SIZE];
-
-	float					rangedFog;
-
-	float					distanceCull;
 } trGlobals_t;
 
 int		 R_Images_StartIteration(void);
@@ -1185,7 +1103,6 @@ extern backEndState_t	backEnd;
 extern trGlobals_t	tr;
 extern glconfig_t	glConfig;		// outside of TR since it shouldn't be cleared during ref re-init
 extern vkstate_t	vkState;		// outside of TR since it shouldn't be cleared during ref re-init
-extern vkcontext_t	vkCtx;
 extern window_t		window;
 
 
@@ -1366,19 +1283,24 @@ void R_RotateForEntity( const trRefEntity_t *ent, const viewParms_t *viewParms, 
 ** Vulkan wrapper/helper functions
 */
 PFN_vkVoidFunction VK_GetProcAddress( const char *name, qboolean required = qfalse );
+void VK_BeginFrame( void );
+void VK_EndFrame( void );
 void VK_TextureMode( const char *string );
 uploadBuffer_t *VK_GetUploadBuffer( int uploadSize );
 void VK_PrepareUploadBuffers( void );
 void VK_UploadImage( image_t *im, const byte *pic, int width, int height, int mip );
 void VK_UploadBuffer( buffer_t *buffer, const byte *data, int size, int offset );
+void *VK_UploadBuffer( buffer_t *buffer, int size, int offset );
 void VK_SetImageLayout( image_t *im, VkImageLayout dstLayout, VkAccessFlags dstAccess );
+void VK_CopyImage( image_t *dst, image_t *src );
+void VK_BindImage( image_t *image, int loc = 0 );
 
-#ifdef __cplusplus
+int VK_AlignUniformBufferSize( int structureSize );
+
 template<typename T>
 inline T VK_GetProcAddress( const char *name, qboolean required = qfalse ) {
 	return ( T )VK_GetProcAddress( name, required );
 }
-#endif
 
 #define GLS_SRCBLEND_ZERO						0x00000001
 #define GLS_SRCBLEND_ONE						0x00000002
@@ -1445,13 +1367,17 @@ void		RE_RegisterBuffers_Info_f( void );
 
 model_t		*R_AllocModel( void );
 
-void    	R_Init( void );
+void		R_Init( void );
+void		VK_InitSwapchain( void );
+
 image_t		*R_FindImageFile( const char *name, qboolean mipmap, qboolean allowPicmip, qboolean allowTC, VkSamplerAddressMode wrapClampMode );
 
 image_t		*R_CreateImage( const char *name, const byte *pic, int width, int height, VkFormat format, qboolean mipmap, qboolean allowPicmip, qboolean allowTC, VkSamplerAddressMode wrapClampMode );
 image_t		*R_CreateTransientImage( const char *name, int width, int height, VkFormat format, VkSamplerAddressMode wrapClampMode );
+image_t		*R_CreateReadbackImage( const char *name, int width, int height, VkFormat format );
 
 buffer_t	*R_CreateBuffer( int size, VkBufferUsageFlags usage, VkMemoryPropertyFlags requiredFlags );
+vertexBuffer_t	*R_CreateVertexBuffer( int numVertexes, int numIndexes, int indexOffset = 0 );
 
 qboolean	R_GetModeInfo( int *width, int *height, int mode );
 
@@ -1492,13 +1418,147 @@ shader_t	*R_FindShader( const char *name, const int *lightmapIndex, const byte *
 shader_t	*R_GetShaderByHandle( qhandle_t hShader );
 void		R_InitShaders( void );
 void		R_ShaderList_f( void );
+void		RB_SetShader( shader_t *shader );
 
 //
 // tr_spv.c
 //
 VkShaderModule SPV_FindShaderModuleFile( const char *name );
 VkShaderModule SPV_CreateShaderModule( const uint32_t *code, int size );
+void SPV_InitDescriptorSetLayouts( void );
 void SPV_InitGlowShaders( void );
+void SPV_InitWireframeShaders( void );
+void SPV_InitShadeShaders( void );
+
+
+#define TR_MAX_DESCRIPTOR_SET_BINDING_COUNT 16
+
+class CDescriptorSetLayoutBuilder {
+public:
+	int								bindingCount;
+	VkDescriptorSetLayoutBinding	bindings[TR_MAX_DESCRIPTOR_SET_BINDING_COUNT];
+
+public:
+	CDescriptorSetLayoutBuilder();
+
+	void reset();
+	void addBinding( VkDescriptorType type );
+	void addBinding( VkSampler &sampler );
+	void build( VkDescriptorSetLayout *layout );
+};
+
+#define TR_MAX_DESCRIPTOR_SET_LAYOUT_COUNT 16
+#define TR_MAX_PUSH_CONSTANT_RANGE_COUNT 5
+
+class CPipelineLayoutBuilder {
+public:
+	int								descriptorSetLayoutCount;
+	VkDescriptorSetLayout			descriptorSetLayouts[TR_MAX_DESCRIPTOR_SET_LAYOUT_COUNT];
+	int								pushConstantRangeCount;
+	VkPushConstantRange				pushConstantRanges[TR_MAX_PUSH_CONSTANT_RANGE_COUNT];
+
+public:
+	CPipelineLayoutBuilder();
+
+	void reset();
+	void addDescriptorSetLayout( VkDescriptorSetLayout layout );
+	void addPushConstantRange( VkShaderStageFlags stages, int size, int offset = 0 );
+	void build( VkPipelineLayout *layout );
+};
+
+#define TR_MAX_SHADER_STAGE_COUNT 5
+#define TR_MAX_DYNAMIC_STATE_COUNT 10
+#define TR_MAX_VERTEX_INPUT_ATTRIBUTE_COUNT 16
+
+class CPipelineBuilder {
+public:
+	int										shaderStageCount;
+	VkPipelineShaderStageCreateInfo			shaderStages[TR_MAX_SHADER_STAGE_COUNT];
+	int										dynamicStateCount;
+	VkDynamicState							dynamicStates[TR_MAX_DYNAMIC_STATE_COUNT];
+	int										vertexAttributeCount;
+	VkVertexInputAttributeDescription		vertexAttributes[TR_MAX_VERTEX_INPUT_ATTRIBUTE_COUNT];
+	VkVertexInputBindingDescription			vertexBinding;
+	VkPipelineVertexInputStateCreateInfo	vertexInput;
+	VkPipelineInputAssemblyStateCreateInfo	inputAssembly;
+	VkPipelineMultisampleStateCreateInfo	multisample;
+	VkPipelineDepthStencilStateCreateInfo	depthStencil;
+	VkPipelineRasterizationStateCreateInfo	rasterization;
+	VkPipelineColorBlendStateCreateInfo		colorBlend;
+	VkPipelineDynamicStateCreateInfo		dynamic;
+	VkGraphicsPipelineCreateInfo			pipelineCreateInfo;
+
+public:
+	CPipelineBuilder();
+	~CPipelineBuilder();
+
+	void reset( bool setDefaults );
+	void setShader( VkShaderStageFlagBits stage, const uint32_t *code, int codeSize );
+	void setDynamicState( VkDynamicState state );
+	void addVertexAttribute( VkFormat format, int offset );
+	void build( VkPipeline *pipeline );
+
+	template<typename T, int codeSize>
+	void setShader( VkShaderStageFlagBits stage, const T ( &code )[codeSize] ) {
+		// code must be aligned at least to uint32_t size to be safely casted
+		assert( ( (uintptr_t)( code ) & ( alignof( uint32_t ) - 1 ) ) == 0 );
+
+		setShader( stage, reinterpret_cast<const uint32_t *>( code ), codeSize * sizeof( T ) );
+	}
+
+	template<typename T>
+	void addVertexAttributes() {
+		if (vertexAttributeCount + ARRAY_LEN(T::m_scAttributes) > TR_MAX_VERTEX_INPUT_ATTRIBUTE_COUNT) {
+			Com_Error( ERR_FATAL, "CPipelineBuilder: max vertex attribute count limit reached\n" );
+		}
+		memcpy( vertexAttributes + vertexAttributeCount, T::m_scAttributes, sizeof( T::m_scAttributes ) );
+		vertexAttributeCount += ARRAY_LEN( T::m_scAttributes );
+	}
+};
+
+class CFrameBufferBuilder {
+public:
+	int							width;
+	int							height;
+	int							depthBufferIndex;
+	int							attachmentCount;
+	VkAttachmentDescription		attachmentDescriptions[TR_MAX_FRAMEBUFFER_IMAGES];
+	VkClearValue				clearValues[TR_MAX_FRAMEBUFFER_IMAGES];
+	image_t						*externalImages[TR_MAX_FRAMEBUFFER_IMAGES];
+
+public:
+	CFrameBufferBuilder();
+
+	void reset();
+	void addColorAttachment( VkFormat format, bool clear = false, const VkClearColorValue &clearValue = { 0.f, 0.f, 0.f, 1.f } );
+	void addColorAttachment( image_t *image, bool clear = false, const VkClearColorValue &clearValue = { 0.f, 0.f, 0.f, 1.f } );
+	void addDepthStencilAttachment( VkFormat format, bool clear = false, const VkClearDepthStencilValue &clearValue = { 1.f, 0 } );
+	void addDepthStencilAttachment( image_t *image, bool clear = false, const VkClearDepthStencilValue &clearValue = { 1.f, 0 } );
+	void build( frameBuffer_t **frameBuffer );
+};
+
+#define TR_MAX_DESCRIPTOR_SET_UPDATE_SIZE 8
+
+class CDescriptorSetWriter {
+public:
+	VkDescriptorSet				descriptorSet;
+	int							writeCount;
+	VkWriteDescriptorSet		writes[TR_MAX_DESCRIPTOR_SET_UPDATE_SIZE];
+	int							bufferCount;
+	VkDescriptorBufferInfo		buffers[TR_MAX_DESCRIPTOR_SET_UPDATE_SIZE];
+	int							imageCount;
+	VkDescriptorImageInfo		images[TR_MAX_DESCRIPTOR_SET_UPDATE_SIZE];
+
+public:
+	explicit CDescriptorSetWriter( VkDescriptorSet dstSet );
+
+	void reset( VkDescriptorSet dstSet = VK_NULL_HANDLE );
+	void writeBuffer( int binding, VkDescriptorType type, buffer_t *buffer, VkDeviceSize offset = 0, VkDeviceSize range = VK_WHOLE_SIZE );
+	void writeImage( int binding, VkDescriptorType type, image_t *image, VkImageLayout layout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL );
+	void writeSampler( int binding, VkSampler sampler );
+	void flush();
+	void flush( VkCommandBuffer cmdbuf );
+};
 
 
 /*
@@ -1530,23 +1590,10 @@ typedef struct stageVars
 
 struct shaderCommands_s
 {
-	uint32_t	indexes[SHADER_MAX_INDEXES] QALIGN(16);
-	vec4_t		xyz[SHADER_MAX_VERTEXES] QALIGN(16);
-	vec4_t		normal[SHADER_MAX_VERTEXES] QALIGN(16);
-	vec2_t		texCoords[SHADER_MAX_VERTEXES][NUM_TEX_COORDS] QALIGN(16);
-	color4ub_t	vertexColors[SHADER_MAX_VERTEXES] QALIGN(16);
-	byte		vertexAlphas[SHADER_MAX_VERTEXES][4] QALIGN(16);
-	int			vertexDlightBits[SHADER_MAX_VERTEXES] QALIGN(16);
-
-	stageVars_t	svars QALIGN(16);
-
 	shader_t	*shader;
 	int			fogNum;
 
 	int			dlightBits;	// or together of all vertexDlightBits
-
-	int			numIndexes;
-	int			numVertexes;
 
 	// info extracted from current shader
 	int			numPasses;
@@ -1559,6 +1606,10 @@ struct shaderCommands_s
 
 	//rww - doing a fade, don't compute shader color/alpha overrides
 	bool		fading;
+
+	// vertex data
+	int			numDraws;
+	vertexBuffer_t	*draws[SHADER_MAX_VERTEXES];
 };
 
 #ifdef _MSC_VER
@@ -1572,10 +1623,11 @@ extern	shaderCommands_t	tess;
 extern	color4ub_t	styleColors[MAX_LIGHT_STYLES];
 extern	bool		styleUpdated[MAX_LIGHT_STYLES];
 
-void RB_BeginSurface(shader_t *shader, int fogNum );
-void RB_EndSurface(void);
-void RB_CheckOverflow( int verts, int indexes );
-#define RB_CHECKOVERFLOW(v,i) if (tess.numVertexes + (v) >= SHADER_MAX_VERTEXES || tess.numIndexes + (i) >= SHADER_MAX_INDEXES ) {RB_CheckOverflow(v,i);}
+void RB_BeginSurface( shader_t *shader, int fogNum );
+void RB_EndSurface();
+void RB_DrawSurface( vertexBuffer_t *vertexBuffer );
+void RB_CheckOverflow();
+#define RB_CHECKOVERFLOW() if (tess.numDraws + 1 >= SHADER_MAX_VERTEXES) {RB_CheckOverflow();}
 
 void RB_StageIteratorGeneric( void );
 void RB_StageIteratorSky( void );
@@ -1913,12 +1965,26 @@ typedef enum {
 // all of the information needed by the back end must be
 // contained in a backEndData_t.
 typedef struct {
-	drawSurf_t	drawSurfs[MAX_DRAWSURFS];
-	dlight_t	dlights[MAX_DLIGHTS];
-	trRefEntity_t	entities[MAX_REFENTITIES];
-	srfPoly_t	polys[MAX_POLYS];
-	polyVert_t	polyVerts[MAX_POLYVERTS];
-	renderCommandList_t	commands;
+	VkCommandBuffer			cmdbuf;
+	VkSemaphore				semaphore;			// signaled when the image is available
+
+	image_t					*image;				// output texture
+	int						imageArraySlice;	// output array slice (for stereo rendering)
+
+	VkPipeline				pipeline;			// current pipeline
+	VkPipelineLayout		pipelineLayout;		// current pipeline layout
+
+	frameBuffer_t			*frameBuffer;		// last written frame buffer
+
+	VkClearColorValue		defaultClearValue;
+
+	drawSurf_t				drawSurfs[MAX_DRAWSURFS];
+	dlight_t				dlights[MAX_DLIGHTS];
+	trRefEntity_t			entities[MAX_REFENTITIES];
+	srfPoly_t				polys[MAX_POLYS];
+	polyVert_t				polyVerts[MAX_POLYVERTS];
+	renderCommandList_t		commands;
+
 } backEndData_t;
 
 extern	backEndData_t	*backEndData;
@@ -1950,6 +2016,9 @@ long generateHashValue( const char *fname );
 void R_LoadImage( const char *name, byte **pic, int *width, int *height );
 void		RE_InsertModelIntoHash(const char *name, model_t *mod);
 qboolean R_FogParmsMatch( int fog1, int fog2 );
+
+void R_DeleteFrameBuffer( frameBuffer_t *frameBuffer );
+void R_BindFrameBuffer( frameBuffer_t *frameBuffer );
 
 /*
 Ghoul2 Insert Start

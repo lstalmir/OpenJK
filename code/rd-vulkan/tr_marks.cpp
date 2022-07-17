@@ -429,6 +429,7 @@ int R_MarkFragments( int numPoints, const vec3_t *points, const vec3_t projectio
 		{
 			const srfTriangles_t * const surf = ( srfTriangles_t * ) surfaces[i];
 
+			#if 0 // todo
 			for ( k = 0 ; k < surf->numIndexes ; k += 3 )
 			{
 				int i1=surf->indexes[k];
@@ -457,6 +458,7 @@ int R_MarkFragments( int numPoints, const vec3_t *points, const vec3_t projectio
 					}
 				}
 			}
+			#endif
 		}
 		else {
 			// ignore all other world surfaces

@@ -27,7 +27,7 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 #include "../server/exe_headers.h"
 #include "tr_quicksprite.h"
 
-extern void R_BindAnimatedImage( const textureBundle_t *bundle );
+extern void R_BindAnimatedImage( const tr_shader::textureBundle_t *bundle );
 
 
 //////////////////////////////////////////////////////////////////////
@@ -95,6 +95,7 @@ void CQuickSpriteSystem::Flush(void)
 	*/
 	//this should not be needed, since I just wait to disable fog for the surface til after surface sprites are done
 
+#if 0
 	//
 	// render the main pass
 	//
@@ -119,6 +120,7 @@ void CQuickSpriteSystem::Flush(void)
 	}
 
 	qglDrawArrays(GL_QUADS, 0, mNextVert);
+#endif
 
 	backEnd.pc.c_vertexes += mNextVert;
 	backEnd.pc.c_indexes += mNextVert;
@@ -136,7 +138,8 @@ void CQuickSpriteSystem::Flush(void)
 		//
 		// render the fog pass
 		//
-		GL_Bind( tr.fogImage );
+		VK_BindImage( tr.fogImage );
+#if 0
 		GL_State( GLS_SRCBLEND_SRC_ALPHA | GLS_DSTBLEND_ONE_MINUS_SRC_ALPHA | GLS_DEPTHFUNC_EQUAL );
 
 		//
@@ -163,8 +166,8 @@ void CQuickSpriteSystem::Flush(void)
 	{
 		qglUnlockArraysEXT();
 		GLimp_LogComment( "glUnlockArraysEXT\n" );
+#endif
 	}
-
 	mNextVert=0;
 }
 
@@ -185,6 +188,7 @@ void CQuickSpriteSystem::StartGroup(textureBundle_t *bundle, uint32_t glbits, in
 		mUseFog = qfalse;
 	}
 
+#if 0
 	int cullingOn;
 	qglGetIntegerv(GL_CULL_FACE,&cullingOn);
 
@@ -197,6 +201,7 @@ void CQuickSpriteSystem::StartGroup(textureBundle_t *bundle, uint32_t glbits, in
 		mTurnCullBackOn=qfalse;
 	}
 	qglDisable(GL_CULL_FACE);
+#endif
 }
 
 
@@ -204,11 +209,13 @@ void CQuickSpriteSystem::EndGroup(void)
 {
 	Flush();
 
+#if 0
 	qglColor4ub(255,255,255,255);
 	if(mTurnCullBackOn)
 	{
 		qglEnable(GL_CULL_FACE);
 	}
+#endif
 }
 
 

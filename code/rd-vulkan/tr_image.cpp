@@ -135,7 +135,7 @@ void VK_TextureMode( const char *string ) {
 		return;
 	}
 
-	textureMode_t* mode = &modes[i];
+	textureMode_t *mode = &modes[i];
 
 	// If the level they requested is less than possible, set the max possible...
 	if( r_ext_texture_filter_anisotropic->value > glConfig.maxTextureFilterAnisotropy ) {
@@ -145,10 +145,10 @@ void VK_TextureMode( const char *string ) {
 	float anisotropy = r_ext_texture_filter_anisotropic->value;
 
 	// destroy the old samplers
-	if (tr.wrapModeSampler)
-		vkDestroySampler(vkState.device, tr.wrapModeSampler, NULL);
-	if (tr.clampModeSampler)
-		vkDestroySampler(vkState.device, tr.clampModeSampler, NULL);
+	if( tr.wrapModeSampler )
+		vkDestroySampler( vkState.device, tr.wrapModeSampler, NULL );
+	if( tr.clampModeSampler )
+		vkDestroySampler( vkState.device, tr.clampModeSampler, NULL );
 
 	// create the new sampler objects
 	VkSamplerCreateInfo samplerCreateInfo = {};
@@ -159,23 +159,23 @@ void VK_TextureMode( const char *string ) {
 	samplerCreateInfo.minFilter = mode->minimize;
 	samplerCreateInfo.magFilter = mode->maximize;
 	samplerCreateInfo.mipmapMode = mode->mipmap;
-	samplerCreateInfo.anisotropyEnable = (anisotropy > 0.f);
+	samplerCreateInfo.anisotropyEnable = ( anisotropy > 0.f );
 	samplerCreateInfo.maxAnisotropy = anisotropy;
 	samplerCreateInfo.borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_BLACK;
 	samplerCreateInfo.maxLod = FLT_MAX;
 
-	res = vkCreateSampler(vkState.device, &samplerCreateInfo, NULL, &tr.wrapModeSampler);
-	if (res != VK_SUCCESS) {
-		Com_Error(ERR_FATAL, "VK_TextureMode: failed to create a wrap mode sampler (%d)\n", res);
+	res = vkCreateSampler( vkState.device, &samplerCreateInfo, NULL, &tr.wrapModeSampler );
+	if( res != VK_SUCCESS ) {
+		Com_Error( ERR_FATAL, "VK_TextureMode: failed to create a wrap mode sampler (%d)\n", res );
 	}
 
 	samplerCreateInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
 	samplerCreateInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
 	samplerCreateInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
 
-	res = vkCreateSampler(vkState.device, &samplerCreateInfo, NULL, &tr.clampModeSampler);
-	if (res != VK_SUCCESS) {
-		Com_Error(ERR_FATAL, "VK_TextureMode: failed to create a clamp mode sampler (%d)\n", res);
+	res = vkCreateSampler( vkState.device, &samplerCreateInfo, NULL, &tr.clampModeSampler );
+	if( res != VK_SUCCESS ) {
+		Com_Error( ERR_FATAL, "VK_TextureMode: failed to create a clamp mode sampler (%d)\n", res );
 	}
 }
 
@@ -186,69 +186,69 @@ VK_GetInternalFormat
 
 ===============
 */
-static VkFormat VK_GetInternalFormat(const byte* data, int width, int height, qboolean isLightmap, qboolean allowTC) {
+static VkFormat VK_GetInternalFormat( const byte *data, int width, int height, qboolean isLightmap, qboolean allowTC ) {
 	int samples;
 	int i, c;
 	float rMax = 0, gMax = 0, bMax = 0;
-	byte* scan;
+	byte *scan;
 
 	//
 	// scan the texture for each channel's max values
 	// and verify if the alpha channel is being used or not
 	//
 	c = width * height;
-	scan = ((byte*)data);
+	scan = ( (byte *)data );
 	samples = 3;
-	for (i = 0; i < c; i++) {
-		if (scan[i * 4 + 0] > rMax) {
+	for( i = 0; i < c; i++ ) {
+		if( scan[i * 4 + 0] > rMax ) {
 			rMax = scan[i * 4 + 0];
 		}
-		if (scan[i * 4 + 1] > gMax) {
+		if( scan[i * 4 + 1] > gMax ) {
 			gMax = scan[i * 4 + 1];
 		}
-		if (scan[i * 4 + 2] > bMax) {
+		if( scan[i * 4 + 2] > bMax ) {
 			bMax = scan[i * 4 + 2];
 		}
-		if (scan[i * 4 + 3] != 255) {
+		if( scan[i * 4 + 3] != 255 ) {
 			samples = 4;
 			break;
 		}
 	}
 
 	// select proper internal format
-	if (samples == 3) {
-		if (glConfig.textureCompression == TC_S3TC_DXT && allowTC) { // Compress purely color - no alpha
-			if (r_texturebits->integer == 16) {
+	if( samples == 3 ) {
+		if( glConfig.textureCompression == TC_S3TC_DXT && allowTC ) { // Compress purely color - no alpha
+			if( r_texturebits->integer == 16 ) {
 				return VK_FORMAT_BC1_RGB_UNORM_BLOCK; // this format cuts to 16 bit
 			}
 			else { // if we aren't using 16 bit then, use 32 bit compression
 				return VK_FORMAT_BC3_UNORM_BLOCK;
 			}
 		}
-		else if (isLightmap && r_texturebitslm->integer > 0) {
+		else if( isLightmap && r_texturebitslm->integer > 0 ) {
 			// Allow different bit depth when we are a lightmap
-			if (r_texturebitslm->integer == 16) {
+			if( r_texturebitslm->integer == 16 ) {
 				return VK_FORMAT_R5G6B5_UNORM_PACK16;
 			}
-			else if (r_texturebitslm->integer == 32) {
-				return VK_FORMAT_R8G8B8_UNORM;
+			else if( r_texturebitslm->integer == 32 ) {
+				return VK_FORMAT_R8G8B8A8_UNORM;
 			}
 		}
-		else if (r_texturebits->integer == 16) {
+		else if( r_texturebits->integer == 16 ) {
 			return VK_FORMAT_R5G6B5_UNORM_PACK16;
 		}
-		return VK_FORMAT_R8G8B8_UNORM;
+		return VK_FORMAT_R8G8B8A8_UNORM;
 	}
-	else if (samples == 4) {
-		if (glConfig.textureCompression == TC_S3TC_DXT && allowTC) { // Compress both alpha and color
-			if (r_texturebits->integer == 16) {
+	else if( samples == 4 ) {
+		if( glConfig.textureCompression == TC_S3TC_DXT && allowTC ) { // Compress both alpha and color
+			if( r_texturebits->integer == 16 ) {
 				return VK_FORMAT_BC1_RGBA_UNORM_BLOCK; // this format cuts to 16 bit
 			}
 			else { // if we aren't using 16 bit then, use 32 bit compression
 				return VK_FORMAT_BC3_UNORM_BLOCK;
 			}
 		}
-		else if (r_texturebits->integer == 16) {
+		else if( r_texturebits->integer == 16 ) {
 			return VK_FORMAT_R4G4B4A4_UNORM_PACK16;
 		}
 		return VK_FORMAT_R8G8B8A8_UNORM;
@@ -257,14 +257,15 @@ static VkFormat VK_GetInternalFormat(const byte* data, int width, int height, qb
 	return VK_FORMAT_UNDEFINED;
 }
 
-static int VK_GetInternalFormatTexelSize(VkFormat format) {
-	switch (format) {
+static int VK_GetInternalFormatTexelSize( VkFormat format ) {
+	switch( format ) {
 	case VK_FORMAT_BC1_RGB_UNORM_BLOCK:
 	case VK_FORMAT_BC1_RGBA_UNORM_BLOCK:
 		return 8; // per block
 	case VK_FORMAT_BC3_UNORM_BLOCK:
 		return 16; // per block
 	case VK_FORMAT_R8G8B8A8_UNORM:
+	case VK_FORMAT_B8G8R8A8_UNORM:
 		return 4; // per pixel
 	case VK_FORMAT_R8G8B8_UNORM:
 		return 3; // per pixel
@@ -276,8 +277,8 @@ static int VK_GetInternalFormatTexelSize(VkFormat format) {
 	}
 }
 
-static bool VK_IsCompressed(VkFormat format) {
-	switch (format) {
+static bool VK_IsCompressed( VkFormat format ) {
+	switch( format ) {
 	case VK_FORMAT_BC1_RGB_UNORM_BLOCK:
 	case VK_FORMAT_BC1_RGBA_UNORM_BLOCK:
 	case VK_FORMAT_BC3_UNORM_BLOCK:
@@ -287,8 +288,8 @@ static bool VK_IsCompressed(VkFormat format) {
 	}
 }
 
-static bool VK_IsDepthStencil(VkFormat format) {
-	switch (format) {
+static bool VK_IsDepthStencil( VkFormat format ) {
+	switch( format ) {
 	case VK_FORMAT_D16_UNORM:
 	case VK_FORMAT_D16_UNORM_S8_UINT:
 	case VK_FORMAT_D24_UNORM_S8_UINT:
@@ -301,8 +302,8 @@ static bool VK_IsDepthStencil(VkFormat format) {
 	}
 }
 
-static bool VK_IsDepthOnly(VkFormat format) {
-	switch (format) {
+static bool VK_IsDepthOnly( VkFormat format ) {
+	switch( format ) {
 	case VK_FORMAT_D16_UNORM:
 	case VK_FORMAT_D32_SFLOAT:
 		return true;
@@ -311,11 +312,11 @@ static bool VK_IsDepthOnly(VkFormat format) {
 	}
 }
 
-static bool VK_IsStencilOnly(VkFormat format) {
+static bool VK_IsStencilOnly( VkFormat format ) {
 	return format == VK_FORMAT_S8_UINT;
 }
 
-int VK_GetRequiredImageUploadBufferSize(image_t *);
+int VK_GetRequiredImageUploadBufferSize( VkFormat format, int width, int height );
 
 /*
 ===============
@@ -330,7 +331,7 @@ float R_SumOfUsedImages( qboolean bUseFormat ) {
 	while( ( pImage = R_Images_GetNextIteration() ) != NULL ) {
 		if( pImage->frameUsed == tr.frameCount - 1 ) { // it has already been advanced for the next frame, so...
 			if( bUseFormat ) {
-				total += VK_GetRequiredImageUploadBufferSize( pImage );
+				total += VK_GetRequiredImageUploadBufferSize( pImage->internalFormat, pImage->width, pImage->height );
 			}
 			else {
 				total += pImage->width * pImage->height;
@@ -359,7 +360,7 @@ void R_ImageList_f( void ) {
 	int iNumImages = R_Images_StartIteration();
 	while( ( image = R_Images_GetNextIteration() ) != NULL ) {
 		texels += image->width * image->height;
-		texBytes += VK_GetRequiredImageUploadBufferSize( image );
+		texBytes += VK_GetRequiredImageUploadBufferSize( image->internalFormat, image->width, image->height );
 		//		totalFileSizeK += (image->imgfileSize+1023)/1024;
 		// ri.Printf (PRINT_ALL,  "%4i: %4i %4i %5i  %s ",
 		//	i, image->width, image->height,(image->fileSize+1023)/1024, yesno[image->mipmap] );
@@ -367,7 +368,7 @@ void R_ImageList_f( void ) {
 			i, image->width, image->height, yesno[image->mipmap] );
 
 		switch( image->internalFormat ) {
-		case VK_FORMAT_R8G8B8A8_UNORM:
+		case VK_FORMAT_B8G8R8A8_UNORM:
 			ri.Printf( PRINT_ALL, "RGBA8" );
 			break;
 		case VK_FORMAT_R8G8B8_UNORM:
@@ -690,7 +691,7 @@ static bool VK_ConvertImage( byte *dst, const byte *pic, int width, int height, 
 		}
 		return true;
 	}
-	if( internalFormat == VK_FORMAT_BC3_UNORM_BLOCK ) {
+	else if( internalFormat == VK_FORMAT_BC3_UNORM_BLOCK ) {
 		// block conversion without alpha
 		const int wblocks = maximum( 1, ( width >> 2 ) );
 		const int hblocks = maximum( 1, ( height >> 2 ) );
@@ -705,6 +706,13 @@ static bool VK_ConvertImage( byte *dst, const byte *pic, int width, int height, 
 		}
 		return true;
 	}
+	else {
+		assert( !VK_IsCompressed( internalFormat ) );
+		const int texelSize = VK_GetInternalFormatTexelSize( internalFormat );
+		// copy the data
+		memcpy( dst, pic, width * height * texelSize );
+	}
+	return true;
 }
 
 static int VK_GetRequiredImageUploadBufferSize( VkFormat format, int width, int height ) {
@@ -732,26 +740,26 @@ void VK_UploadImage( image_t *image, const byte *pic, int width, int height, int
 	uploadBuffer_t *uploadBuffer = VK_GetUploadBuffer( requiredBufferSize );
 
 	assert( uploadBuffer );
-	assert( (uploadBuffer->buffer->size - uploadBuffer->offset) >= requiredBufferSize );
+	assert( ( uploadBuffer->buffer->size - uploadBuffer->offset ) >= requiredBufferSize );
 
 	// copy or resample data as appropriate for first MIP level
 	VK_ConvertImage( ( (byte *)uploadBuffer->buffer->allocationInfo.pMappedData ) + uploadBuffer->offset,
 		pic, width, height, image->internalFormat );
 
-	//R_LightScaleTexture( (unsigned int *)pic, width, height, (qboolean)!mipmap );
+	// R_LightScaleTexture( (unsigned int *)pic, width, height, (qboolean)!mipmap );
 
 	// copy the data from the upload buffer to the image resource
 	VkBufferImageCopy uploadRegion = {};
 	uploadRegion.imageExtent.width = width;
-	uploadRegion.imageExtent.height = width;
+	uploadRegion.imageExtent.height = height;
 	uploadRegion.imageExtent.depth = 1;
 	uploadRegion.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
 	uploadRegion.imageSubresource.mipLevel = mip;
 	uploadRegion.imageSubresource.layerCount = 1;
-	uploadRegion.bufferOffset		 = uploadBuffer->offset;
+	uploadRegion.bufferOffset = uploadBuffer->offset;
 
 	VK_SetImageLayout( image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_ACCESS_TRANSFER_WRITE_BIT );
-	vkCmdCopyBufferToImage( vkCtx.cmdbuffer,
+	vkCmdCopyBufferToImage( backEndData->cmdbuf,
 		uploadBuffer->buffer->buf,
 		image->tex,
 		VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
@@ -790,7 +798,10 @@ image_t *R_Images_GetNextIteration( void ) {
 static void R_Images_DeleteImageContents( image_t *pImage ) {
 	assert( pImage ); // should never be called with NULL
 	if( pImage ) {
-		vkDestroyImageView( vkState.device, pImage->texview, NULL );
+		if( pImage->texview ) {
+			vkFreeDescriptorSets( vkState.device, vkState.descriptorPool, 1, &pImage->descriptorSet );
+			vkDestroyImageView( vkState.device, pImage->texview, NULL );
+		}
 		vmaDestroyImage( vkState.allocator, pImage->tex, pImage->allocation );
 		R_Free( pImage );
 	}
@@ -941,8 +952,8 @@ static image_t *R_FindImageFile_NoLoad( const char *name, qboolean mipmap, qbool
 
 
 // initializes the image object
-static void VK_InitImage(image_t *image, const char* name, int width, int height, VkFormat internalFormat, qboolean mipmap, qboolean allowPicmip,
-	VkSamplerAddressMode wrapClampMode, VkImageUsageFlags usage) {
+static void VK_InitImage( image_t *image, const char *name, int width, int height, VkFormat internalFormat, qboolean mipmap, qboolean allowPicmip,
+	VkSamplerAddressMode wrapClampMode, VkImageUsageFlags usage, VkImageTiling tiling ) {
 	VkResult res;
 
 	// record which map it was used on...
@@ -952,7 +963,7 @@ static void VK_InitImage(image_t *image, const char* name, int width, int height
 	image->mipmap = !!mipmap;
 	image->allowPicmip = !!allowPicmip;
 
-	Q_strncpyz(image->imgName, name, sizeof(image->imgName));
+	Q_strncpyz( image->imgName, name, sizeof( image->imgName ) );
 
 	image->width = width;
 	image->height = height;
@@ -971,20 +982,21 @@ static void VK_InitImage(image_t *image, const char* name, int width, int height
 	imageCreateInfo.format = image->internalFormat;
 	imageCreateInfo.samples = VK_SAMPLE_COUNT_1_BIT;
 	imageCreateInfo.usage = usage;
+	imageCreateInfo.tiling = tiling;
 
-	if (mipmap) {
+	if( mipmap ) {
 		int mipwidth = width;
 		int mipheight = height;
 
 		// compute number of mipmaps to generate
-		while (mipwidth > 1 || mipheight > 1) {
+		while( mipwidth > 1 || mipheight > 1 ) {
 			imageCreateInfo.mipLevels++;
 
 			mipwidth >>= 1;
 			mipheight >>= 1;
-			if (mipwidth < 1)
+			if( mipwidth < 1 )
 				mipwidth = 1;
-			if (mipheight < 1)
+			if( mipheight < 1 )
 				mipheight = 1;
 		}
 	}
@@ -992,36 +1004,63 @@ static void VK_InitImage(image_t *image, const char* name, int width, int height
 	VmaAllocationCreateInfo allocationCreateInfo = {};
 	allocationCreateInfo.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
 
-	res = vmaCreateImage(vkState.allocator, &imageCreateInfo, &allocationCreateInfo, &image->tex, &image->allocation, NULL);
-	if (res != VK_SUCCESS) {
-		Com_Error(ERR_FATAL, "VK_InitImage: failed to create VkImage object (%d)\n", res);
+	if( tiling == VK_IMAGE_TILING_LINEAR ) {
+		// readback images must be host-visible
+		allocationCreateInfo.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
+		allocationCreateInfo.usage = VMA_MEMORY_USAGE_AUTO_PREFER_HOST;
+		allocationCreateInfo.requiredFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT;
 	}
 
-	// create an image view
-	VkImageViewCreateInfo imageViewCreateInfo = {};
-	imageViewCreateInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-	imageViewCreateInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
-	imageViewCreateInfo.image = image->tex;
-	imageViewCreateInfo.format = image->internalFormat;
-	imageViewCreateInfo.subresourceRange.levelCount = VK_REMAINING_MIP_LEVELS;
-	imageViewCreateInfo.subresourceRange.layerCount = 1;
-
-	// set the aspect flags based on the format of the image
-	if (VK_IsDepthStencil(image->internalFormat)) {
-		if (VK_IsStencilOnly(image->internalFormat))
-			imageViewCreateInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_STENCIL_BIT;
-		else if (VK_IsDepthOnly(image->internalFormat))
-			imageViewCreateInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
-		else
-			imageViewCreateInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT;
-	}
-	else {
-		imageViewCreateInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+	res = vmaCreateImage( vkState.allocator, &imageCreateInfo, &allocationCreateInfo, &image->tex, &image->allocation, NULL );
+	if( res != VK_SUCCESS ) {
+		Com_Error( ERR_FATAL, "VK_InitImage: failed to create VkImage object (%d)\n", res );
 	}
 
-	res = vkCreateImageView(vkState.device, &imageViewCreateInfo, NULL, &image->texview);
-	if (res != VK_SUCCESS) {
-		Com_Error(ERR_FATAL, "VK_InitImage: failed to create VkImageView object (%d)\n", res);
+	if( usage & ( VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT ) ) {
+		VkImageViewCreateInfo imageViewCreateInfo = {};
+
+		// create an image view
+		imageViewCreateInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+		imageViewCreateInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+		imageViewCreateInfo.image = image->tex;
+		imageViewCreateInfo.format = image->internalFormat;
+		imageViewCreateInfo.subresourceRange.levelCount = VK_REMAINING_MIP_LEVELS;
+		imageViewCreateInfo.subresourceRange.layerCount = 1;
+
+		// set the aspect flags based on the format of the image
+		if( VK_IsDepthStencil( image->internalFormat ) ) {
+			if( VK_IsStencilOnly( image->internalFormat ) )
+				imageViewCreateInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_STENCIL_BIT;
+			else if( VK_IsDepthOnly( image->internalFormat ) )
+				imageViewCreateInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+			else
+				imageViewCreateInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT;
+		}
+		else {
+			imageViewCreateInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+		}
+
+		res = vkCreateImageView( vkState.device, &imageViewCreateInfo, NULL, &image->texview );
+		if( res != VK_SUCCESS ) {
+			Com_Error( ERR_FATAL, "VK_InitImage: failed to create VkImageView object (%d)\n", res );
+		}
+
+		// allocate a descriptor set for the texture
+		VkDescriptorSetAllocateInfo descriptorSetAllocateInfo = {};
+		descriptorSetAllocateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+		descriptorSetAllocateInfo.descriptorPool = vkState.descriptorPool;
+		descriptorSetAllocateInfo.descriptorSetCount = 1;
+		descriptorSetAllocateInfo.pSetLayouts = &tr.textureDescriptorSetLayout;
+
+		res = vkAllocateDescriptorSets( vkState.device, &descriptorSetAllocateInfo, &image->descriptorSet );
+		if( res != VK_SUCCESS ) {
+			Com_Error( ERR_FATAL, "VK_InitImage: failed to allocate VkDescriptorSet object (%d)\n", res );
+		}
+
+		CDescriptorSetWriter descriptorSetWriter( image->descriptorSet );
+		descriptorSetWriter.writeImage( 0, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, image );
+		descriptorSetWriter.writeSampler( 1, ( wrapClampMode == VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE ) ? tr.linearClampSampler : tr.linearWrapSampler );
+		descriptorSetWriter.flush();
 	}
 }
 
@@ -1035,7 +1074,6 @@ This is the only way any image_t are created
 */
 image_t *R_CreateImage( const char *name, const byte *pic, int width, int height,
 	VkFormat format, qboolean mipmap, qboolean allowPicmip, qboolean allowTC, VkSamplerAddressMode wrapClampMode ) {
-	VkResult res;
 	image_t *image;
 	qboolean isLightmap = qfalse;
 	VkFormat internalFormat;
@@ -1064,9 +1102,10 @@ image_t *R_CreateImage( const char *name, const byte *pic, int width, int height
 
 	// image->imgfileSize=fileSize;
 
-	internalFormat = VK_GetInternalFormat(pic, width, height, isLightmap, allowTC);
-	VK_InitImage(image, name, width, height, internalFormat, mipmap, allowPicmip, wrapClampMode,
-		VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT);
+	internalFormat = VK_GetInternalFormat( pic, width, height, isLightmap, allowTC );
+	VK_InitImage( image, name, width, height, internalFormat, mipmap, allowPicmip, wrapClampMode,
+		VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+		VK_IMAGE_TILING_OPTIMAL );
 
 	// upload the first mip
 	VK_UploadImage( image, pic, width, height, 0 );
@@ -1100,26 +1139,44 @@ image_t *R_CreateImage( const char *name, const byte *pic, int width, int height
 	return image;
 }
 
-image_t* R_CreateTransientImage( const char* name, int width, int height, VkFormat format, VkSamplerAddressMode wrapClampMode ) {
-	VkResult res;
+image_t *R_CreateTransientImage( const char *name, int width, int height, VkFormat format, VkSamplerAddressMode wrapClampMode ) {
 	image_t *image;
 
 	VkImageUsageFlags usage;
 
-	if (strlen(name) >= MAX_QPATH) {
-		Com_Error(ERR_DROP, "R_CreateImage: \"%s\" is too long\n", name);
+	if( strlen( name ) >= MAX_QPATH ) {
+		Com_Error( ERR_DROP, "R_CreateTransientImage: \"%s\" is too long\n", name );
 	}
 
-	image = (image_t*)R_Malloc(sizeof(image_t), TAG_IMAGE_T, qtrue);
+	image = (image_t *)R_Malloc( sizeof( image_t ), TAG_IMAGE_T, qtrue );
 
 	// set the usage flags based on the format of the image
 	usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
-	if (VK_IsDepthStencil( image->internalFormat ))
+	if( VK_IsDepthStencil( format ) )
 		usage |= VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
 	else
 		usage |= VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
 
-	VK_InitImage(image, name, width, height, format, qfalse, qfalse, wrapClampMode, usage);
+	VK_InitImage( image, name, width, height, format, qfalse, qfalse, wrapClampMode, usage, VK_IMAGE_TILING_OPTIMAL );
+
+	return image;
+}
+
+image_t *R_CreateReadbackImage( const char *name, int width, int height, VkFormat format ) {
+	image_t *image;
+
+	VkImageUsageFlags usage;
+
+	if( strlen( name ) >= MAX_QPATH ) {
+		Com_Error( ERR_DROP, "R_CreateReadbackImage: \"%s\" is too long\n", name );
+	}
+
+	image = (image_t *)R_Malloc( sizeof( image_t ), TAG_IMAGE_T, qtrue );
+
+	VK_InitImage( image, name, width, height, format, qfalse, qfalse,
+		VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
+		VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+		VK_IMAGE_TILING_LINEAR );
 
 	return image;
 }
@@ -1154,7 +1211,7 @@ image_t *R_FindImageFile( const char *name, qboolean mipmap, qboolean allowPicmi
 		return NULL;
 	}
 
-	image = R_CreateImage( (char *)name, pic, width, height, VK_FORMAT_R8G8B8A8_UNORM, mipmap, allowPicmip, allowTC, wrapClampMode );
+	image = R_CreateImage( (char *)name, pic, width, height, VK_FORMAT_B8G8R8A8_UNORM, mipmap, allowPicmip, allowTC, wrapClampMode );
 	R_Free( pic );
 	return image;
 }
@@ -1195,14 +1252,14 @@ static void R_CreateDlightImage( void ) {
 			data[y][x][3] = 255;
 		}
 	}
-	tr.dlightImage = R_CreateImage( "*dlight", (byte *)data, DLIGHT_SIZE, DLIGHT_SIZE, VK_FORMAT_R8G8B8A8_UNORM, qfalse, qfalse, qfalse, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE );
+	tr.dlightImage = R_CreateImage( "*dlight", (byte *)data, DLIGHT_SIZE, DLIGHT_SIZE, VK_FORMAT_B8G8R8A8_UNORM, qfalse, qfalse, qfalse, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE );
 #else
 	int width, height;
 	byte *pic;
 
 	R_LoadImage( "gfx/2d/dlight", &pic, &width, &height );
 	if( pic ) {
-		tr.dlightImage = R_CreateImage( "*dlight", pic, width, height, VK_FORMAT_R8G8B8A8_UNORM, qfalse, qfalse, qfalse, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE );
+		tr.dlightImage = R_CreateImage( "*dlight", pic, width, height, VK_FORMAT_B8G8R8A8_UNORM, qfalse, qfalse, qfalse, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE );
 		R_Free( pic );
 	}
 	else { // if we dont get a successful load
@@ -1230,7 +1287,7 @@ static void R_CreateDlightImage( void ) {
 				data[y][x][3] = 255;
 			}
 		}
-		tr.dlightImage = R_CreateImage( "*dlight", (byte *)data, DLIGHT_SIZE, DLIGHT_SIZE, VK_FORMAT_R8G8B8A8_UNORM, qfalse, qfalse, qfalse, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE );
+		tr.dlightImage = R_CreateImage( "*dlight", (byte *)data, DLIGHT_SIZE, DLIGHT_SIZE, VK_FORMAT_B8G8R8A8_UNORM, qfalse, qfalse, qfalse, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE );
 	}
 #endif
 }
@@ -1241,6 +1298,7 @@ R_InitFogTable
 =================
 */
 void R_InitFogTable( void ) {
+#if 0
 	int i;
 	float d;
 	float exp;
@@ -1252,41 +1310,7 @@ void R_InitFogTable( void ) {
 
 		tr.fogTable[i] = d;
 	}
-}
-
-/*
-================
-R_FogFactor
-
-Returns a 0.0 to 1.0 fog density value
-This is called for each texel of the fog texture on startup
-and for each vertex of transparent shaders in fog dynamically
-================
-*/
-float R_FogFactor( float s, float t ) {
-	float d;
-
-	s -= 1.0 / 512;
-	if( s < 0 ) {
-		return 0;
-	}
-	if( t < 1.0 / 32 ) {
-		return 0;
-	}
-	if( t < 31.0 / 32 ) {
-		s *= ( t - 1.0f / 32.0f ) / ( 30.0f / 32.0f );
-	}
-
-	// we need to leave a lot of clamp range
-	s *= 8;
-
-	if( s > 1.0 ) {
-		s = 1.0;
-	}
-
-	d = tr.fogTable[(int)( s * ( FOG_TABLE_SIZE - 1 ) )];
-
-	return d;
+#endif
 }
 
 /*
@@ -1301,15 +1325,16 @@ static void R_CreateFogImage( void ) {
 	byte *data;
 	float d;
 	float borderColor[4];
-	VkResult res;
 
 	data = (byte *)R_Malloc( FOG_S * FOG_T * 4, TAG_TEMP_WORKSPACE, qfalse );
 
 	// S is distance, T is depth
 	for( x = 0; x < FOG_S; x++ ) {
 		for( y = 0; y < FOG_T; y++ ) {
+			#if 0
 			d = R_FogFactor( ( x + 0.5f ) / FOG_S, ( y + 0.5f ) / FOG_T );
-
+			#endif
+			d = 0;
 			data[( y * FOG_S + x ) * 4 + 0] =
 				data[( y * FOG_S + x ) * 4 + 1] =
 					data[( y * FOG_S + x ) * 4 + 2] = 255;
@@ -1317,7 +1342,7 @@ static void R_CreateFogImage( void ) {
 		}
 	}
 
-	tr.fogImage = R_CreateImage( "*fog", (byte *)data, FOG_S, FOG_T, VK_FORMAT_R8G8B8A8_UNORM, qfalse, qfalse, qfalse, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE );
+	tr.fogImage = R_CreateImage( "*fog", (byte *)data, FOG_S, FOG_T, VK_FORMAT_B8G8R8A8_UNORM, qfalse, qfalse, qfalse, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE );
 	R_Free( data );
 }
 
@@ -1354,7 +1379,7 @@ static void R_CreateDefaultImage( void ) {
 				data[x][DEFAULT_SIZE - 1][2] =
 					data[x][DEFAULT_SIZE - 1][3] = 255;
 	}
-	tr.defaultImage = R_CreateImage( "*default", (byte *)data, DEFAULT_SIZE, DEFAULT_SIZE, VK_FORMAT_R8G8B8A8_UNORM, qtrue, qfalse, qtrue, VK_SAMPLER_ADDRESS_MODE_REPEAT );
+	tr.defaultImage = R_CreateImage( "*default", (byte *)data, DEFAULT_SIZE, DEFAULT_SIZE, VK_FORMAT_B8G8R8A8_UNORM, qtrue, qfalse, qtrue, VK_SAMPLER_ADDRESS_MODE_REPEAT );
 }
 
 /*
@@ -1367,29 +1392,43 @@ void R_UpdateSaveGameImage( const char *filename );
 void R_CreateBuiltinImages( void ) {
 	int x, y;
 	byte data[DEFAULT_SIZE][DEFAULT_SIZE][4];
+	CFrameBufferBuilder frameBufferBuilder;
 
 	R_CreateDefaultImage();
 
 	// we use a solid white image instead of disabling texturing
 	memset( data, 255, sizeof( data ) );
 
-	tr.whiteImage = R_CreateImage( "*white", (byte *)data, 8, 8, VK_FORMAT_R8G8B8A8_UNORM, qfalse, qfalse, qtrue, VK_SAMPLER_ADDRESS_MODE_REPEAT );
-	tr.screenImage = R_CreateImage( "*screen", (byte *)data, 8, 8, VK_FORMAT_R8G8B8A8_UNORM, qfalse, qfalse, qfalse, VK_SAMPLER_ADDRESS_MODE_REPEAT );
+	tr.whiteImage = R_CreateImage( "*white", (byte *)data, 8, 8, VK_FORMAT_B8G8R8A8_UNORM, qfalse, qfalse, qtrue, VK_SAMPLER_ADDRESS_MODE_REPEAT );
+	tr.screenImage = R_CreateTransientImage( "*screen", glConfig.vidWidth, glConfig.vidHeight, VK_FORMAT_B8G8R8A8_UNORM, VK_SAMPLER_ADDRESS_MODE_REPEAT );
 
-	// Create the scene glow image. - AReis
-	tr.glowImage = R_CreateTransientImage( "*screenGlow", glConfig.vidWidth, glConfig.vidHeight, VK_FORMAT_R16G16B16A16_SFLOAT, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE);
+	// Create the scene image
+	frameBufferBuilder.width = glConfig.vidWidth;
+	frameBufferBuilder.height = glConfig.vidHeight;
+	frameBufferBuilder.addColorAttachment( VK_FORMAT_R16G16B16A16_SFLOAT, true );
+	frameBufferBuilder.addDepthStencilAttachment( VK_FORMAT_D24_UNORM_S8_UINT, true );
+	frameBufferBuilder.build( &tr.sceneFrameBuffer );
 
-	// Create the scene image. - AReis
-	tr.sceneImage = R_CreateTransientImage( "*sceneImage", glConfig.vidWidth, glConfig.vidHeight, VK_FORMAT_R16G16B16A16_SFLOAT, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE);
+	// Create the scene glow image
+	frameBufferBuilder.reset();
+	frameBufferBuilder.width = glConfig.vidWidth;
+	frameBufferBuilder.height = glConfig.vidHeight;
+	frameBufferBuilder.addColorAttachment( VK_FORMAT_R16G16B16A16_SFLOAT, true );
+	frameBufferBuilder.addDepthStencilAttachment( tr.sceneFrameBuffer->images[tr.sceneFrameBuffer->depthBufferIndex].i );
+	frameBufferBuilder.build( &tr.glowFrameBuffer );
 
-	// Create the minimized scene blur image.
+	// Create the minimized scene blur image
 	if( r_DynamicGlowWidth->integer > glConfig.vidWidth ) {
 		r_DynamicGlowWidth->integer = glConfig.vidWidth;
 	}
 	if( r_DynamicGlowHeight->integer > glConfig.vidHeight ) {
 		r_DynamicGlowHeight->integer = glConfig.vidHeight;
 	}
-	tr.glowBlurImage = R_CreateTransientImage( "*blurImage", r_DynamicGlowWidth->integer, r_DynamicGlowHeight->integer, VK_FORMAT_R16G16B16A16_SFLOAT, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE);
+	frameBufferBuilder.reset();
+	frameBufferBuilder.width = r_DynamicGlowWidth->integer;
+	frameBufferBuilder.height = r_DynamicGlowHeight->integer;
+	frameBufferBuilder.addColorAttachment( VK_FORMAT_R16G16B16A16_SFLOAT, true );
+	frameBufferBuilder.build( &tr.glowBlurFrameBuffer );
 
 	// with overbright bits active, we need an image which is some fraction of full color,
 	// for default lightmaps, etc
@@ -1402,12 +1441,12 @@ void R_CreateBuiltinImages( void ) {
 		}
 	}
 
-	tr.identityLightImage = R_CreateImage( "*identityLight", (byte *)data, 8, 8, VK_FORMAT_R8G8B8A8_UNORM, qfalse, qfalse, qtrue, VK_SAMPLER_ADDRESS_MODE_REPEAT );
+	tr.identityLightImage = R_CreateImage( "*identityLight", (byte *)data, 8, 8, VK_FORMAT_B8G8R8A8_UNORM, qfalse, qfalse, qtrue, VK_SAMPLER_ADDRESS_MODE_REPEAT );
 
 	// scratchimage is usually used for cinematic drawing
 	for( x = 0; x < NUM_SCRATCH_IMAGES; x++ ) {
 		// scratchimage is usually used for cinematic drawing
-		tr.scratchImage[x] = R_CreateImage( va( "*scratch%d", x ), (byte *)data, DEFAULT_SIZE, DEFAULT_SIZE, VK_FORMAT_R8G8B8A8_UNORM, qfalse, qfalse, qfalse, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE );
+		tr.scratchImage[x] = R_CreateImage( va( "*scratch%d", x ), (byte *)data, DEFAULT_SIZE, DEFAULT_SIZE, VK_FORMAT_B8G8R8A8_UNORM, qfalse, qfalse, qfalse, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE );
 	}
 
 	R_CreateDlightImage();

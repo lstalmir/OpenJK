@@ -2768,8 +2768,8 @@ void G2_ConstructGhoulSkeleton( CGhoul2Info_v &ghoul2,const int frameNum,bool ch
 RB_SurfaceGhoul
 ==============
 */
-void RB_SurfaceGhoul( CRenderableSurface *surf )
-{
+void RB_SurfaceGhoul( CRenderableSurface *surf ) {
+#if 0
 #ifdef G2_PERFORMANCE_ANALYSIS
 	G2PerformanceTimer_RB_SurfaceGhoul.Start();
 #endif
@@ -2903,7 +2903,7 @@ void RB_SurfaceGhoul( CRenderableSurface *surf )
 	CBoneCache *bones = surf->boneCache;
 
 	// first up, sanity check our numbers
-	RB_CheckOverflow( surface->numVerts, surface->numTriangles );
+	RB_CheckOverflow();
 
 	//
 	// deform the vertexes by the lerped bones
@@ -3131,6 +3131,7 @@ void RB_SurfaceGhoul( CRenderableSurface *surf )
 
 #ifdef G2_PERFORMANCE_ANALYSIS
 	G2Time_RB_SurfaceGhoul += G2PerformanceTimer_RB_SurfaceGhoul.End();
+#endif
 #endif
 }
 

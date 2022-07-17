@@ -672,6 +672,7 @@ void R_PlaneForSurface (surfaceType_t *surfType, cplane_t *plane) {
 		*plane = ((srfSurfaceFace_t *)surfType)->plane;
 		return;
 	case SF_TRIANGLES:
+		#if 0
 		tri = (srfTriangles_t *)surfType;
 		v1 = tri->verts + tri->indexes[0];
 		v2 = tri->verts + tri->indexes[1];
@@ -679,6 +680,7 @@ void R_PlaneForSurface (surfaceType_t *surfType, cplane_t *plane) {
 		PlaneFromPoints( plane4, v1->xyz, v2->xyz, v3->xyz );
 		VectorCopy( plane4, plane->normal );
 		plane->dist = plane4[3];
+		#endif
 		return;
 	case SF_POLY:
 		poly = (srfPoly_t *)surfType;
@@ -905,6 +907,7 @@ static qboolean SurfIsOffscreen( const drawSurf_t *drawSurf, vec4_t clipDest[128
 	RB_BeginSurface( shader, fogNum );
 	rb_surfaceTable[ *drawSurf->surface ]( drawSurf->surface );
 
+#if 0
 	assert( tess.numVertexes < 128 );
 
 	for ( i = 0; i < tess.numVertexes; i++ )
@@ -961,6 +964,7 @@ static qboolean SurfIsOffscreen( const drawSurf_t *drawSurf, vec4_t clipDest[128
 			numTriangles--;
 		}
 	}
+#endif
 	if ( !numTriangles )
 	{
 		return qtrue;
@@ -1400,6 +1404,7 @@ R_DebugPolygon
 ================
 */
 void R_DebugPolygon( int color, int numPoints, float *points ) {
+#if 0
 	int		i;
 
 	GL_State( GLS_DEPTHMASK_TRUE | GLS_SRCBLEND_ONE | GLS_DSTBLEND_ONE );
@@ -1423,6 +1428,7 @@ void R_DebugPolygon( int color, int numPoints, float *points ) {
 	}
 	qglEnd();
 	qglDepthRange( 0, 1 );
+#endif
 }
 
 /*
@@ -1440,8 +1446,7 @@ void R_DebugGraphics( void ) {
 	// the render thread can't make callbacks to the main thread
 	R_IssuePendingRenderCommands(); //
 
-	GL_Bind( tr.whiteImage);
-	GL_Cull( CT_FRONT_SIDED );
+	VK_BindImage( tr.whiteImage );
 	ri.CM_DrawDebugSurface( R_DebugPolygon );
 }
 

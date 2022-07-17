@@ -28,6 +28,7 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 #include "tr_WorldEffects.h"
 #include <float.h> //for isnan
 
+#if 0
 /////===== Part of the VERTIGON system =====/////
 // The surfacesprites are a simple system.  When a polygon with this shader stage on it is drawn,
 // there are randomly distributed images (defined by the shader stage) placed on the surface.
@@ -1432,13 +1433,13 @@ static void RB_DrawEffectSurfaceSprites( shaderStage_t *stage, shaderCommands_t 
 		}
 	}
 }
-
+#endif
 extern void R_WorldToLocal (vec3_t world, vec3_t localVec) ;
 extern float preTransEntMatrix[16], invEntMatrix[16];
 extern void R_InvertMatrix(float *sourcemat, float *destmat);
 
-void RB_DrawSurfaceSprites( shaderStage_t *stage, shaderCommands_t *input)
-{
+void RB_DrawSurfaceSprites( shaderStage_t *stage, shaderCommands_t *input) {
+#if 0
 	uint32_t	glbits=stage->stateBits;
 
 	R_SurfaceSpriteFrameUpdate();
@@ -1507,5 +1508,5 @@ void RB_DrawSurfaceSprites( shaderStage_t *stage, shaderCommands_t *input)
 	SQuickSprite.EndGroup();
 
 	sssurfaces++;
+#endif
 }
-

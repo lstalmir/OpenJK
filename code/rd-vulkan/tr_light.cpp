@@ -146,7 +146,7 @@ static void R_SetupEntityLightingGrid( trRefEntity_t *ent ) {
 	{
 		ent->ambientLight[0] = ent->ambientLight[1] = ent->ambientLight[2] = 255.0;
 		ent->directedLight[0] = ent->directedLight[1] = ent->directedLight[2] = 255.0;
-		VectorCopy( tr.sunParms.sunDirection, ent->lightDir );
+		VectorCopy( tr.sunParms.sunDirection.m, ent->lightDir );
 		return;
 	}
 
@@ -201,6 +201,7 @@ static void R_SetupEntityLightingGrid( trRefEntity_t *ent ) {
 		mgrid_t			*data;
 		unsigned short	*gridPos;
 		int				lat, lng;
+		float			flat, flng;
 		vec3_t			normal;
 #if ACCURATE_LIGHTGRID_SAMPLING
 		vec3_t			gridOrg;
@@ -263,16 +264,19 @@ static void R_SetupEntityLightingGrid( trRefEntity_t *ent ) {
 
 		lat = data->latLong[1];
 		lng = data->latLong[0];
-		lat *= (FUNCTABLE_SIZE/256);
-		lng *= (FUNCTABLE_SIZE/256);
+		lat *= (TR_FUNCTABLE_SIZE/256);
+		lng *= (TR_FUNCTABLE_SIZE/256);
+
+		flat = lat * 2 * M_PI / TR_FUNCTABLE_SIZE;
+		flng = lng * 2 * M_PI / TR_FUNCTABLE_SIZE;
 
 		// decode X as cos( lat ) * sin( long )
 		// decode Y as sin( lat ) * sin( long )
 		// decode Z as cos( long )
 
-		normal[0] = tr.sinTable[(lat+(FUNCTABLE_SIZE/4))&FUNCTABLE_MASK] * tr.sinTable[lng];
-		normal[1] = tr.sinTable[lat] * tr.sinTable[lng];
-		normal[2] = tr.sinTable[(lng+(FUNCTABLE_SIZE/4))&FUNCTABLE_MASK];
+		normal[0] = sin(flat+(M_PI/2)) * sin(flng);
+		normal[1] = sin(flat) * sin(flng);
+		normal[2] = sin(flng+(M_PI/2));
 
 		VectorMA( direction, factor, normal, direction );
 
@@ -410,7 +414,7 @@ void R_SetupEntityLighting( const trRefdef_t *refdef, trRefEntity_t *ent ) {
 			ent->ambientLight[2] = tr.identityLight * 150;
 		ent->directedLight[0] = ent->directedLight[1] =
 			ent->directedLight[2] = tr.identityLight * 150;
-		VectorCopy( tr.sunParms.sunDirection, ent->lightDir );
+		VectorCopy( tr.sunParms.sunDirection.m, ent->lightDir );
 	}
 
 	// bonus items and view weapons have a fixed minimum add
@@ -478,7 +482,7 @@ qboolean RE_GetLighting( const vec3_t origin, vec3_t ambientLight, vec3_t direct
 	if ( !tr.world || !tr.world->lightGridData) {
 		ambientLight[0] = ambientLight[1] = ambientLight[2] = 255.0;
 		directedLight[0] = directedLight[1] = directedLight[2] = 255.0;
-		VectorCopy( tr.sunParms.sunDirection, lightDir );
+		VectorCopy( tr.sunParms.sunDirection.m, lightDir );
 		return qfalse;
 	}
 	memset (&tr_ent, 0, sizeof(tr_ent) );

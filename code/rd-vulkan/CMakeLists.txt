@@ -102,6 +102,13 @@ if(BuildSPRdVulkan OR BuildJK2SPRdVulkan)
 	set(SPRDVulkanShaderFiles
 		"${SPDir}/rd-vulkan/shaders/tr_common.hlsl"
 		"${SPDir}/rd-vulkan/shaders/tr_blur.hlsl"
+		"${SPDir}/rd-vulkan/shaders/tr_blur_combine.hlsl"
+		"${SPDir}/rd-vulkan/shaders/tr_dissolve.hlsl"
+		"${SPDir}/rd-vulkan/shaders/tr_noise.hlsl"
+		"${SPDir}/rd-vulkan/shaders/tr_shade.hlsl"
+		"${SPDir}/rd-vulkan/shaders/tr_shadows.hlsl"
+		"${SPDir}/rd-vulkan/shaders/tr_sun.hlsl"
+		"${SPDir}/rd-vulkan/shaders/tr_wireframe.hlsl"
 		)
 	source_group("shaders" FILES ${SPRDVulkanShaderFiles})
 	set_source_files_properties(${SPRDVulkanShaderFiles} PROPERTIES HEADER_FILE_ONLY TRUE)
@@ -118,6 +125,7 @@ if(BuildSPRdVulkan OR BuildJK2SPRdVulkan)
 		"${SPDir}/rd-vulkan/tr_backend.cpp"
 		"${SPDir}/rd-vulkan/tr_bsp.cpp"
 		"${SPDir}/rd-vulkan/tr_buffer.cpp"
+		"${SPDir}/rd-vulkan/tr_builders.cpp"
 		"${SPDir}/rd-vulkan/tr_cmds.cpp"
 		"${SPDir}/rd-vulkan/tr_curve.cpp"
 		"${SPDir}/rd-vulkan/tr_draw.cpp"
@@ -134,7 +142,7 @@ if(BuildSPRdVulkan OR BuildJK2SPRdVulkan)
 		"${SPDir}/rd-vulkan/tr_quicksprite.h"
 		"${SPDir}/rd-vulkan/tr_scene.cpp"
 		"${SPDir}/rd-vulkan/tr_shade.cpp"
-		"${SPDir}/rd-vulkan/tr_shade_calc.cpp"
+		"${SPDir}/rd-vulkan/tr_shader.h"
 		"${SPDir}/rd-vulkan/tr_shader.cpp"
 		"${SPDir}/rd-vulkan/tr_shadows.cpp"
 		"${SPDir}/rd-vulkan/tr_skin.cpp"
@@ -173,9 +181,10 @@ if(BuildSPRdVulkan OR BuildJK2SPRdVulkan)
 
 	# TODO: prefer dxc, which has better support for HLSL
 	find_program(GLSLANG_VALIDATOR NAMES glslangValidator REQUIRED)
+	include(DXC)
 
 	set(SPRDVulkanRendererIncludeDirectories ${SPRDVulkanRendererIncludeDirectories} ${OpenJKLibDir})
-
+    
 	function(add_sp_renderer_project ProjectName Label EngineName InstallDir Component)
 		add_library(${ProjectName} SHARED ${SPRDVulkanFiles})
 		if(NOT MSVC)
@@ -229,14 +238,20 @@ if(BuildSPRdVulkan OR BuildJK2SPRdVulkan)
 		target_compile_features(${ProjectName} PRIVATE cxx_std_17)
 
 		# Compile shaders as a pre-build step
-		add_custom_command(TARGET ${ProjectName} PRE_BUILD
-			COMMAND ${GLSLANG_VALIDATOR} -V -D -S vert -e VS_Main -DBLUR_COMBINE_PASS --invert-y --target-env vulkan1.1
-				-o "${SPRDVulkanShadersOutputDirectory}/tr_blur_combine_vert.h" --vn g_spvGlowVShader
-				"${SPDir}/rd-vulkan/shaders/tr_blur.hlsl"
-			COMMAND ${GLSLANG_VALIDATOR} -V -D -S frag -e PS_Main -DBLUR_COMBINE_PASS --invert-y --target-env vulkan1.1
-				-o "${SPRDVulkanShadersOutputDirectory}/tr_blur_combine_frag.h" --vn g_spvGlowPShader
-				"${SPDir}/rd-vulkan/shaders/tr_blur.hlsl"
-			)
+		set(DXC_OUTPUT_DIR "${SPRDVulkanShadersOutputDirectory}")
+		add_dxc_command(TARGET ${ProjectName} FILE "${SPDir}/rd-vulkan/shaders/tr_blur_combine.hlsl" SPIRV STAGE VS)
+		add_dxc_command(TARGET ${ProjectName} FILE "${SPDir}/rd-vulkan/shaders/tr_blur_combine.hlsl" SPIRV STAGE PS)
+		add_dxc_command(TARGET ${ProjectName} FILE "${SPDir}/rd-vulkan/shaders/tr_dissolve.hlsl" SPIRV STAGE VS)
+		add_dxc_command(TARGET ${ProjectName} FILE "${SPDir}/rd-vulkan/shaders/tr_dissolve.hlsl" SPIRV STAGE PS)
+		add_dxc_command(TARGET ${ProjectName} FILE "${SPDir}/rd-vulkan/shaders/tr_shade.hlsl" SPIRV STAGE VS)
+		add_dxc_command(TARGET ${ProjectName} FILE "${SPDir}/rd-vulkan/shaders/tr_shade.hlsl" SPIRV STAGE PS)
+		add_dxc_command(TARGET ${ProjectName} FILE "${SPDir}/rd-vulkan/shaders/tr_shadows.hlsl" SPIRV STAGE VS)
+		add_dxc_command(TARGET ${ProjectName} FILE "${SPDir}/rd-vulkan/shaders/tr_shadows.hlsl" SPIRV STAGE PS)
+		add_dxc_command(TARGET ${ProjectName} FILE "${SPDir}/rd-vulkan/shaders/tr_sun.hlsl" SPIRV STAGE VS)
+		add_dxc_command(TARGET ${ProjectName} FILE "${SPDir}/rd-vulkan/shaders/tr_sun.hlsl" SPIRV STAGE PS)
+		add_dxc_command(TARGET ${ProjectName} FILE "${SPDir}/rd-vulkan/shaders/tr_wireframe.hlsl" SPIRV STAGE VS)
+		add_dxc_command(TARGET ${ProjectName} FILE "${SPDir}/rd-vulkan/shaders/tr_wireframe.hlsl" SPIRV STAGE PS)
+
 	endfunction(add_sp_renderer_project)
 
 	if(BuildSPRdVulkan)

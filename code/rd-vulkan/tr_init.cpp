@@ -220,7 +220,7 @@ typedef struct {
 void RE_SetLightStyle( int style, int color );
 
 void R_Splash() {
-	VK_SetImageLayout( vkCtx.image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_ACCESS_TRANSFER_WRITE_BIT );
+	VK_SetImageLayout( backEndData->image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_ACCESS_TRANSFER_WRITE_BIT );
 
 	image_t *image = R_FindImageFile( "menu/splash", qfalse, qfalse, qfalse, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE );
 	if( !image ) {
@@ -229,9 +229,9 @@ void R_Splash() {
 		VkImageSubresourceRange clearRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 };
 
 		vkCmdClearColorImage(
-			vkCtx.cmdbuffer,
-			vkCtx.image->tex,
-			vkCtx.image->layout,
+			backEndData->cmdbuf,
+			backEndData->image->tex,
+			backEndData->image->layout,
 			&clearColorValue,
 			1, &clearRange );
 	}
@@ -255,16 +255,14 @@ void R_Splash() {
 		blitRegion.dstOffsets[1].z = 1;
 
 		VK_SetImageLayout( image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_ACCESS_TRANSFER_READ_BIT );
-		vkCmdBlitImage( vkCtx.cmdbuffer,
+		vkCmdBlitImage( backEndData->cmdbuf,
 				image->tex,
 				VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-				vkCtx.image->tex,
+				backEndData->image->tex,
 				VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
 				1, &blitRegion,
 				VK_FILTER_LINEAR );
 	}
-
-	ri.WIN_Present( &window );
 }
 
 static const char *VK_GetVendorString( uint32_t vendorID ) {
@@ -374,6 +372,7 @@ static void VK_InitDeviceExtensions( vkdevice_initContext_t *ctx ) {
 
 	// required extensions
 	VK_EnableExtension( ctx, VK_KHR_SWAPCHAIN_EXTENSION_NAME, REQUIRED );
+	VK_EnableExtension( ctx, VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME, REQUIRED );
 
 	// Select our tc scheme
 	VK_InitTextureCompression( ctx );
@@ -386,6 +385,7 @@ static void VK_InitDeviceExtensions( vkdevice_initContext_t *ctx ) {
 
 		if( r_ext_texture_filter_anisotropic->integer > 1 ) {
 			Com_Printf( "...using VkPhysicalDeviceFeatures::samplerAnisotropy\n" );
+			ctx->enabledDeviceFeatures.samplerAnisotropy = VK_TRUE;
 		}
 		else {
 			Com_Printf( "...ignoring VkPhysicalDeviceFeatures::samplerAnisotropy\n" );
@@ -398,6 +398,18 @@ static void VK_InitDeviceExtensions( vkdevice_initContext_t *ctx ) {
 	else {
 		Com_Printf( "...VkPhysicalDeviceFeatures::samplerAnisotropy not supported\n" );
 		ri.Cvar_Set( "r_ext_texture_filter_anisotropic_avail", "0" );
+	}
+
+	// line rasterization
+	if( ctx->supportedDeviceFeatures.fillModeNonSolid ) {
+		Com_Printf( "...VkPhysicalDeviceFeatures::fillModeNonSolid available\n" );
+		if( enableOptionalExtensions ) {
+			Com_Printf( "...using VkPhysicalDeviceFeatures::fillModeNonSolid\n" );
+			ctx->enabledDeviceFeatures.fillModeNonSolid = VK_TRUE;
+		}
+		else {
+			Com_Printf( "...ignoring VkPhysicalDeviceFeatures::fillModeNonSolid\n" );
+		}
 	}
 }
 
@@ -449,7 +461,7 @@ static void InitVulkanInstance( void ) {
 
 	VkApplicationInfo appInfo = {};
 	appInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
-	appInfo.apiVersion = VK_API_VERSION_1_2;
+	appInfo.apiVersion = VK_API_VERSION_1_1;
 
 	// get number of supported instance extensions, allocate a buffer and read the extensions
 	vkEnumerateInstanceExtensionProperties( NULL, &initCtx->supportedExtensionCount, NULL );
@@ -590,26 +602,146 @@ static void InitVulkanObjects( void ) {
 	// create the command pool
 	VkCommandPoolCreateInfo commandPoolCreateInfo = {};
 	commandPoolCreateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+	commandPoolCreateInfo.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
 	commandPoolCreateInfo.queueFamilyIndex = vkState.queueFamilyIndex;
 
 	res = vkCreateCommandPool( vkState.device, &commandPoolCreateInfo, NULL, &vkState.cmdpool );
 	if( res != VK_SUCCESS ) {
-		Com_Error( ERR_FATAL, "InitVulkan: failed to create Vulkan command pool (%d)\n", res );
+		Com_Error( ERR_FATAL, "InitVulkan: failed to create command pool (%d)\n", res );
 	}
 
 	// create the descriptor pool
 	VkDescriptorPoolCreateInfo descriptorPoolCreateInfo = {};
 	descriptorPoolCreateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+	descriptorPoolCreateInfo.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
 	descriptorPoolCreateInfo.maxSets = 2048;
-	// ...
+
+	VkDescriptorPoolSize descriptorPoolSizes[] = {
+		{ VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1024 },
+		{ VK_DESCRIPTOR_TYPE_SAMPLER, 1024 },
+		{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 512 }
+	};
+
+	descriptorPoolCreateInfo.poolSizeCount = ARRAY_LEN( descriptorPoolSizes );
+	descriptorPoolCreateInfo.pPoolSizes = descriptorPoolSizes;
 
 	res = vkCreateDescriptorPool( vkState.device, &descriptorPoolCreateInfo, NULL, &vkState.descriptorPool );
 	if( res != VK_SUCCESS ) {
-		Com_Error( ERR_FATAL, "InitVulkan: failed to create Vulkan descriptor pool (%d)\n", res );
+		Com_Error( ERR_FATAL, "InitVulkan: failed to create descriptor pool (%d)\n", res );
+	}
+
+	// create the allocator
+	VmaAllocatorCreateInfo allocatorCreateInfo = {};
+	allocatorCreateInfo.vulkanApiVersion = VK_API_VERSION_1_1;
+	allocatorCreateInfo.instance = vkState.instance;
+	allocatorCreateInfo.physicalDevice = vkState.physicalDevice;
+	allocatorCreateInfo.device = vkState.device;
+
+	res = vmaCreateAllocator( &allocatorCreateInfo, &vkState.allocator );
+	if( res != VK_SUCCESS ) {
+		Com_Error( ERR_FATAL, "InitVulkan: failed to create device memory allocator (%d)\n", res );
+	}
+
+	// create the samplers
+	VkSamplerCreateInfo samplerCreateInfo = {};
+	samplerCreateInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
+	samplerCreateInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+	samplerCreateInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+	samplerCreateInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+	samplerCreateInfo.minFilter = VK_FILTER_LINEAR;
+	samplerCreateInfo.magFilter = VK_FILTER_LINEAR;
+	samplerCreateInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+	samplerCreateInfo.anisotropyEnable = ( glConfig.maxTextureFilterAnisotropy > 0 ) ? VK_TRUE : VK_FALSE;
+	samplerCreateInfo.maxAnisotropy = ( glConfig.maxTextureFilterAnisotropy > 0 ) ? glConfig.maxTextureFilterAnisotropy : 1;
+	samplerCreateInfo.maxLod = FLT_MAX;
+
+	res = vkCreateSampler( vkState.device, &samplerCreateInfo, NULL, &tr.wrapModeSampler );
+	if( res != VK_SUCCESS ) {
+		Com_Error( ERR_FATAL, "InitVulkan: failed to create wrap mode sampler (%d)\n", res );
+	}
+
+	samplerCreateInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+	samplerCreateInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+	samplerCreateInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+
+	res = vkCreateSampler( vkState.device, &samplerCreateInfo, NULL, &tr.clampModeSampler );
+	if( res != VK_SUCCESS ) {
+		Com_Error( ERR_FATAL, "InitVulkan: failed to create clamp mode sampler (%d)\n", res );
+	}
+
+	samplerCreateInfo.anisotropyEnable = VK_FALSE;
+	samplerCreateInfo.maxAnisotropy = 1;
+
+	res = vkCreateSampler( vkState.device, &samplerCreateInfo, NULL, &tr.linearClampSampler );
+	if( res != VK_SUCCESS ) {
+		Com_Error( ERR_FATAL, "InitVulkan: failed to create linear clamp sampler (%d)\n", res );
+	}
+
+	samplerCreateInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+	samplerCreateInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+	samplerCreateInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+
+	res = vkCreateSampler( vkState.device, &samplerCreateInfo, NULL, &tr.linearWrapSampler );
+	if( res != VK_SUCCESS ) {
+		Com_Error( ERR_FATAL, "InitVulkan: failed to create linear wrap sampler (%d)\n", res );
+	}
+
+	samplerCreateInfo.minFilter = VK_FILTER_NEAREST;
+	samplerCreateInfo.magFilter = VK_FILTER_NEAREST;
+	samplerCreateInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
+
+	res = vkCreateSampler( vkState.device, &samplerCreateInfo, NULL, &tr.pointWrapSampler );
+	if( res != VK_SUCCESS ) {
+		Com_Error( ERR_FATAL, "InitVulkan: failed to create point wrap sampler (%d)\n", res );
+	}
+
+	samplerCreateInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+	samplerCreateInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+	samplerCreateInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+
+	res = vkCreateSampler( vkState.device, &samplerCreateInfo, NULL, &tr.pointClampSampler );
+	if( res != VK_SUCCESS ) {
+		Com_Error( ERR_FATAL, "InitVulkan: failed to create point clamp sampler (%d)\n", res );
 	}
 }
 
-static void VK_InitSwapchain( void ) {
+void InitVulkanDescriptorSets( void ) {
+	CDescriptorSetLayoutBuilder builder;
+
+	// common descriptor set layout
+	builder.reset();
+	builder.addBinding( VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER );	// tr
+	builder.addBinding( VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER );	// tr_funcs
+	builder.addBinding( VK_DESCRIPTOR_TYPE_STORAGE_BUFFER );	// tr_lightGridData
+	builder.addBinding( VK_DESCRIPTOR_TYPE_STORAGE_BUFFER );	// tr_lightGridArray
+	builder.addBinding( VK_DESCRIPTOR_TYPE_STORAGE_BUFFER );	// tr_fogs
+	builder.addBinding( VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE );		// tr_noise
+	builder.build( &tr.commonDescriptorSetLayout );
+
+	// samplers descriptor set layout
+	builder.reset();
+	builder.addBinding( tr.pointClampSampler );
+	builder.addBinding( tr.pointWrapSampler );
+	builder.addBinding( tr.linearClampSampler );
+	builder.addBinding( tr.linearWrapSampler );
+	builder.build( &tr.samplerDescriptorSetLayout );
+
+	// shader descriptor set layout
+	builder.reset();
+	builder.addBinding( VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER );
+	builder.build( &tr.shaderDescriptorSetLayout );
+
+	// model descriptor set layout
+	builder.build( &tr.modelDescriptorSetLayout );
+
+	// texture descriptor set layout
+	builder.reset();
+	builder.addBinding( VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE );
+	builder.addBinding( VK_DESCRIPTOR_TYPE_SAMPLER );
+	builder.build( &tr.textureDescriptorSetLayout );
+}
+
+void VK_InitSwapchain( void ) {
 	VkResult res;
 	VkSurfaceCapabilitiesKHR surfaceCapabilities;
 
@@ -635,7 +767,7 @@ static void VK_InitSwapchain( void ) {
 		swapchainCreateInfo.imageExtent = surfaceCapabilities.currentExtent;
 		swapchainCreateInfo.imageArrayLayers = 1; // todo: stereo support
 		swapchainCreateInfo.imageColorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
-		swapchainCreateInfo.imageFormat = VK_FORMAT_R8G8B8A8_UNORM;
+		swapchainCreateInfo.imageFormat = VK_FORMAT_B8G8R8A8_UNORM;
 		swapchainCreateInfo.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
 		swapchainCreateInfo.minImageCount = 2;
 
@@ -673,12 +805,16 @@ static void VK_InitSwapchain( void ) {
 		for( int i = 0; i < imageCount; ++i ) {
 			image_t *img = &vkState.images[i];
 			img->tex = images[i];
+			img->width = swapchainCreateInfo.imageExtent.width;
+			img->height = swapchainCreateInfo.imageExtent.height;
 			img->internalFormat = swapchainCreateInfo.imageFormat;
 
 			// assign a debug name for the image
 			sprintf( img->imgName, "<swapchainImage[%d]>", i );
 
 			// create an image view
+			imageViewCreateInfo.image = images[i];
+
 			res = vkCreateImageView( vkState.device, &imageViewCreateInfo, NULL, &img->texview );
 			if( res != VK_SUCCESS ) {
 				Com_Error( ERR_FATAL, "VK_InitSwapchain: failed to create swapchain image view for image %d (%d)\n", i, res );
@@ -729,8 +865,25 @@ static void VK_InitSwapchain( void ) {
 			}
 		}
 
+		// create a buffer for screen shots
+		if( !tr.screenshotImage ||
+			tr.screenshotImage->width != swapchainCreateInfo.imageExtent.width ||
+			tr.screenshotImage->height != swapchainCreateInfo.imageExtent.height ) {
+
+			if( tr.screenshotImage ) {
+				R_Images_DeleteImage( tr.screenshotImage );
+			}
+
+			tr.screenshotImage = R_CreateReadbackImage(
+				"*screenshotImage",
+				swapchainCreateInfo.imageExtent.width,
+				swapchainCreateInfo.imageExtent.height,
+				swapchainCreateInfo.imageFormat );
+		}
+
 		// update the image count
 		vkState.imgcount = imageCount;
+		vkState.imagenum = UINT32_MAX;
 	}
 }
 
@@ -756,8 +909,6 @@ static void VK_Init( void ) {
 	//
 
 	if( glConfig.vidWidth == 0 ) {
-		VkPhysicalDeviceProperties physicalDeviceProperties;
-
 		// initialize the window
 		windowDesc_t windowDesc = { GRAPHICS_API_GENERIC };
 		memset( &glConfig, 0, sizeof( glConfig ) );
@@ -777,25 +928,27 @@ static void VK_Init( void ) {
 		// initialize the device on the selected display adapter
 		InitVulkanDevice();
 		InitVulkanObjects();
+		InitVulkanDescriptorSets();
+
 		VK_InitSwapchain();
 
 		// get our config strings
-		vkGetPhysicalDeviceProperties( vkState.physicalDevice, &physicalDeviceProperties );
+		vkGetPhysicalDeviceProperties( vkState.physicalDevice, &vkState.physicalDeviceProperties );
 
-		Q_strncpyz( vkState.physicalDeviceName, physicalDeviceProperties.deviceName, ARRAY_LEN( vkState.physicalDeviceName ) );
 		sprintf( vkState.physicalDeviceDriverVersion, "%u.%u.%u",
-			 VK_API_VERSION_MAJOR( physicalDeviceProperties.driverVersion ),
-			 VK_API_VERSION_MINOR( physicalDeviceProperties.driverVersion ),
-			 VK_API_VERSION_PATCH( physicalDeviceProperties.driverVersion ) );
+			 VK_API_VERSION_MAJOR( vkState.physicalDeviceProperties.driverVersion ),
+			 VK_API_VERSION_MINOR( vkState.physicalDeviceProperties.driverVersion ),
+			 VK_API_VERSION_PATCH( vkState.physicalDeviceProperties.driverVersion ) );
 
-		glConfig.vendor_string = VK_GetVendorString( physicalDeviceProperties.vendorID );
-		glConfig.renderer_string = vkState.physicalDeviceName;
+		glConfig.vendor_string = VK_GetVendorString( vkState.physicalDeviceProperties.vendorID );
+		glConfig.renderer_string = vkState.physicalDeviceProperties.deviceName;
 		glConfig.version_string = vkState.physicalDeviceDriverVersion;
 		glConfig.extensions_string = NULL;
 
 		// Vulkan driver constants
-		glConfig.maxTextureSize = physicalDeviceProperties.limits.maxImageDimension2D;
+		glConfig.maxTextureSize = vkState.physicalDeviceProperties.limits.maxImageDimension2D;
 
+		VK_BeginFrame();
 		R_Splash(); // get something on screen asap
 	}
 }
@@ -837,23 +990,39 @@ Return value must be freed with Hunk_FreeTempMemory()
 */
 
 byte *RB_ReadPixels( int x, int y, int width, int height, size_t *offset, int *padlen ) {
-	byte *buffer, *bufstart;
-	int padwidth, linelen;
-	GLint packAlign;
+	VkImageSubresource subresource;
+	VkSubresourceLayout subresourceLayout;
+	VmaAllocationInfo allocationInfo;
+	byte *buffer;
+	int linelen, padlinelen, srcOffset, dstOffset;
 
-	qglGetIntegerv( GL_PACK_ALIGNMENT, &packAlign );
+	vmaGetAllocationInfo( vkState.allocator, tr.screenshotImage->allocation, &allocationInfo );
+	byte *mappedScreenshotImage = (byte *)allocationInfo.pMappedData;
+
+	// get the layout of the copied image
+	vkGetImageSubresourceLayout( vkState.device, tr.screenshotImage->tex, &subresource, &subresourceLayout );
 
 	linelen = width * 3;
-	padwidth = PAD( linelen, packAlign );
+	padlinelen = PAD( linelen, 4 );
 
-	// Allocate a few more bytes so that we can choose an alignment we like
-	buffer = ( byte * )R_Malloc( padwidth * height + *offset + packAlign - 1, TAG_TEMP_WORKSPACE, qfalse );
+	// copy the image data 
+	buffer = (byte *)R_Malloc( padlinelen * height, TAG_TEMP_WORKSPACE, qfalse );
 
-	bufstart = ( byte * )PADP( ( intptr_t )buffer + *offset, packAlign );
-	qglReadPixels( x, y, width, height, GL_RGB, GL_UNSIGNED_BYTE, bufstart );
+	for( int yy = 0; yy < height; ++yy ) {
+		srcOffset = (y + yy) * subresourceLayout.rowPitch + (x * 4);
+		dstOffset = yy * padlinelen + (x * 3);
 
-	*offset = bufstart - buffer;
-	*padlen = padwidth - linelen;
+		for( int xx = 0; xx < width; ++xx ) {
+			buffer[dstOffset] = mappedScreenshotImage[srcOffset];
+			buffer[dstOffset + 1] = mappedScreenshotImage[srcOffset + 1];
+			buffer[dstOffset + 2] = mappedScreenshotImage[srcOffset + 2];
+			dstOffset += 3;
+			srcOffset += 4;
+		}
+	}
+
+	*offset = 0;
+	*padlen = ( padlinelen - linelen );
 
 	return buffer;
 }
@@ -909,9 +1078,9 @@ void R_TakeScreenshot( int x, int y, int width, int height, char *fileName ) {
 
 	// gamma correct
 	if( glConfig.deviceSupportsGamma )
-		R_GammaCorrect( allbuf + offset, memcount );
+		R_GammaCorrect( allbuf + offset, (int)memcount );
 
-	ri.FS_WriteFile( fileName, buffer, memcount + 18 );
+	ri.FS_WriteFile( fileName, buffer, (int)memcount + 18 );
 
 	R_Free( allbuf );
 }
@@ -946,7 +1115,7 @@ void R_TakeScreenshotJPEG( int x, int y, int width, int height, char *fileName )
 
 	// gamma correct
 	if( glConfig.deviceSupportsGamma )
-		R_GammaCorrect( buffer + offset, memcount );
+		R_GammaCorrect( buffer + offset, (int)memcount );
 
 	RE_SaveJPG( fileName, r_screenshotJpegQuality->integer, width, height, buffer + offset, padlen );
 	R_Free( buffer );
@@ -1167,7 +1336,7 @@ Workaround for Com_Printf's 1024 characters buffer limit.
 void R_PrintLongString( const char *string ) {
 	char buffer[1024];
 	const char *p = string;
-	int remainingLength = strlen( string );
+	int remainingLength = (int)strlen( string );
 
 	while( remainingLength > 0 ) {
 		// Take as much characters as possible from the string without splitting words between buffers
@@ -1199,8 +1368,6 @@ void R_PrintLongString( const char *string ) {
 GfxInfo_f
 ================
 */
-extern bool g_bTextureRectangleHack;
-
 void GfxInfo_f( void ) {
 	const char *enablestrings[] = {
 		"disabled",
@@ -1227,7 +1394,6 @@ void GfxInfo_f( void ) {
 	ri.Printf( PRINT_ALL, "\nVendor: %s\n", glConfig.vendor_string );
 	ri.Printf( PRINT_ALL, "Device: %s\n", glConfig.renderer_string );
 	ri.Printf( PRINT_ALL, "Driver: %s\n", glConfig.version_string );
-	R_PrintLongString( glConfig.extensions_string );
 	Com_Printf( "\n" );
 	ri.Printf( PRINT_ALL, "GL_MAX_TEXTURE_SIZE: %d\n", glConfig.maxTextureSize );
 	ri.Printf( PRINT_ALL, "GL_MAX_ACTIVE_TEXTURES_ARB: %d\n", glConfig.maxActiveTextures );
@@ -1303,8 +1469,6 @@ void GfxInfo_f( void ) {
 			ri.Printf( PRINT_ALL, "%f)\n", glConfig.maxTextureFilterAnisotropy );
 	}
 	ri.Printf( PRINT_ALL, "Dynamic Glow: %s\n", enablestrings[r_DynamicGlow->integer ? 1 : 0] );
-	if( g_bTextureRectangleHack )
-		Com_Printf( "Dynamic Glow ATI BAD DRIVER HACK %s\n", enablestrings[g_bTextureRectangleHack] );
 
 	if( r_finish->integer ) {
 		ri.Printf( PRINT_ALL, "Forcing glFinish\n" );
@@ -1317,10 +1481,6 @@ void GfxInfo_f( void ) {
 	if( tr.world ) {
 		ri.Printf( PRINT_ALL, "Light Grid size set to (%.2f %.2f %.2f)\n", tr.world->lightGridSize[0], tr.world->lightGridSize[1], tr.world->lightGridSize[2] );
 	}
-}
-
-void R_AtiHackToggle_f( void ) {
-	g_bTextureRectangleHack = !g_bTextureRectangleHack;
 }
 
 /************************************************************************************************
@@ -1442,7 +1602,6 @@ static consoleCommand_t commands[] = {
 	{ "screenshot_png", R_ScreenShotPNG_f },
 	{ "screenshot_tga", R_ScreenShotTGA_f },
 	{ "gfxinfo", GfxInfo_f },
-	{ "r_atihack", R_AtiHackToggle_f },
 	{ "r_we", R_WorldEffect_f },
 	{ "imagecacheinfo", RE_RegisterImages_Info_f },
 	{ "modellist", R_Modellist_f },
@@ -1655,12 +1814,58 @@ void R_ClearStuffToStopGhoul2CrashingThings( void ) {
 
 /*
 ===============
+R_InitFuncTables
+===============
+*/
+static void R_InitFuncTables() {
+	int i, funcTablesSize;
+	tr_shader::trFuncTables_t *funcTables;
+
+	funcTablesSize = sizeof( tr_shader::trFuncTables_t );
+
+	// create a buffer for the function tables
+	tr.funcTablesBuffer = R_CreateBuffer( funcTablesSize,
+		VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+		VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT );
+
+	// dynamically allocate tables to avoid stack overflow
+	funcTables = (tr_shader::trFuncTables_t *)ri.Malloc( funcTablesSize, TAG_TEMP_WORKSPACE, qfalse, sizeof( float ) );
+
+	//
+	// init function tables
+	//
+	for( i = 0; i < TR_FUNCTABLE_SIZE; i++ ) {
+		funcTables->sinTable[i] = sin( DEG2RAD( i * 360.0f / ( (float)( TR_FUNCTABLE_SIZE - 1 ) ) ) );
+		funcTables->squareTable[i] = ( i < TR_FUNCTABLE_SIZE / 2 ) ? 1.0f : -1.0f;
+		funcTables->sawToothTable[i] = (float)i / TR_FUNCTABLE_SIZE;
+		funcTables->inverseSawToothTable[i] = 1.0f - funcTables->sawToothTable[i];
+
+		if( i < TR_FUNCTABLE_SIZE / 2 ) {
+			if( i < TR_FUNCTABLE_SIZE / 4 ) {
+				funcTables->triangleTable[i] = (float)i / ( TR_FUNCTABLE_SIZE / 4 );
+			}
+			else {
+				funcTables->triangleTable[i] = 1.0f - funcTables->triangleTable[i - TR_FUNCTABLE_SIZE / 4];
+			}
+		}
+		else {
+			funcTables->triangleTable[i] = -funcTables->triangleTable[i - TR_FUNCTABLE_SIZE / 2];
+		}
+	}
+
+	// upload the data to the GPU
+	VK_UploadBuffer( tr.funcTablesBuffer, (const byte *)funcTables, funcTablesSize, 0 );
+
+	ri.Z_Free( funcTables );
+}
+
+/*
+===============
 R_Init
 ===============
 */
 extern void R_InitWorldEffects();
 void R_Init( void ) {
-	int err;
 	int i;
 
 	// ri.Printf( PRINT_ALL, "----- R_Init -----\n" );
@@ -1673,49 +1878,34 @@ void R_Init( void ) {
 	memset( &tess, 0, sizeof( tess ) );
 
 #ifndef FINAL_BUILD
+#	if 0
 	if( ( intptr_t )tess.xyz & 15 ) {
 		Com_Printf( "WARNING: tess.xyz not 16 byte aligned\n" );
 	}
 #endif
+#endif
 
-	//
-	// init function tables
-	//
-	for( i = 0; i < FUNCTABLE_SIZE; i++ ) {
-		tr.sinTable[i] = sin( DEG2RAD( i * 360.0f / ( ( float )( FUNCTABLE_SIZE - 1 ) ) ) );
-		tr.squareTable[i] = ( i < FUNCTABLE_SIZE / 2 ) ? 1.0f : -1.0f;
-		tr.sawToothTable[i] = ( float )i / FUNCTABLE_SIZE;
-		tr.inverseSawToothTable[i] = 1.0f - tr.sawToothTable[i];
+	// register cvars before initializing the vulkan context
+	R_Register();
+	R_ImageLoader_Init();
 
-		if( i < FUNCTABLE_SIZE / 2 ) {
-			if( i < FUNCTABLE_SIZE / 4 ) {
-				tr.triangleTable[i] = ( float )i / ( FUNCTABLE_SIZE / 4 );
-			}
-			else {
-				tr.triangleTable[i] = 1.0f - tr.triangleTable[i - FUNCTABLE_SIZE / 4];
-			}
-		}
-		else {
-			tr.triangleTable[i] = -tr.triangleTable[i - FUNCTABLE_SIZE / 2];
-		}
-	}
+	backEndData = (backEndData_t *)R_Hunk_Alloc( sizeof( backEndData_t ), qtrue );
+
+	VK_Init();
+
+	R_InitFuncTables();
 	R_InitFogTable();
 
-	R_ImageLoader_Init();
 	R_NoiseInit();
-	R_Register();
-
-	backEndData = ( backEndData_t * )R_Hunk_Alloc( sizeof( backEndData_t ), qtrue );
-	R_InitNextFrame();
 
 	const color4ub_t color = { 0xff, 0xff, 0xff, 0xff };
 	for( i = 0; i < MAX_LIGHT_STYLES; i++ ) {
 		byteAlias_t *ba = ( byteAlias_t * )&color;
 		RE_SetLightStyle( i, ba->i );
 	}
-	VK_Init();
 
 	R_InitImages();
+	R_InitBuffers();
 	R_InitShaders();
 	R_InitSkins();
 	R_ModelInit();
@@ -1725,6 +1915,10 @@ void R_Init( void ) {
 	RestoreGhoul2InfoArray();
 	// print info
 	GfxInfo_f();
+
+	// begin the first frame
+	VK_EndFrame();
+	VK_BeginFrame();
 
 	// ri.Printf( PRINT_ALL, "----- finished R_Init -----\n" );
 }
@@ -1743,26 +1937,22 @@ void RE_Shutdown( qboolean destroyWindow, qboolean restarting ) {
 	if( r_DynamicGlow && r_DynamicGlow->integer ) {
 		vkDestroyPipeline( vkState.device, tr.glowBlurPipeline, NULL );
 		vkDestroyPipelineLayout( vkState.device, tr.glowBlurPipelineLayout, NULL );
-		vkFreeDescriptorSets( vkState.device, vkState.descriptorPool, 1, &tr.glowBlurDescriptorSet );
-		vkDestroyDescriptorSetLayout( vkState.device, tr.glowBlurDescriptorSetLayout, NULL );
 
 		vkDestroyPipeline( vkState.device, tr.glowCombinePipeline, NULL );
 		vkDestroyPipelineLayout( vkState.device, tr.glowCombinePipelineLayout, NULL );
-		vkFreeDescriptorSets( vkState.device, vkState.descriptorPool, 1, &tr.glowCombineDescriptorSet );
-		vkDestroyDescriptorSetLayout( vkState.device, tr.glowCombineDescriptorSetLayout, NULL );
 
-		vkDestroyFramebuffer( vkState.device, tr.glowBlurFramebuffer, NULL );
-		vkDestroyFramebuffer( vkState.device, tr.glowFramebuffer, NULL );
-
-		vkDestroyRenderPass( vkState.device, tr.glowRenderPass, NULL );
-
-		R_Images_DeleteImage( tr.glowBlurImage );
-		R_Images_DeleteImage( tr.glowImage );
+		R_DeleteFrameBuffer( tr.glowBlurFrameBuffer );
+		R_DeleteFrameBuffer( tr.glowFrameBuffer );
 	}
 
-	// free the common descriptor set
-	vkDestroyDescriptorSetLayout( vkState.device, tr.commonDescriptorSetLayout, NULL );
+	// free the common descriptor sets
 	vkFreeDescriptorSets( vkState.device, vkState.descriptorPool, 1, &tr.commonDescriptorSet );
+
+	vkDestroyDescriptorSetLayout( vkState.device, tr.commonDescriptorSetLayout, NULL );
+	vkDestroyDescriptorSetLayout( vkState.device, tr.samplerDescriptorSetLayout, NULL );
+	vkDestroyDescriptorSetLayout( vkState.device, tr.shaderDescriptorSetLayout, NULL );
+	vkDestroyDescriptorSetLayout( vkState.device, tr.modelDescriptorSetLayout, NULL );
+	vkDestroyDescriptorSetLayout( vkState.device, tr.textureDescriptorSetLayout, NULL );
 
 	R_ShutdownWorldEffects();
 	R_ShutdownFonts();

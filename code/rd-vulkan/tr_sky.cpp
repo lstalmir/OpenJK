@@ -263,8 +263,8 @@ static void ClearSkyBox (void) {
 RB_ClipSkyPolygons
 ================
 */
-void RB_ClipSkyPolygons( shaderCommands_t *input )
-{
+void RB_ClipSkyPolygons( shaderCommands_t *input ) {
+#if 0
 	vec3_t		p[5];	// need one extra point for clipping
 	int			i, j;
 
@@ -280,6 +280,7 @@ void RB_ClipSkyPolygons( shaderCommands_t *input )
 		}
 		ClipSkyPolygon( 3, p[0], 0 );
 	}
+#endif
 }
 
 /*
@@ -366,11 +367,11 @@ static void MakeSkyVec( float s, float t, int axis, float outSt[2], vec3_t outXY
 static vec3_t	s_skyPoints[SKY_SUBDIVISIONS+1][SKY_SUBDIVISIONS+1];
 static float	s_skyTexCoords[SKY_SUBDIVISIONS+1][SKY_SUBDIVISIONS+1][2];
 
-static void DrawSkySide( struct image_s *image, const int mins[2], const int maxs[2] )
-{
+static void DrawSkySide( struct image_s *image, const int mins[2], const int maxs[2] ) {
+#if 0
 	int s, t;
 
-	GL_Bind( image );
+	VK_BindImage( image );
 
 	for ( t = mins[1]+HALF_SKY_SUBDIVISIONS; t < maxs[1]+HALF_SKY_SUBDIVISIONS; t++ )
 	{
@@ -387,10 +388,10 @@ static void DrawSkySide( struct image_s *image, const int mins[2], const int max
 
 		qglEnd();
 	}
+#endif
 }
 
-static void DrawSkyBox( shader_t *shader )
-{
+static void DrawSkyBox( shader_t *shader ) {
 	int		i;
 
 	sky_min = 0.0f;
@@ -452,15 +453,15 @@ static void DrawSkyBox( shader_t *shader )
 			}
 		}
 
-		DrawSkySide( shader->sky->outerbox[i],
+		DrawSkySide( shader->sky->cppData.outerbox[i],
 			         sky_mins_subd,
 					 sky_maxs_subd );
 	}
 
 }
 
-static void FillCloudySkySide( const int mins[2], const int maxs[2], qboolean addIndexes )
-{
+static void FillCloudySkySide( const int mins[2], const int maxs[2], qboolean addIndexes ) {
+#if 0
 	int s, t;
 	int vertexStart = tess.numVertexes;
 	int tHeight, sWidth;
@@ -507,6 +508,7 @@ static void FillCloudySkySide( const int mins[2], const int maxs[2], qboolean ad
 			}
 		}
 	}
+#endif
 }
 
 static void FillCloudBox( const shader_t *shader, int stage )
@@ -617,8 +619,7 @@ void R_BuildCloudData( shaderCommands_t *input )
 	sky_max = 255.0 / 256.0f;
 
 	// set up for drawing
-	tess.numIndexes = 0;
-	tess.numVertexes = 0;
+	tess.numDraws = 0;
 
 	if ( input->shader->sky->cloudHeight )
 	{
@@ -708,87 +709,10 @@ void RB_DrawSun( void ) {
 	if ( !r_drawSun->integer ) {
 		return;
 	}
-	qglLoadMatrixf( backEnd.viewParms.world.modelMatrix );
-	qglTranslatef (backEnd.viewParms.ori.origin[0], backEnd.viewParms.ori.origin[1], backEnd.viewParms.ori.origin[2]);
 
-	dist = 	backEnd.viewParms.zFar / 1.75;		// div sqrt(3)
-	size = dist * 0.4;
+	RB_SetShader( tr.sunShader );
 
-	VectorScale( tr.sunDirection, dist, origin );
-	PerpendicularVector( vec1, tr.sunDirection );
-	CrossProduct( tr.sunDirection, vec1, vec2 );
-
-	VectorScale( vec1, size, vec1 );
-	VectorScale( vec2, size, vec2 );
-
-	// update the sunParms buffer on the gpu
-	VK_UploadBuffer( tr.sunParmsBuffer, ( const byte * )&tr.sunParms, sizeof( tr.sunParms ), 0 );
-
-	vkCmdBindPipeline( vkCtx.cmdbuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, tr.sunShader->pipeline );
-	vkCmdBindDescriptorSets( vkCtx.cmdbuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, tr.sunShader->layout, 1, 1, &tr.sunDescriptorSet, 0, NULL );
-
-	vkCmdDraw( vkCtx.cmdbuffer, 6, 1, 0, 0 );
-
-	// farthest depth range
-	qglDepthRange( 1.0, 1.0 );
-
-	// FIXME: use quad stamp
-	RB_BeginSurface( tr.sunShader, tess.fogNum );
-		VectorCopy( origin, temp );
-		VectorSubtract( temp, vec1, temp );
-		VectorSubtract( temp, vec2, temp );
-		VectorCopy( temp, tess.xyz[tess.numVertexes] );
-		tess.texCoords[tess.numVertexes][0][0] = 0;
-		tess.texCoords[tess.numVertexes][0][1] = 0;
-		tess.vertexColors[tess.numVertexes][0] = 255;
-		tess.vertexColors[tess.numVertexes][1] = 255;
-		tess.vertexColors[tess.numVertexes][2] = 255;
-		tess.numVertexes++;
-
-		VectorCopy( origin, temp );
-		VectorAdd( temp, vec1, temp );
-		VectorSubtract( temp, vec2, temp );
-		VectorCopy( temp, tess.xyz[tess.numVertexes] );
-		tess.texCoords[tess.numVertexes][0][0] = 0;
-		tess.texCoords[tess.numVertexes][0][1] = 1;
-		tess.vertexColors[tess.numVertexes][0] = 255;
-		tess.vertexColors[tess.numVertexes][1] = 255;
-		tess.vertexColors[tess.numVertexes][2] = 255;
-		tess.numVertexes++;
-
-		VectorCopy( origin, temp );
-		VectorAdd( temp, vec1, temp );
-		VectorAdd( temp, vec2, temp );
-		VectorCopy( temp, tess.xyz[tess.numVertexes] );
-		tess.texCoords[tess.numVertexes][0][0] = 1;
-		tess.texCoords[tess.numVertexes][0][1] = 1;
-		tess.vertexColors[tess.numVertexes][0] = 255;
-		tess.vertexColors[tess.numVertexes][1] = 255;
-		tess.vertexColors[tess.numVertexes][2] = 255;
-		tess.numVertexes++;
-
-		VectorCopy( origin, temp );
-		VectorSubtract( temp, vec1, temp );
-		VectorAdd( temp, vec2, temp );
-		VectorCopy( temp, tess.xyz[tess.numVertexes] );
-		tess.texCoords[tess.numVertexes][0][0] = 1;
-		tess.texCoords[tess.numVertexes][0][1] = 0;
-		tess.vertexColors[tess.numVertexes][0] = 255;
-		tess.vertexColors[tess.numVertexes][1] = 255;
-		tess.vertexColors[tess.numVertexes][2] = 255;
-		tess.numVertexes++;
-
-		tess.indexes[tess.numIndexes++] = 0;
-		tess.indexes[tess.numIndexes++] = 1;
-		tess.indexes[tess.numIndexes++] = 2;
-		tess.indexes[tess.numIndexes++] = 0;
-		tess.indexes[tess.numIndexes++] = 2;
-		tess.indexes[tess.numIndexes++] = 3;
-
-	RB_EndSurface();
-
-	// back to normal depth range
-	qglDepthRange( 0.0, 1.0 );
+	vkCmdDraw( backEndData->cmdbuf, 6, 1, 0, 0 );
 }
 
 
@@ -804,6 +728,7 @@ Other things could be stuck in here, like birds in the sky, etc
 ================
 */
 void RB_StageIteratorSky( void ) {
+#if 0
 	if ( r_fastsky->integer ) {
 		return;
 	}
@@ -854,5 +779,6 @@ void RB_StageIteratorSky( void ) {
 
 	// note that sky was drawn so we will draw a sun later
 	backEnd.skyRenderedThisView = qtrue;
+#endif
 }
 
