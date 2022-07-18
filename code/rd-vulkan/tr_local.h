@@ -157,6 +157,7 @@ typedef struct {
 	int			dlightBits;
 	
 	vertexBuffer_t	*vertexBuffer;
+	VkDescriptorSet modelDescriptorSet;
 
 } trRefEntity_t;
 
@@ -345,40 +346,45 @@ typedef struct surfaceSprite_s
 } surfaceSprite_t;
 
 typedef struct {
-	image_t			*image;
+	image_t						*image;
 
-	texCoordGen_t	tcGen;
-	vec3_t			*tcGenVectors;
+	texCoordGen_t				tcGen;
+	vec3_t						*tcGenVectors;
 
-	texModInfo_t	*texMods;
-	short			numTexMods;
-	short			numImageAnimations;
-	float			imageAnimationSpeed;
+	texModInfo_t				*texMods;
+	short						numTexMods;
+	short						numImageAnimations;
+	float						imageAnimationSpeed;
 
-	bool			isLightmap;
-	bool			oneShotAnimMap;
-	bool			vertexLightmap;
-	bool			isVideoMap;
+	bool						isLightmap;
+	bool						oneShotAnimMap;
+	bool						vertexLightmap;
+	bool						isVideoMap;
 
-	int				videoMapHandle;
+	int							videoMapHandle;
 } textureBundle_t;
 
 typedef struct {
-	bool			active;
-	bool			isDetail;
-	bool			isLightmap;
-	byte			index;						// index of stage
-	byte			lightmapStyle;
-	uint32_t		stateBits;					// GLS_xxxx mask
-	acff_t			adjustColorsForFog;
-	EGLFogOverride	mGLFogColorOverride;
-	surfaceSprite_t	*ss;
-	bool			glow;						// Whether this object emits a glow or not.
+	bool						active;
+	bool						isDetail;
+	bool						isLightmap;
+	byte						index;						// index of stage
+	byte						lightmapStyle;
+	uint32_t					stateBits;					// GLS_xxxx mask
+	acff_t						adjustColorsForFog;
+	EGLFogOverride				mGLFogColorOverride;
+	surfaceSprite_t				*ss;
+	bool						glow;						// Whether this object emits a glow or not.
+
+	textureBundle_t				bundle[NUM_TEXTURE_BUNDLES];
+
+	VkPipeline					pipeline;					// precompiled pipeline state
+
+	VkDescriptorSet				descriptorSet;
 
 	tr_shader::shaderStage_t	shaderData;
 	buffer_t					*shaderBuffer;
 
-	VkDescriptorSet	descriptorSet;
 } shaderStage_t;
 
 struct shaderCommands_s;
@@ -410,9 +416,6 @@ typedef struct shader_s {
 	int			sortedIndex;			// this shader == tr.sortedShaders[sortedIndex]
 
 	float		sort;					// lower numbered shaders draw before higher numbered
-
-	VkPipelineLayout	layout;			// layout of the pipeline inputs for this shader
-	VkPipeline	pipeline;				// precompiled pipeline state
 
 	int			surfaceFlags;			// if explicitlyDefined, this will have SURF_* flags
 	int			contentFlags;
@@ -635,6 +638,7 @@ typedef struct {
 	//	float			radius;
 
 	vertexBuffer_t	*vertexBuffer;
+	VkDescriptorSet modelDescriptorSet;
 
 } srfTriangles_t;
 
@@ -887,7 +891,7 @@ typedef struct {
 	image_t					images[MAX_OUTIMAGES];
 
 	VkCommandPool			cmdpool;
-	VkCommandBuffer			cmdbuffers[MAX_OUTIMAGES];
+	VkCommandBuffer			cmdbuffers[MAX_OUTIMAGES * 2];
 
 	VkFence					fences[MAX_OUTIMAGES];
 	VkSemaphore				semaphores[MAX_OUTIMAGES];
@@ -991,6 +995,8 @@ typedef struct {
 	VkDescriptorSetLayout	textureDescriptorSetLayout;
 
 	VkDescriptorSet			commonDescriptorSet;
+	VkDescriptorSet			samplerDescriptorSet;
+	VkDescriptorSet			identityModelDescriptorSet;
 
 	frameBuffer_t			*postProcessFrameBuffer;
 	
@@ -1006,6 +1012,12 @@ typedef struct {
 	VkPipeline				shadePipeline;
 	VkPipelineLayout		shadePipelineLayout;
 
+	VkPipeline				shadeDisintegratePipeline;
+	VkPipeline				shadeAlphaFadePipeline;
+	VkPipeline				shadeForceEntAlphaPipeline;
+	VkPipeline				shadeStencilPipeline;
+	VkPipeline				shadeLightmapPipeline;
+
 	// Debug pipelines
 	VkPipeline				wireframePipeline;
 	VkPipeline				wireframeXRayPipeline;
@@ -1013,6 +1025,8 @@ typedef struct {
 
 	// Vertex buffer with data generated in runtime.
 	vertexBuffer_t			*dynamicVertexBuffer;
+
+	buffer_t				*identityModelBuffer;
 
 	// Handles to the Glow Effect resources.
 	VkPipeline				glowBlurPipeline;
@@ -1294,6 +1308,10 @@ void *VK_UploadBuffer( buffer_t *buffer, int size, int offset );
 void VK_SetImageLayout( image_t *im, VkImageLayout dstLayout, VkAccessFlags dstAccess );
 void VK_CopyImage( image_t *dst, image_t *src );
 void VK_BindImage( image_t *image, int loc = 0 );
+void VK_ClearColorImage( image_t *image, const VkClearColorValue *value );
+void VK_ClearDepthStencilImage( image_t *image, const VkClearDepthStencilValue *value );
+void VK_AllocateDescriptorSet( VkDescriptorSetLayout layout, VkDescriptorSet *set );
+void VK_DeleteDescriptorSet( VkDescriptorSet set );
 
 int VK_AlignUniformBufferSize( int structureSize );
 
@@ -1418,7 +1436,6 @@ shader_t	*R_FindShader( const char *name, const int *lightmapIndex, const byte *
 shader_t	*R_GetShaderByHandle( qhandle_t hShader );
 void		R_InitShaders( void );
 void		R_ShaderList_f( void );
-void		RB_SetShader( shader_t *shader );
 
 //
 // tr_spv.c
@@ -1429,6 +1446,7 @@ void SPV_InitDescriptorSetLayouts( void );
 void SPV_InitGlowShaders( void );
 void SPV_InitWireframeShaders( void );
 void SPV_InitShadeShaders( void );
+void SPV_InitShadePipelineBuilder( class CPipelineBuilder *builder );
 
 
 #define TR_MAX_DESCRIPTOR_SET_BINDING_COUNT 16
@@ -1588,6 +1606,11 @@ typedef struct stageVars
 
 #define	NUM_TEX_COORDS		(MAXLIGHTMAPS+1)
 
+typedef struct drawCommand_s {
+	vertexBuffer_t	*vertexBuffer;
+	VkDescriptorSet modelDescriptorSet;
+} drawCommand_t;
+
 struct shaderCommands_s
 {
 	shader_t	*shader;
@@ -1609,7 +1632,7 @@ struct shaderCommands_s
 
 	// vertex data
 	int			numDraws;
-	vertexBuffer_t	*draws[SHADER_MAX_VERTEXES];
+	drawCommand_t	draws[SHADER_MAX_VERTEXES];
 };
 
 #ifdef _MSC_VER
@@ -1625,7 +1648,7 @@ extern	bool		styleUpdated[MAX_LIGHT_STYLES];
 
 void RB_BeginSurface( shader_t *shader, int fogNum );
 void RB_EndSurface();
-void RB_DrawSurface( vertexBuffer_t *vertexBuffer );
+drawCommand_t *RB_DrawSurface();
 void RB_CheckOverflow();
 #define RB_CHECKOVERFLOW() if (tess.numDraws + 1 >= SHADER_MAX_VERTEXES) {RB_CheckOverflow();}
 
@@ -1966,6 +1989,7 @@ typedef enum {
 // contained in a backEndData_t.
 typedef struct {
 	VkCommandBuffer			cmdbuf;
+	VkCommandBuffer			uploadCmdbuf;
 	VkSemaphore				semaphore;			// signaled when the image is available
 
 	image_t					*image;				// output texture
@@ -2019,6 +2043,7 @@ qboolean R_FogParmsMatch( int fog1, int fog2 );
 
 void R_DeleteFrameBuffer( frameBuffer_t *frameBuffer );
 void R_BindFrameBuffer( frameBuffer_t *frameBuffer );
+void R_ClearFrameBuffer( frameBuffer_t *frameBuffer );
 
 /*
 Ghoul2 Insert Start

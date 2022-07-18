@@ -1351,12 +1351,16 @@ static void ForceAlpha( inout float4 color, float alpha ) {
 
 
 void VS_ApplyModelTransform( inout float4 position, inout float4 normal ) {
-	float4x4 modelMatrix = tr_model.ori.modelMatrix;
+	//float4x4 modelMatrix = tr_model.ori.modelMatrix;
+	//
+	//RB_CalcDisintegrateVertDeform( position.xyz, normal.xyz );
+	//
+	//position = mul( modelMatrix, position );
+	//normal = mul( modelMatrix, normal );
 
-	RB_CalcDisintegrateVertDeform( position.xyz, normal.xyz );
-
-	position = mul( modelMatrix, position );
-	normal = mul( modelMatrix, normal );
+	// convert to 640x480
+	position.xy /= float2( 320, 240 );
+	position.xy -= 1;
 }
 
 
@@ -1395,5 +1399,6 @@ float4 PS_Main( shadeVertex_t i )
 #ifdef TR_WIREFRAME
 	return i.color;
 #endif
-	return ComputeColor( i.entPosition, i.entNormal, i.color, 0, 0 );
+	//return ComputeColor( i.entPosition, i.entNormal, i.color, 0, 0 );
+	return tr_texture_0.Sample(tr_sampler_0, i.texcoord);
 }

@@ -478,8 +478,6 @@ qboolean RE_ProcessDissolve( void )
 // return = qtrue(success) else fail, for those interested...
 //
 qboolean RE_InitDissolve( qboolean bForceCircularExtroWipe ) {
-	VkResult res;
-
 //	ri.Printf( PRINT_ALL, "RE_InitDissolve()\n");
 	qboolean bReturn = qfalse;
 
@@ -501,18 +499,7 @@ qboolean RE_InitDissolve( qboolean bForceCircularExtroWipe ) {
 		}
 
 		if( Dissolve.dissolvePipelineDescriptorSet == VK_NULL_HANDLE ) {
-			VkDescriptorSetAllocateInfo descriptorSetAllocateInfo = {};
-
-			// allocate the descriptor set
-			descriptorSetAllocateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-			descriptorSetAllocateInfo.descriptorPool = vkState.descriptorPool;
-			descriptorSetAllocateInfo.descriptorSetCount = 1;
-			descriptorSetAllocateInfo.pSetLayouts = &Dissolve.dissolvePipelineDescriptorSetLayout;
-
-			res = vkAllocateDescriptorSets( vkState.device, &descriptorSetAllocateInfo, &Dissolve.dissolvePipelineDescriptorSet );
-			if( res != VK_SUCCESS ) {
-				Com_Error( ERR_FATAL, "RE_InitDissolve: failed to allocate descriptor set (%d)\n", res );
-			}
+			VK_AllocateDescriptorSet( Dissolve.dissolvePipelineDescriptorSetLayout, &Dissolve.dissolvePipelineDescriptorSet );
 		}
 
 		if( Dissolve.dissolvePipelineLayout == VK_NULL_HANDLE ) {

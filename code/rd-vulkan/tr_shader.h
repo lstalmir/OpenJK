@@ -505,16 +505,6 @@ typedef bool qboolean32;
 
 	} texModInfo_t;
 
-#if defined( __cplusplus )
-	typedef union textureBundleCppData_s {
-		struct {
-			struct image_s	*image;
-			int				videoMapHandle;
-		};
-		byte m[16];
-	} textureBundleCppData_t;
-#endif
-
 	typedef struct textureBundle_s {
 		float4			tcGenVectors[2];
 		texCoordGen_t	tcGen;
@@ -529,13 +519,6 @@ typedef bool qboolean32;
 		qboolean32		oneShotAnimMap;
 		qboolean32		vertexLightmap;
 		qboolean32		isVideoMap;
-
-#if defined( __cplusplus )
-		textureBundleCppData_t cppData;
-#else
-		float			cppData[4];
-#endif
-
 	} textureBundle_t;
 
 	typedef struct shaderStage_s {

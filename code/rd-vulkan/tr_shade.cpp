@@ -43,26 +43,40 @@ bool		styleUpdated[MAX_LIGHT_STYLES];
 extern bool g_bRenderGlowingObjects;
 
 
-static void R_DrawElements( shaderCommands_t *input ) {
-	vertexBuffer_t *draw;
+static void R_DrawElements( shaderCommands_t *input, shaderStage_t *stage ) {
+	drawCommand_t *draw = input->draws;
 	VkBuffer vertexBuffer;
 	VkDeviceSize vertexOffset;
 	VkDeviceSize indexOffset;
+	VkDescriptorSet descriptorSets[4];
 	int i;
 
-	for( i = 0; i < input->numDraws; ++i ) {
-		draw = input->draws[i];
+	// make sure there is a framebuffer bound
+	if( !backEndData->frameBuffer ) {
+		R_BindFrameBuffer( tr.sceneFrameBuffer );
+	}
 
-		vertexBuffer = draw->b.buf;
-		vertexOffset = (VkDeviceSize)draw->vertexOffset;
-		indexOffset = (VkDeviceSize)draw->indexOffset;
+	// bind common descriptor sets
+	descriptorSets[TR_GLOBALS_SPACE] = tr.commonDescriptorSet;
+	descriptorSets[TR_SAMPLERS_SPACE] = tr.samplerDescriptorSet;
+	descriptorSets[TR_SHADER_SPACE] = stage->descriptorSet;
+
+	vkCmdBindDescriptorSets( backEndData->cmdbuf, VK_PIPELINE_BIND_POINT_GRAPHICS, backEndData->pipelineLayout, 0, 3, descriptorSets, 0, NULL );
+
+	for( i = 0; i < input->numDraws; ++i ) {
+		vertexBuffer = draw->vertexBuffer->b.buf;
+		vertexOffset = (VkDeviceSize)draw->vertexBuffer->vertexOffset;
+		indexOffset = (VkDeviceSize)draw->vertexBuffer->indexOffset;
+
+		// bind descriptor set
+		vkCmdBindDescriptorSets( backEndData->cmdbuf, VK_PIPELINE_BIND_POINT_GRAPHICS, backEndData->pipelineLayout, TR_MODEL_SPACE, 1, &draw->modelDescriptorSet, 0, NULL );
 
 		// bind vertex buffers
 		vkCmdBindVertexBuffers( backEndData->cmdbuf, 0, 1, &vertexBuffer, &vertexOffset );
 		vkCmdBindIndexBuffer( backEndData->cmdbuf, vertexBuffer, indexOffset, g_scIndexType );
 
 		// draw
-		vkCmdDrawIndexed( backEndData->cmdbuf, draw->numIndexes, 1, 0, 0, 0 );
+		vkCmdDrawIndexed( backEndData->cmdbuf, draw->vertexBuffer->numIndexes, 1, 0, 0, 0 );
 	}
 }
 
@@ -88,12 +102,12 @@ R_BindAnimatedImage
 
 =================
 */
-void R_BindAnimatedImage( const tr_shader::textureBundle_t *bundle, int loc = 1 ) {
+void R_BindAnimatedImage( const textureBundle_t *bundle, int loc = 0 ) {
 	int		index;
 
 	if ( bundle->isVideoMap ) {
-		ri.CIN_RunCinematic( bundle->cppData.videoMapHandle );
-		ri.CIN_UploadCinematic( bundle->cppData.videoMapHandle );
+		ri.CIN_RunCinematic( bundle->videoMapHandle );
+		ri.CIN_UploadCinematic( bundle->videoMapHandle );
 		return;
 	}
 
@@ -104,7 +118,7 @@ void R_BindAnimatedImage( const tr_shader::textureBundle_t *bundle, int loc = 1 
 	}
 
 	if ( bundle->numImageAnimations <= 1 ) {
-		VK_BindImage( bundle->cppData.image, loc );
+		VK_BindImage( bundle->image, loc );
 		return;
 	}
 
@@ -138,7 +152,7 @@ void R_BindAnimatedImage( const tr_shader::textureBundle_t *bundle, int loc = 1 
 		index %= bundle->numImageAnimations;
 	}
 
-	VK_BindImage( *( (image_t **)bundle->cppData.image + index ), loc );
+	VK_BindImage( *( (image_t **)bundle->image + index ), loc );
 }
 
 
@@ -149,7 +163,7 @@ DrawTris
 Draws triangle outlines for debugging
 ================
 */
-static void DrawTris (shaderCommands_t *input) {
+static void DrawTris (shaderCommands_t *input, shaderStage_t *stage) {
 	VkPipeline pipeline;
 	vec3_t color;
 
@@ -214,7 +228,7 @@ static void DrawTris (shaderCommands_t *input) {
 	backEndData->pipeline = pipeline;
 	backEndData->pipelineLayout = tr.wireframePipelineLayout;
 
-	R_DrawElements( input );
+	R_DrawElements( input, stage );
 }
 
 #if 0
@@ -260,8 +274,6 @@ void RB_BeginSurface( shader_t *shader, int fogNum ) {
 //	shader_t *state = (shader->remappedShader) ? shader->remappedShader : shader;
 	shader_t *state = shader;
 
-	RB_SetShader( shader );
-
 	tess.numDraws = 0;
 	tess.shader = state;//shader;
 	tess.fogNum = fogNum;
@@ -287,8 +299,8 @@ RB_DrawSurface
 Appends a surface to the draw list for the current shader.
 ==============
 */
-void RB_DrawSurface( vertexBuffer_t *vertexBuffer ) {
-	tess.draws[tess.numDraws++] = vertexBuffer;
+drawCommand_t *RB_DrawSurface() {
+	return &tess.draws[tess.numDraws++];
 }
 
 //--EF_old dlight code...reverting back to Quake III dlight to see if people like that better
@@ -697,7 +709,7 @@ static void ProjectDlightTexture2( void ) {
 			while (i < tess.shader->numUnfoggedPasses)
 			{
 				const int blendBits = (GLS_SRCBLEND_BITS+GLS_DSTBLEND_BITS);
-				if (((tess.shader->stages[i].shaderData.bundle[0].cppData.image && !tess.shader->stages[i].shaderData.bundle[0].isLightmap && !tess.shader->stages[i].shaderData.bundle[0].numTexMods && tess.shader->stages[i].shaderData.bundle[0].tcGen != texCoordGen_t::TCGEN_ENVIRONMENT_MAPPED && tess.shader->stages[i].shaderData.bundle[0].tcGen != texCoordGen_t::TCGEN_FOG) ||
+				if (((tess.shader->stages[i].bundle[0].image && !tess.shader->stages[i].shaderData.bundle[0].isLightmap && !tess.shader->stages[i].shaderData.bundle[0].numTexMods && tess.shader->stages[i].shaderData.bundle[0].tcGen != texCoordGen_t::TCGEN_ENVIRONMENT_MAPPED && tess.shader->stages[i].shaderData.bundle[0].tcGen != texCoordGen_t::TCGEN_FOG) ||
 					 (tess.shader->stages[i].shaderData.bundle[1].cppData.image && !tess.shader->stages[i].shaderData.bundle[1].isLightmap && !tess.shader->stages[i].shaderData.bundle[1].numTexMods && tess.shader->stages[i].shaderData.bundle[1].tcGen != texCoordGen_t::TCGEN_ENVIRONMENT_MAPPED && tess.shader->stages[i].shaderData.bundle[1].tcGen != texCoordGen_t::TCGEN_FOG)) &&
 					(tess.shader->stages[i].stateBits & blendBits) == 0 )
 				{ //only use non-lightmap opaque stages
@@ -710,7 +722,7 @@ static void ProjectDlightTexture2( void ) {
 
 		if (dStage)
 		{
-			if( dStage->shaderData.bundle[0].cppData.image && !dStage->shaderData.bundle[0].isLightmap && !dStage->shaderData.bundle[0].numTexMods && dStage->shaderData.bundle[0].tcGen != texCoordGen_t::TCGEN_ENVIRONMENT_MAPPED && dStage->shaderData.bundle[0].tcGen != texCoordGen_t::TCGEN_FOG )
+			if( dStage->bundle[0].image && !dStage->shaderData.bundle[0].isLightmap && !dStage->shaderData.bundle[0].numTexMods && dStage->shaderData.bundle[0].tcGen != texCoordGen_t::TCGEN_ENVIRONMENT_MAPPED && dStage->shaderData.bundle[0].tcGen != texCoordGen_t::TCGEN_FOG )
 			{
 				R_BindAnimatedImage( &dStage->shaderData.bundle[0], 0 );
 			}
@@ -1025,7 +1037,7 @@ static void ProjectDlightTexture( void ) {
 			while (i < tess.shader->numUnfoggedPasses)
 			{
 				const int blendBits = (GLS_SRCBLEND_BITS+GLS_DSTBLEND_BITS);
-				if (((tess.shader->stages[i].shaderData.bundle[0].cppData.image && !tess.shader->stages[i].shaderData.bundle[0].isLightmap && !tess.shader->stages[i].shaderData.bundle[0].numTexMods && tess.shader->stages[i].shaderData.bundle[0].tcGen != texCoordGen_t::TCGEN_ENVIRONMENT_MAPPED && tess.shader->stages[i].shaderData.bundle[0].tcGen != texCoordGen_t::TCGEN_FOG) ||
+				if (((tess.shader->stages[i].bundle[0].image && !tess.shader->stages[i].shaderData.bundle[0].isLightmap && !tess.shader->stages[i].shaderData.bundle[0].numTexMods && tess.shader->stages[i].shaderData.bundle[0].tcGen != texCoordGen_t::TCGEN_ENVIRONMENT_MAPPED && tess.shader->stages[i].shaderData.bundle[0].tcGen != texCoordGen_t::TCGEN_FOG) ||
 					 (tess.shader->stages[i].shaderData.bundle[1].cppData.image && !tess.shader->stages[i].shaderData.bundle[1].isLightmap && !tess.shader->stages[i].shaderData.bundle[1].numTexMods && tess.shader->stages[i].shaderData.bundle[1].tcGen != texCoordGen_t::TCGEN_ENVIRONMENT_MAPPED && tess.shader->stages[i].shaderData.bundle[1].tcGen != texCoordGen_t::TCGEN_FOG)) &&
 					(tess.shader->stages[i].stateBits & blendBits) == 0 )
 				{ //only use non-lightmap opaque stages
@@ -1038,7 +1050,7 @@ static void ProjectDlightTexture( void ) {
 
 		if (dStage)
 		{
-			if( dStage->shaderData.bundle[0].cppData.image && !dStage->shaderData.bundle[0].isLightmap && !dStage->shaderData.bundle[0].numTexMods && dStage->shaderData.bundle[0].tcGen != texCoordGen_t::TCGEN_ENVIRONMENT_MAPPED && dStage->shaderData.bundle[0].tcGen != texCoordGen_t::TCGEN_FOG )
+			if( dStage->bundle[0].image && !dStage->shaderData.bundle[0].isLightmap && !dStage->shaderData.bundle[0].numTexMods && dStage->shaderData.bundle[0].tcGen != texCoordGen_t::TCGEN_ENVIRONMENT_MAPPED && dStage->shaderData.bundle[0].tcGen != texCoordGen_t::TCGEN_FOG )
 			{
 				R_BindAnimatedImage( &dStage->shaderData.bundle[0], 0 );
 			}
@@ -1130,9 +1142,25 @@ static vec4_t	GLFogOverrideColors[GLFOGOVERRIDE_MAX] =
 
 static const float logtestExp2 = (sqrt( -log( 1.0 / 255.0 ) ));
 #endif
+
+static void R_SetShadePipeline( VkPipeline pipeline ) {
+	if( pipeline == VK_NULL_HANDLE ) {
+		// use the default pipeline
+		pipeline = tr.shadePipeline;
+	}
+	if( backEndData->pipeline != pipeline ) {
+
+		// bind the shader pipeline state
+		vkCmdBindPipeline( backEndData->cmdbuf, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline );
+
+		backEndData->pipeline = pipeline;
+		backEndData->pipelineLayout = tr.shadePipelineLayout;
+	}
+}
+
 extern bool tr_stencilled; //tr_backend.cpp
 static void RB_IterateStagesGeneric( shaderCommands_t *input ) {
-	bool pipelineBound = ( backEndData->pipeline == input->shader->pipeline );
+	VkPipeline pipeline;
 	int stage;
 #ifndef JK2_MODE
 	bool	UseGLFog = false;
@@ -1212,7 +1240,8 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input ) {
 			continue;
 		}
 
-		int	stateBits = pStage->stateBits;
+		pipeline = pStage->pipeline;
+
 		alphaGen_t	forceAlphaGen = (alphaGen_t)0;
 		colorGen_t	forceRGBGen = (colorGen_t)0;
 
@@ -1225,7 +1254,8 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input ) {
 			}
 			else
 			{
-				stateBits = (GLS_DSTBLEND_ZERO | GLS_SRCBLEND_ONE);	//we want to replace the prior stages with this LM, not blend
+				pipeline = tr.shadeLightmapPipeline; // we want to replace the prior stages with this LM, not blend
+				//stateBits = (GLS_DSTBLEND_ZERO | GLS_SRCBLEND_ONE);
 			}
 		}
 
@@ -1235,14 +1265,16 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input ) {
 			{
 				// we want to be able to rip a hole in the thing being disintegrated, and by doing the depth-testing it avoids some kinds of artefacts, but will probably introduce others?
 				//	NOTE: adjusting the alphaFunc seems to help a bit
-				stateBits = GLS_SRCBLEND_SRC_ALPHA | GLS_DSTBLEND_ONE_MINUS_SRC_ALPHA | GLS_DEPTHMASK_TRUE | GLS_ATEST_GE_C0;
+				pipeline = tr.shadeDisintegratePipeline;
+				//stateBits = GLS_SRCBLEND_SRC_ALPHA | GLS_DSTBLEND_ONE_MINUS_SRC_ALPHA | GLS_DEPTHMASK_TRUE | GLS_ATEST_GE_C0;
 			}
 
 			if ( backEnd.currentEntity->e.renderfx & RF_ALPHA_FADE )
 			{
 				if ( backEnd.currentEntity->e.shaderRGBA[3] < 255 )
 				{
-					stateBits = GLS_SRCBLEND_SRC_ALPHA | GLS_DSTBLEND_ONE_MINUS_SRC_ALPHA;
+					pipeline = tr.shadeAlphaFadePipeline;
+					//stateBits = GLS_SRCBLEND_SRC_ALPHA | GLS_DSTBLEND_ONE_MINUS_SRC_ALPHA;
 					forceAlphaGen = alphaGen_t::AGEN_ENTITY;
 				}
 			}
@@ -1296,7 +1328,8 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input ) {
 				if (pStage->lightmapStyle == 0)
 				{
 					//GL_State( GLS_DSTBLEND_ZERO | GLS_SRCBLEND_ZERO );
-					R_DrawElements( input );
+					R_SetShadePipeline( tr.shadeLightmapPipeline );
+					R_DrawElements( input, pStage );
 				}
 				continue;
 			}
@@ -1308,19 +1341,6 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input ) {
 			//
 			// set state
 			//
-			if ( (tess.shader == tr.distortionShader) ||
-				 (backEnd.currentEntity && (backEnd.currentEntity->e.renderfx & RF_DISTORTION)) )
-			{ //special distortion effect -rww
-				//tr.screenImage should have been set for this specific entity before we got in here.
-				VK_BindImage( tr.screenImage );
-			}
-			else if ( pStage->shaderData.bundle[0].vertexLightmap && ( r_vertexLight->integer ) && r_lightmap->integer )
-			{
-				VK_BindImage( tr.whiteImage );
-			}
-			else
-				R_BindAnimatedImage( &pStage->shaderData.bundle[0] );
-
 			if (tess.shader == tr.distortionShader &&
 				glConfig.stencilBits >= 4)
 			{ //draw it to the stencil buffer!
@@ -1334,26 +1354,37 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input ) {
 
 				//don't depthmask, don't blend.. don't do anything
 				GL_State(0);
+#else
+				pipeline = tr.shadeStencilPipeline;
 #endif
 			}
-			else if (backEnd.currentEntity && (backEnd.currentEntity->e.renderfx & RF_FORCE_ENT_ALPHA))
-			{
+			else if (backEnd.currentEntity && (backEnd.currentEntity->e.renderfx & RF_FORCE_ENT_ALPHA)) {
 				//ForceAlpha((unsigned char *) tess.svars.colors, backEnd.currentEntity->e.shaderRGBA[3]);
+				pipeline = tr.shadeForceEntAlphaPipeline;
 				//GL_State(GLS_SRCBLEND_SRC_ALPHA | GLS_DSTBLEND_ONE_MINUS_SRC_ALPHA);
 			}
-			else
-			{
-				//GL_State( stateBits );
+
+			R_SetShadePipeline( pipeline );
+
+			//
+			// bind images
+			//
+			if( ( tess.shader == tr.distortionShader ) ||
+				( backEnd.currentEntity && ( backEnd.currentEntity->e.renderfx & RF_DISTORTION ) ) ) { // special distortion effect -rww
+				// tr.screenImage should have been set for this specific entity before we got in here.
+				VK_BindImage( tr.screenImage );
+			}
+			else if( pStage->bundle[0].vertexLightmap && ( r_vertexLight->integer ) && r_lightmap->integer ) {
+				VK_BindImage( tr.whiteImage );
+			}
+			else {
+				R_BindAnimatedImage( &pStage->bundle[0] );
 			}
 
-			// bind the pipeline
-			if( !pipelineBound ) {
-				RB_SetShader( input->shader );
-				pipelineBound = true;
-			}
-
+			//
 			// draw
-			R_DrawElements( input );
+			//
+			R_DrawElements( input, pStage );
 		}
 	}
 #ifndef JK2_MODE
@@ -1387,8 +1418,6 @@ void RB_StageIteratorGeneric( void )
 		// a call to va() every frame!
 		GLimp_LogComment( va("--- RB_StageIteratorGeneric( %s ) ---\n", tess.shader->name) );
 	}
-
-	RB_SetShader( input->shader );
 
 	//
 	// call shader function
@@ -1501,18 +1530,18 @@ void RB_EndSurface( void ) {
 		backEnd.pc.c_shaders++;
 
 		for( int i = 0; i < tess.numDraws; ++i ) {
-			vertexBuffer_t *draw = tess.draws[i];
+			vertexBuffer_t *vertexBuffer = tess.draws[i].vertexBuffer;
 
-			backEnd.pc.c_vertexes += draw->numVertexes;
-			backEnd.pc.c_indexes += draw->numIndexes;
-			backEnd.pc.c_totalIndexes += draw->numIndexes * tess.numPasses;
+			backEnd.pc.c_vertexes += vertexBuffer-> numVertexes;
+			backEnd.pc.c_indexes += vertexBuffer->numIndexes;
+			backEnd.pc.c_totalIndexes += vertexBuffer->numIndexes * tess.numPasses;
 #ifdef JK2_MODE
 			if( tess.fogNum && tess.shader->fogPass && r_drawfog->value )
 #else
 			if( tess.fogNum && tess.shader->fogPass && r_drawfog->value == 1 )
 #endif
 			{ // Fogging adds an additional pass
-				backEnd.pc.c_totalIndexes += draw->numIndexes;
+				backEnd.pc.c_totalIndexes += vertexBuffer->numIndexes;
 			}
 		}
 	}
@@ -1527,7 +1556,7 @@ void RB_EndSurface( void ) {
 	//
 	if ( r_showtris->integer )
 	{
-		DrawTris (input);
+		DrawTris( input, &input->shader->stages[0] );
 	}
 
 #if 0

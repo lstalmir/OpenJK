@@ -976,7 +976,9 @@ RB_SurfaceTriangles
 =============
 */
 void RB_SurfaceTriangles( srfTriangles_t *srf ) {
-	RB_DrawSurface( srf->vertexBuffer );
+	drawCommand_t *draw = RB_DrawSurface();
+	draw->vertexBuffer = srf->vertexBuffer;
+	draw->modelDescriptorSet = srf->modelDescriptorSet;
 }
 
 #if 0 // moved to bsp
@@ -1885,6 +1887,7 @@ Entities that have a single procedurally generated surface
 ====================
 */
 void RB_SurfaceEntity( surfaceType_t *surfType ) {
+	drawCommand_t *draw;
 	trRefEntity_t *e = backEnd.currentEntity;
 
 #if 0
@@ -1923,7 +1926,9 @@ void RB_SurfaceEntity( surfaceType_t *surfType ) {
 	return;
 #endif
 
-	RB_DrawSurface( e->vertexBuffer );
+	draw = RB_DrawSurface();
+	draw->vertexBuffer = e->vertexBuffer;
+	draw->modelDescriptorSet = e->modelDescriptorSet;
 }
 
 void RB_SurfaceBad( surfaceType_t *surfType ) {

@@ -710,8 +710,6 @@ void RB_DrawSun( void ) {
 		return;
 	}
 
-	RB_SetShader( tr.sunShader );
-
 	vkCmdDraw( backEndData->cmdbuf, 6, 1, 0, 0 );
 }
 

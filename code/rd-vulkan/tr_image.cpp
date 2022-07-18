@@ -765,6 +765,8 @@ void VK_UploadImage( image_t *image, const byte *pic, int width, int height, int
 		VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
 		1, &uploadRegion );
 
+	VK_SetImageLayout( image, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_ACCESS_SHADER_READ_BIT );
+
 	uploadBuffer->offset += requiredBufferSize;
 }
 
@@ -1045,22 +1047,15 @@ static void VK_InitImage( image_t *image, const char *name, int width, int heigh
 			Com_Error( ERR_FATAL, "VK_InitImage: failed to create VkImageView object (%d)\n", res );
 		}
 
-		// allocate a descriptor set for the texture
-		VkDescriptorSetAllocateInfo descriptorSetAllocateInfo = {};
-		descriptorSetAllocateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-		descriptorSetAllocateInfo.descriptorPool = vkState.descriptorPool;
-		descriptorSetAllocateInfo.descriptorSetCount = 1;
-		descriptorSetAllocateInfo.pSetLayouts = &tr.textureDescriptorSetLayout;
+		if( usage & ( VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT ) ) {
+			// allocate a descriptor set for the texture
+			VK_AllocateDescriptorSet( tr.textureDescriptorSetLayout, &image->descriptorSet );
 
-		res = vkAllocateDescriptorSets( vkState.device, &descriptorSetAllocateInfo, &image->descriptorSet );
-		if( res != VK_SUCCESS ) {
-			Com_Error( ERR_FATAL, "VK_InitImage: failed to allocate VkDescriptorSet object (%d)\n", res );
+			CDescriptorSetWriter descriptorSetWriter( image->descriptorSet );
+			descriptorSetWriter.writeImage( 0, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, image );
+			descriptorSetWriter.writeSampler( 1, ( wrapClampMode == VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE ) ? tr.linearClampSampler : tr.linearWrapSampler );
+			descriptorSetWriter.flush();
 		}
-
-		CDescriptorSetWriter descriptorSetWriter( image->descriptorSet );
-		descriptorSetWriter.writeImage( 0, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, image );
-		descriptorSetWriter.writeSampler( 1, ( wrapClampMode == VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE ) ? tr.linearClampSampler : tr.linearWrapSampler );
-		descriptorSetWriter.flush();
 	}
 }
 
@@ -1405,15 +1400,16 @@ void R_CreateBuiltinImages( void ) {
 	// Create the scene image
 	frameBufferBuilder.width = glConfig.vidWidth;
 	frameBufferBuilder.height = glConfig.vidHeight;
-	frameBufferBuilder.addColorAttachment( VK_FORMAT_R16G16B16A16_SFLOAT, true );
-	frameBufferBuilder.addDepthStencilAttachment( VK_FORMAT_D24_UNORM_S8_UINT, true );
+	frameBufferBuilder.addColorAttachment( VK_FORMAT_B8G8R8A8_UNORM );
+	frameBufferBuilder.addDepthStencilAttachment( VK_FORMAT_D24_UNORM_S8_UINT );
 	frameBufferBuilder.build( &tr.sceneFrameBuffer );
 
+#if 0
 	// Create the scene glow image
 	frameBufferBuilder.reset();
 	frameBufferBuilder.width = glConfig.vidWidth;
 	frameBufferBuilder.height = glConfig.vidHeight;
-	frameBufferBuilder.addColorAttachment( VK_FORMAT_R16G16B16A16_SFLOAT, true );
+	frameBufferBuilder.addColorAttachment( VK_FORMAT_B8G8R8A8_UNORM );
 	frameBufferBuilder.addDepthStencilAttachment( tr.sceneFrameBuffer->images[tr.sceneFrameBuffer->depthBufferIndex].i );
 	frameBufferBuilder.build( &tr.glowFrameBuffer );
 
@@ -1427,8 +1423,11 @@ void R_CreateBuiltinImages( void ) {
 	frameBufferBuilder.reset();
 	frameBufferBuilder.width = r_DynamicGlowWidth->integer;
 	frameBufferBuilder.height = r_DynamicGlowHeight->integer;
-	frameBufferBuilder.addColorAttachment( VK_FORMAT_R16G16B16A16_SFLOAT, true );
+	frameBufferBuilder.addColorAttachment( VK_FORMAT_B8G8R8A8_UNORM );
 	frameBufferBuilder.build( &tr.glowBlurFrameBuffer );
+#endif
+
+	frameBufferBuilder.build( &tr.postProcessFrameBuffer );
 
 	// with overbright bits active, we need an image which is some fraction of full color,
 	// for default lightmaps, etc

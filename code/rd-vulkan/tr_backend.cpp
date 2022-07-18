@@ -101,7 +101,8 @@ void VK_BeginFrame( void ) {
 	if( vkState.imagenum == UINT32_MAX ) {
 		// move to the next resource
 		vkState.resnum = ( vkState.resnum + 1 ) % vkState.imgcount;
-		backEndData->cmdbuf = vkState.cmdbuffers[vkState.resnum];
+		backEndData->cmdbuf = vkState.cmdbuffers[2 * vkState.resnum];
+		backEndData->uploadCmdbuf = vkState.cmdbuffers[2 * vkState.resnum + 1];
 		backEndData->semaphore = vkState.semaphores[vkState.resnum];
 
 		res = vkAcquireNextImageKHR(
@@ -138,6 +139,15 @@ void VK_BeginFrame( void ) {
 		if( res != VK_SUCCESS ) {
 			Com_Error( ERR_FATAL, "VK_BeginFrame: failed to begin recording the next command buffer (%d)\n", res );
 		}
+
+		res = vkBeginCommandBuffer( backEndData->uploadCmdbuf, &commandBufferBeginInfo );
+		if( res != VK_SUCCESS ) {
+			Com_Error( ERR_FATAL, "VK_BeginFrame: failed to begin recording the next upload command buffer (%d)\n", res );
+		}
+
+		if( tr.registered ) {
+			R_ClearFrameBuffer( tr.sceneFrameBuffer );
+		}
 	}
 }
 
@@ -145,29 +155,44 @@ void VK_BeginFrame( void ) {
 ** VK_EndFrame
 */
 void VK_EndFrame( void ) {
+	VkCommandBuffer commandBuffers[2];
 	VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
 	VkResult res;
 
 	assert( vkState.imagenum != UINT32_MAX );
 
+	// get the current frame buffer
+	frameBuffer_t *frameBuffer = backEndData->frameBuffer;
+	R_BindFrameBuffer( NULL );
+
+	image_t *renderedImage = tr.screenImage;
+	if( frameBuffer ) {
+		renderedImage = frameBuffer->images[0].i;
+	}
+
 	// copy rendered image to swapchain image
-	VK_SetImageLayout( tr.screenImage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_ACCESS_TRANSFER_READ_BIT );
+	VK_SetImageLayout( renderedImage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_ACCESS_TRANSFER_READ_BIT );
 	VK_SetImageLayout( tr.screenshotImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_ACCESS_TRANSFER_WRITE_BIT );
 	VK_SetImageLayout( backEndData->image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_ACCESS_TRANSFER_WRITE_BIT );
 
-	VK_CopyImage( tr.screenshotImage, tr.screenImage );
-	VK_CopyImage( backEndData->image, tr.screenImage );
+	VK_CopyImage( tr.screenshotImage, renderedImage );
+	VK_CopyImage( backEndData->image, renderedImage );
 
 	// transition the swapchain image to presentable layout
 	VK_SetImageLayout( backEndData->image, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR, VK_ACCESS_TRANSFER_READ_BIT );
 
 	// finish recording of the command buffer and submit it for execution
 	vkEndCommandBuffer( backEndData->cmdbuf );
+	vkEndCommandBuffer( backEndData->uploadCmdbuf );
+
+	// execute upload commands first
+	commandBuffers[0] = backEndData->uploadCmdbuf;
+	commandBuffers[1] = backEndData->cmdbuf;
 
 	VkSubmitInfo submitInfo = {};
 	submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
-	submitInfo.commandBufferCount = 1;
-	submitInfo.pCommandBuffers = &backEndData->cmdbuf;
+	submitInfo.commandBufferCount = ARRAY_LEN( commandBuffers );
+	submitInfo.pCommandBuffers = commandBuffers;
 	submitInfo.waitSemaphoreCount = 1;
 	submitInfo.pWaitSemaphores = &backEndData->semaphore;
 	submitInfo.pWaitDstStageMask = &waitStage;
@@ -243,7 +268,7 @@ void VK_SetImageLayout( image_t *im, VkImageLayout dstLayout, VkAccessFlags dstA
 /*
 ** VK_AlignUniformBufferSize
 */
-int VK_AlignUniformBufferSize(int structureSize) {
+int VK_AlignUniformBufferSize( int structureSize ) {
 	int alignment = vkState.physicalDeviceProperties.limits.minUniformBufferOffsetAlignment;
 
 	// return the next multiple of the alignemt that can fit the whole structure size
@@ -265,6 +290,60 @@ void VK_CopyImage( image_t *dst, image_t *src ) {
 	imageCopy.dstSubresource.layerCount = 1;
 
 	vkCmdCopyImage( backEndData->cmdbuf, src->tex, src->layout, dst->tex, dst->layout, 1, &imageCopy );
+}
+
+/*
+** VK_ClearColorImage
+*/
+void VK_ClearColorImage( image_t *image, const VkClearColorValue *value ) {
+	assert( image->layout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL || image->layout == VK_IMAGE_LAYOUT_GENERAL );
+
+	VkImageSubresourceRange range = {};
+	range.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+	range.levelCount = VK_REMAINING_MIP_LEVELS;
+	range.layerCount = VK_REMAINING_ARRAY_LAYERS;
+
+	vkCmdClearColorImage( backEndData->cmdbuf, image->tex, image->layout, value, 1, &range );
+}
+
+/*
+** VK_ClearDepthStencilImage
+*/
+void VK_ClearDepthStencilImage( image_t *image, const VkClearDepthStencilValue *value ) {
+	assert( image->layout == VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL || image->layout == VK_IMAGE_LAYOUT_GENERAL );
+
+	VkImageSubresourceRange range = {};
+	range.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT;
+	range.levelCount = VK_REMAINING_MIP_LEVELS;
+	range.layerCount = VK_REMAINING_ARRAY_LAYERS;
+
+	vkCmdClearDepthStencilImage( backEndData->cmdbuf, image->tex, image->layout, value, 1, &range );
+}
+
+/*
+** VK_AllocateDescriptorSet
+*/
+void VK_AllocateDescriptorSet( VkDescriptorSetLayout layout, VkDescriptorSet *set ) {
+	VkDescriptorSetAllocateInfo allocateInfo;
+	VkResult res;
+
+	allocateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+	allocateInfo.pNext = NULL;
+	allocateInfo.descriptorPool = vkState.descriptorPool;
+	allocateInfo.descriptorSetCount = 1;
+	allocateInfo.pSetLayouts = &layout;
+
+	res = vkAllocateDescriptorSets( vkState.device, &allocateInfo, set );
+	if( res != VK_SUCCESS ) {
+		Com_Error( ERR_FATAL, "AllocVulkanDescriptorSet: failed to allocate descriptor set (%d)\n", res );
+	}
+}
+
+/*
+** VK_DeleteDescriptorSet
+*/
+void VK_DeleteDescriptorSet( VkDescriptorSet set ) {
+	vkFreeDescriptorSets( vkState.device, vkState.descriptorPool, 1, &set );
 }
 
 
@@ -808,10 +887,10 @@ const void *RB_SetColor( const void *data ) {
 
 	cmd = (const setColorCommand_t *)data;
 
-	backEnd.color2D.r = (byte)(cmd->color[0] * 255);
-	backEnd.color2D.g = (byte)(cmd->color[1] * 255);
-	backEnd.color2D.b = (byte)(cmd->color[2] * 255);
-	backEnd.color2D.a = (byte)(cmd->color[3] * 255);
+	backEnd.color2D.r = (byte)( cmd->color[0] * 255 );
+	backEnd.color2D.g = (byte)( cmd->color[1] * 255 );
+	backEnd.color2D.b = (byte)( cmd->color[2] * 255 );
+	backEnd.color2D.a = (byte)( cmd->color[3] * 255 );
 
 	return (const void *)( cmd + 1 );
 }
@@ -831,6 +910,7 @@ const void *RB_StretchPic( const void *data ) {
 	const VkDeviceSize vertexOffset = offsetof( strectPicVertexData_t, vertices );
 	const stretchPicCommand_t *cmd;
 	shader_t *shader;
+	drawCommand_t *draw;
 
 	cmd = (const stretchPicCommand_t *)data;
 
@@ -845,15 +925,16 @@ const void *RB_StretchPic( const void *data ) {
 
 	RB_CHECKOVERFLOW();
 
-	tr.dynamicVertexBuffer->numIndexes += 6;
-	tr.dynamicVertexBuffer->numVertexes += 4;
+	tr.dynamicVertexBuffer->numIndexes = 6;
+	tr.dynamicVertexBuffer->numVertexes = 4;
+	tr.dynamicVertexBuffer->vertexOffset = vertexOffset;
 
 	vertexData.indices[0] = 0;
-	vertexData.indices[1] = 1;
-	vertexData.indices[2] = 2;
+	vertexData.indices[1] = 2;
+	vertexData.indices[2] = 1;
 	vertexData.indices[3] = 0;
-	vertexData.indices[4] = 2;
-	vertexData.indices[5] = 3;
+	vertexData.indices[4] = 3;
+	vertexData.indices[5] = 2;
 
 	vertexData.vertices[0].position.x = cmd->x;
 	vertexData.vertices[0].position.y = cmd->y;
@@ -885,7 +966,9 @@ const void *RB_StretchPic( const void *data ) {
 
 	vkCmdUpdateBuffer( backEndData->cmdbuf, tr.dynamicVertexBuffer->b.buf, 0, sizeof( vertexData ), &vertexData );
 
-	RB_DrawSurface( tr.dynamicVertexBuffer );
+	draw = RB_DrawSurface();
+	draw->vertexBuffer = tr.dynamicVertexBuffer;
+	draw->modelDescriptorSet = tr.identityModelDescriptorSet;
 
 	// todo: remove
 	RB_EndSurface();
@@ -904,6 +987,7 @@ const void *RB_RotatePic( const void *data ) {
 	const VkDeviceSize vertexOffset = offsetof( strectPicVertexData_t, vertices );
 	const rotatePicCommand_t *cmd;
 	shader_t *shader;
+	drawCommand_t *draw;
 
 	cmd = (const rotatePicCommand_t *)data;
 
@@ -928,8 +1012,9 @@ const void *RB_RotatePic( const void *data ) {
 		{ cmd->x + cmd->w, cmd->y, 1.0f }
 	};
 
-	tr.dynamicVertexBuffer->numIndexes += 6;
-	tr.dynamicVertexBuffer->numVertexes += 4;
+	tr.dynamicVertexBuffer->numIndexes = 6;
+	tr.dynamicVertexBuffer->numVertexes = 4;
+	tr.dynamicVertexBuffer->vertexOffset = vertexOffset;
 
 	vertexData.indices[0] = 0;
 	vertexData.indices[1] = 1;
@@ -968,7 +1053,9 @@ const void *RB_RotatePic( const void *data ) {
 
 	vkCmdUpdateBuffer( backEndData->cmdbuf, tr.dynamicVertexBuffer->b.buf, 0, sizeof( vertexData ), &vertexData );
 
-	RB_DrawSurface( tr.dynamicVertexBuffer );
+	draw = RB_DrawSurface();
+	draw->vertexBuffer = tr.dynamicVertexBuffer;
+	draw->modelDescriptorSet = tr.identityModelDescriptorSet;
 
 	// todo: remove
 	RB_EndSurface();
@@ -986,6 +1073,7 @@ const void *RB_RotatePic2( const void *data ) {
 	const VkDeviceSize vertexOffset = offsetof( strectPicVertexData_t, vertices );
 	const rotatePicCommand_t *cmd;
 	shader_t *shader;
+	drawCommand_t *draw;
 
 	cmd = (const rotatePicCommand_t *)data;
 	shader = cmd->shader;
@@ -1012,8 +1100,9 @@ const void *RB_RotatePic2( const void *data ) {
 			{ cmd->x, cmd->y, 1.0f }
 		};
 
-		tr.dynamicVertexBuffer->numIndexes += 6;
-		tr.dynamicVertexBuffer->numVertexes += 4;
+		tr.dynamicVertexBuffer->numIndexes = 6;
+		tr.dynamicVertexBuffer->numVertexes = 4;
+		tr.dynamicVertexBuffer->vertexOffset = vertexOffset;
 
 		vertexData.indices[0] = 0;
 		vertexData.indices[1] = 1;
@@ -1052,7 +1141,9 @@ const void *RB_RotatePic2( const void *data ) {
 
 		vkCmdUpdateBuffer( backEndData->cmdbuf, tr.dynamicVertexBuffer->b.buf, 0, sizeof( vertexData ), &vertexData );
 
-		RB_DrawSurface( tr.dynamicVertexBuffer );
+		draw = RB_DrawSurface();
+		draw->vertexBuffer = tr.dynamicVertexBuffer;
+		draw->modelDescriptorSet = tr.identityModelDescriptorSet;
 
 		// todo: remove
 		RB_EndSurface();
@@ -1556,6 +1647,10 @@ R_BindFrameBuffer
 ====================
 */
 void R_BindFrameBuffer( frameBuffer_t *frameBuffer ) {
+	if( backEndData->frameBuffer == frameBuffer ) {
+		return;
+	}
+
 	if( backEndData->frameBuffer ) {
 		vkCmdEndRenderPass( backEndData->cmdbuf );
 	}
@@ -1596,4 +1691,25 @@ void R_DeleteFrameBuffer( frameBuffer_t *frameBuffer ) {
 		}
 	}
 	R_Free( frameBuffer );
+}
+
+void R_ClearFrameBuffer( frameBuffer_t *frameBuffer ) {
+	image_t *image;
+	VkClearValue *clearValue;
+	int i;
+
+	for( i = 0; i < frameBuffer->numImages; ++i ) {
+		image = frameBuffer->images[i].i;
+		clearValue = &frameBuffer->clearValues[i];
+
+		// transition the image to transfer dst optimal layout
+		VK_SetImageLayout( image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_ACCESS_TRANSFER_WRITE_BIT );
+
+		if( i == frameBuffer->depthBufferIndex ) {
+			VK_ClearDepthStencilImage( image, &clearValue->depthStencil );
+		}
+		else {
+			VK_ClearColorImage( image, &clearValue->color );
+		}
+	}
 }

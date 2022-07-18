@@ -705,17 +705,17 @@ static void InitVulkanObjects( void ) {
 	}
 }
 
-void InitVulkanDescriptorSets( void ) {
+void InitVulkanDescriptorSetLayouts( void ) {
 	CDescriptorSetLayoutBuilder builder;
 
 	// common descriptor set layout
 	builder.reset();
-	builder.addBinding( VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER );	// tr
-	builder.addBinding( VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER );	// tr_funcs
-	builder.addBinding( VK_DESCRIPTOR_TYPE_STORAGE_BUFFER );	// tr_lightGridData
-	builder.addBinding( VK_DESCRIPTOR_TYPE_STORAGE_BUFFER );	// tr_lightGridArray
-	builder.addBinding( VK_DESCRIPTOR_TYPE_STORAGE_BUFFER );	// tr_fogs
-	builder.addBinding( VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE );		// tr_noise
+	builder.addBinding( VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER ); // tr
+	builder.addBinding( VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER ); // tr_funcs
+	builder.addBinding( VK_DESCRIPTOR_TYPE_STORAGE_BUFFER ); // tr_lightGridData
+	builder.addBinding( VK_DESCRIPTOR_TYPE_STORAGE_BUFFER ); // tr_lightGridArray
+	builder.addBinding( VK_DESCRIPTOR_TYPE_STORAGE_BUFFER ); // tr_fogs
+	builder.addBinding( VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE );	 // tr_noise
 	builder.build( &tr.commonDescriptorSetLayout );
 
 	// samplers descriptor set layout
@@ -739,6 +739,28 @@ void InitVulkanDescriptorSets( void ) {
 	builder.addBinding( VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE );
 	builder.addBinding( VK_DESCRIPTOR_TYPE_SAMPLER );
 	builder.build( &tr.textureDescriptorSetLayout );
+}
+
+void InitVulkanDescriptorSets( void ) {
+	CDescriptorSetWriter writer( VK_NULL_HANDLE );
+
+	// common descriptor set
+	VK_AllocateDescriptorSet( tr.commonDescriptorSetLayout, &tr.commonDescriptorSet );
+
+	writer.reset( tr.commonDescriptorSet );
+	writer.writeBuffer( 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, tr.globalsBuffer );
+	writer.writeBuffer( 1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, tr.funcTablesBuffer );
+	writer.flush();
+
+	// samplers descriptor set
+	VK_AllocateDescriptorSet( tr.samplerDescriptorSetLayout, &tr.samplerDescriptorSet );
+
+	// identity model descriptor set
+	VK_AllocateDescriptorSet( tr.modelDescriptorSetLayout, &tr.identityModelDescriptorSet );
+
+	writer.reset( tr.identityModelDescriptorSet );
+	writer.writeBuffer( 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, tr.identityModelBuffer );
+	writer.flush();
 }
 
 void VK_InitSwapchain( void ) {
@@ -856,9 +878,9 @@ void VK_InitSwapchain( void ) {
 			commandBufferAllocateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
 			commandBufferAllocateInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
 			commandBufferAllocateInfo.commandPool = vkState.cmdpool;
-			commandBufferAllocateInfo.commandBufferCount = imageCount - vkState.imgcount;
+			commandBufferAllocateInfo.commandBufferCount = (imageCount - vkState.imgcount) * 2;
 
-			res = vkAllocateCommandBuffers( vkState.device, &commandBufferAllocateInfo, vkState.cmdbuffers + vkState.imgcount );
+			res = vkAllocateCommandBuffers( vkState.device, &commandBufferAllocateInfo, vkState.cmdbuffers + (vkState.imgcount * 2) );
 			if( res != VK_SUCCESS ) {
 				Com_Error( ERR_FATAL, "VK_InitSwapchain: failed to allocate %d command buffers for new swapchain images (%d)\n",
 						commandBufferAllocateInfo.commandBufferCount, res );
@@ -928,7 +950,7 @@ static void VK_Init( void ) {
 		// initialize the device on the selected display adapter
 		InitVulkanDevice();
 		InitVulkanObjects();
-		InitVulkanDescriptorSets();
+		InitVulkanDescriptorSetLayouts();
 
 		VK_InitSwapchain();
 
@@ -1911,6 +1933,8 @@ void R_Init( void ) {
 	R_ModelInit();
 	R_InitWorldEffects();
 	R_InitFonts();
+
+	InitVulkanDescriptorSets();
 
 	RestoreGhoul2InfoArray();
 	// print info

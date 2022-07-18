@@ -241,28 +241,38 @@ void SPV_InitShadeShaders( void ) {
 	// use the default pipeline layout
 	pipelineLayoutBuilder.build( &tr.shadePipelineLayout );
 
-	pipelineBuilder.pipelineCreateInfo.layout = tr.shadePipelineLayout;
-	pipelineBuilder.pipelineCreateInfo.renderPass = tr.sceneFrameBuffer->renderPass;
-	pipelineBuilder.pipelineCreateInfo.subpass = 0;
+	SPV_InitShadePipelineBuilder( &pipelineBuilder );
 
-	// setup the pipeline shader stages
-	pipelineBuilder.setShader( VK_SHADER_STAGE_VERTEX_BIT, tr_shade_VS );
-	pipelineBuilder.setShader( VK_SHADER_STAGE_FRAGMENT_BIT, tr_shade_PS );
-
-	// setup the vertex input
-	pipelineBuilder.vertexBinding.binding = 0;
-	pipelineBuilder.vertexBinding.stride = sizeof( tr_shader::vertex_t );
-	pipelineBuilder.vertexBinding.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
-
-	pipelineBuilder.addVertexAttributes<tr_shader::vertex_t>();
+	pipelineBuilder.pipelineCreateInfo.flags = VK_PIPELINE_CREATE_ALLOW_DERIVATIVES_BIT;
 
 	// setup the color blend state
 	VkPipelineColorBlendAttachmentState attachmentBlend = {};
 	pipelineBuilder.colorBlend.attachmentCount = 1;
 	pipelineBuilder.colorBlend.pAttachments = &attachmentBlend;
-	attachmentBlend.blendEnable = VK_FALSE;
+	attachmentBlend.blendEnable = VK_TRUE;
 	attachmentBlend.colorWriteMask = 0xF;
+
+	attachmentBlend.colorBlendOp = VK_BLEND_OP_ADD;
+	attachmentBlend.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+	attachmentBlend.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
 
 	// create the shade pipeline
 	pipelineBuilder.build( &tr.shadePipeline );
+}
+
+void SPV_InitShadePipelineBuilder( CPipelineBuilder *builder ) {
+	builder->pipelineCreateInfo.layout = tr.shadePipelineLayout;
+	builder->pipelineCreateInfo.renderPass = tr.sceneFrameBuffer->renderPass;
+	builder->pipelineCreateInfo.subpass = 0;
+
+	// setup the pipeline shader stages
+	builder->setShader( VK_SHADER_STAGE_VERTEX_BIT, tr_shade_VS );
+	builder->setShader( VK_SHADER_STAGE_FRAGMENT_BIT, tr_shade_PS );
+
+	// setup the vertex input
+	builder->vertexBinding.binding = 0;
+	builder->vertexBinding.stride = sizeof( tr_shader::vertex_t );
+	builder->vertexBinding.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+
+	builder->addVertexAttributes<tr_shader::vertex_t>();
 }

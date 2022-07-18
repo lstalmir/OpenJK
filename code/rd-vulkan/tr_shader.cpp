@@ -1231,31 +1231,31 @@ static qboolean ParseStage( shaderStage_t *stage, const char **text )
 
 			if ( !Q_stricmp( token, "$whiteimage" ) )
 			{
-				stage->shaderData.bundle[0].cppData.image = tr.whiteImage;
+				stage->bundle[0].image = tr.whiteImage;
 				continue;
 			}
 			else if ( !Q_stricmp( token, "$lightmap" ) )
 			{
 				stage->shaderData.bundle[0].isLightmap = true;
 				if ( shader.lightmapIndex[0] < 0 ) {
-					stage->shaderData.bundle[0].cppData.image = tr.whiteImage;
+					stage->bundle[0].image = tr.whiteImage;
 #ifndef FINAL_BUILD
 					//ri.Printf( PRINT_WARNING, "WARNING: $lightmap requested but none available '%s'\n", shader.name );
 #endif
 				} else {
-					stage->shaderData.bundle[0].cppData.image = tr.lightmaps[shader.lightmapIndex[0]];
+					stage->bundle[0].image = tr.lightmaps[shader.lightmapIndex[0]];
 				}
 				continue;
 			}
 			else
 			{
-				stage->shaderData.bundle[0].cppData.image = R_FindImageFile(
+				stage->bundle[0].image = R_FindImageFile(
 					token,
 					(qboolean)!shader.noMipMaps,
 					(qboolean)!shader.noPicMip,
 					(qboolean)!shader.noTC,
 					VK_SAMPLER_ADDRESS_MODE_REPEAT );
-				if( !stage->shaderData.bundle[0].cppData.image )
+				if( !stage->bundle[0].image )
 				{
 					ri.Printf( PRINT_WARNING, "WARNING: R_FindImageFile could not find '%s' in shader '%s'\n", token, shader.name );
 					return qfalse;
@@ -1274,13 +1274,13 @@ static qboolean ParseStage( shaderStage_t *stage, const char **text )
 				return qfalse;
 			}
 
-			stage->shaderData.bundle[0].cppData.image = R_FindImageFile(
+			stage->bundle[0].image = R_FindImageFile(
 				token,
 				(qboolean)!shader.noMipMaps,
 				(qboolean)!shader.noPicMip,
 				(qboolean)!shader.noTC,
 				VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE );
-			if( !stage->shaderData.bundle[0].cppData.image )
+			if( !stage->bundle[0].image )
 			{
 				ri.Printf( PRINT_WARNING, "WARNING: R_FindImageFile could not find '%s' in shader '%s'\n", token, shader.name );
 				return qfalse;
@@ -1330,8 +1330,8 @@ static qboolean ParseStage( shaderStage_t *stage, const char **text )
 				}
 			}
 			// Copy image ptrs into an array of ptrs
-			stage->shaderData.bundle[0].cppData.image = (image_t *)R_Hunk_Alloc( stage->shaderData.bundle[0].numImageAnimations * sizeof( image_t * ), qfalse );
-			memcpy( stage->shaderData.bundle[0].cppData.image, images, stage->shaderData.bundle[0].numImageAnimations * sizeof( image_t * ) );
+			stage->bundle[0].image = (image_t *)R_Hunk_Alloc( stage->shaderData.bundle[0].numImageAnimations * sizeof( image_t * ), qfalse );
+			memcpy( stage->bundle[0].image, images, stage->shaderData.bundle[0].numImageAnimations * sizeof( image_t * ) );
 		}
 		else if ( !Q_stricmp( token, "videoMap" ) )
 		{
@@ -1341,10 +1341,10 @@ static qboolean ParseStage( shaderStage_t *stage, const char **text )
 				ri.Printf( PRINT_WARNING, "WARNING: missing parameter for 'videoMap' keyword in shader '%s'\n", shader.name );
 				return qfalse;
 			}
-			stage->shaderData.bundle[0].cppData.videoMapHandle = ri.CIN_PlayCinematic( token, 0, 0, 256, 256, ( CIN_loop | CIN_silent | CIN_shader ), NULL );
-			if( stage->shaderData.bundle[0].cppData.videoMapHandle != -1 ) {
+			stage->bundle[0].videoMapHandle = ri.CIN_PlayCinematic( token, 0, 0, 256, 256, ( CIN_loop | CIN_silent | CIN_shader ), NULL );
+			if( stage->bundle[0].videoMapHandle != -1 ) {
 				stage->shaderData.bundle[0].isVideoMap = true;
-				stage->shaderData.bundle[0].cppData.image = tr.scratchImage[stage->shaderData.bundle[0].cppData.videoMapHandle];
+				stage->bundle[0].image = tr.scratchImage[stage->bundle[0].videoMapHandle];
 			}
 		}
 		//
@@ -2963,9 +2963,22 @@ Returns a freshly allocated shader with all the needed info
 from the current global working shader
 =========================
 */
+VkBlendFactor GetBlendFactor( int blendStateBits );
 static shader_t *FinishShader( void ) {
 	int				stage, lmStage, stageIndex;
 	qboolean		hasLightmapStage;
+	CPipelineBuilder pipelineBuilder;
+
+	// initialize the pipeline builder with the default pipeline state
+	SPV_InitShadePipelineBuilder( &pipelineBuilder );
+
+	pipelineBuilder.pipelineCreateInfo.flags = VK_PIPELINE_CREATE_DERIVATIVE_BIT;
+	pipelineBuilder.pipelineCreateInfo.basePipelineHandle = tr.shadePipeline;
+	pipelineBuilder.pipelineCreateInfo.basePipelineIndex = -1;
+	pipelineBuilder.pipelineCreateInfo.layout = tr.shadePipelineLayout;
+	pipelineBuilder.pipelineCreateInfo.renderPass = tr.sceneFrameBuffer->renderPass;
+	pipelineBuilder.pipelineCreateInfo.subpass = 0;
+
 
 	hasLightmapStage = qfalse;
 
@@ -3035,7 +3048,7 @@ static shader_t *FinishShader( void ) {
 				stages[lmStage+i+1] = stages[lmStage];
 				if (shader.lightmapIndex[i+1] == LIGHTMAP_BY_VERTEX)
 				{
-					stages[lmStage + i + 1].shaderData.bundle[0].cppData.image = tr.whiteImage;
+					stages[lmStage + i + 1].bundle[0].image = tr.whiteImage;
 				}
 				else if (shader.lightmapIndex[i+1] < 0)
 				{
@@ -3043,7 +3056,7 @@ static shader_t *FinishShader( void ) {
 				}
 				else
 				{
-					stages[lmStage+i+1].shaderData.bundle[0].cppData.image = tr.lightmaps[shader.lightmapIndex[i+1]];
+					stages[lmStage+i+1].bundle[0].image = tr.lightmaps[shader.lightmapIndex[i+1]];
 					stages[lmStage+i+1].shaderData.bundle[0].tcGen = (texCoordGen_t)(texCoordGen_t::TCGEN_LIGHTMAP+i+1);
 				}
 				stages[lmStage + i + 1].shaderData.rgbGen = colorGen_t::CGEN_LIGHTMAPSTYLE;
@@ -3070,7 +3083,7 @@ static shader_t *FinishShader( void ) {
 		}
 
 		// check for a missing texture
-		if( !pStage->shaderData.bundle[0].cppData.image ) {
+		if( !pStage->bundle[0].image ) {
 			ri.Printf( PRINT_WARNING, "Shader %s has a stage with no image\n", shader.name );
 			pStage->active = false;
 			stage++;
@@ -3215,6 +3228,86 @@ static shader_t *FinishShader( void ) {
 		}
 		//rww - end hw fog
 
+		//
+		// allocate the stage buffer
+		//
+		pStage->shaderBuffer = R_CreateBuffer( sizeof( pStage->shaderData ),
+			VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, 0 );
+
+		//
+		// allocate and initialize the descriptor set
+		//
+		VK_AllocateDescriptorSet( tr.shaderDescriptorSetLayout, &pStage->descriptorSet );
+
+		CDescriptorSetWriter descriptorSetWriter( pStage->descriptorSet );
+		descriptorSetWriter.writeBuffer( 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, pStage->shaderBuffer );
+		descriptorSetWriter.flush();
+
+		//
+		// compile shade pipeline
+		//
+		{
+			bool useNonStandardShadePipeline = false;
+
+			// depth test
+			//if( pStage->stateBits & GLS_DEPTHTEST_DISABLE )
+			{
+				pipelineBuilder.depthStencil.depthTestEnable = VK_FALSE;
+				pipelineBuilder.depthStencil.depthWriteEnable = VK_FALSE;
+				useNonStandardShadePipeline = true;
+			}
+			//else {
+			//	pipelineBuilder.depthStencil.depthTestEnable = VK_TRUE;
+			//	pipelineBuilder.depthStencil.depthWriteEnable = VK_TRUE;
+			//}
+
+			if( pStage->stateBits & GLS_DEPTHFUNC_EQUAL ) {
+				pipelineBuilder.depthStencil.depthCompareOp = VK_COMPARE_OP_EQUAL;
+				useNonStandardShadePipeline = true;
+			}
+			else {
+				pipelineBuilder.depthStencil.depthCompareOp = VK_COMPARE_OP_LESS;
+			}
+
+			// rasterization
+			if( pStage->stateBits & GLS_POLYMODE_LINE ) {
+				pipelineBuilder.rasterization.polygonMode = VK_POLYGON_MODE_LINE;
+				useNonStandardShadePipeline = true;
+			}
+			else {
+				pipelineBuilder.rasterization.polygonMode = VK_POLYGON_MODE_FILL;
+			}
+
+			// color blend
+			VkPipelineColorBlendAttachmentState colorBlend = {};
+			colorBlend.blendEnable = VK_FALSE;
+			colorBlend.colorWriteMask = 0xF;
+
+			int srcBlendState = ( pStage->stateBits & GLS_SRCBLEND_BITS );
+			int dstBlendState = ( pStage->stateBits & GLS_DSTBLEND_BITS );
+			if( srcBlendState || dstBlendState ) {
+				colorBlend.blendEnable = VK_TRUE;
+				colorBlend.colorBlendOp = VK_BLEND_OP_ADD;
+				colorBlend.srcColorBlendFactor = GetBlendFactor( srcBlendState );
+				colorBlend.dstColorBlendFactor = GetBlendFactor( dstBlendState );
+				colorBlend.alphaBlendOp = VK_BLEND_OP_ADD;
+				colorBlend.srcAlphaBlendFactor = colorBlend.srcColorBlendFactor;
+				colorBlend.dstAlphaBlendFactor = colorBlend.dstColorBlendFactor;
+				useNonStandardShadePipeline = true;
+			}
+
+			pipelineBuilder.colorBlend.attachmentCount = 1;
+			pipelineBuilder.colorBlend.pAttachments = &colorBlend;
+
+			// create the pipeline
+			if( useNonStandardShadePipeline ) {
+				pipelineBuilder.build( &pStage->pipeline );
+			}
+			else {
+				pStage->pipeline = VK_NULL_HANDLE;
+			}
+		}
+
 		stageIndex++;
 		stage++;
 	}
@@ -3248,7 +3341,6 @@ static shader_t *FinishShader( void ) {
 		memcpy(shader.styles, stylesDefault, sizeof(shader.styles));
 	}
 
-
 	//
 	// compute number of passes
 	//
@@ -3260,6 +3352,40 @@ static shader_t *FinishShader( void ) {
 	}
 
 	return GeneratePermanentShader();
+}
+
+VkBlendFactor GetBlendFactor(int blendStateBits) {
+	switch (blendStateBits) {
+	default:
+	case GLS_SRCBLEND_ONE:
+	case GLS_DSTBLEND_ONE:
+		return VK_BLEND_FACTOR_ONE;
+	case GLS_SRCBLEND_ZERO:
+	case GLS_DSTBLEND_ZERO:
+		return VK_BLEND_FACTOR_ZERO;
+	case GLS_SRCBLEND_DST_COLOR:
+		return VK_BLEND_FACTOR_DST_COLOR;
+	case GLS_DSTBLEND_SRC_COLOR:
+		return VK_BLEND_FACTOR_SRC_COLOR;
+	case GLS_SRCBLEND_ONE_MINUS_DST_COLOR:
+		return VK_BLEND_FACTOR_ONE_MINUS_DST_COLOR;
+	case GLS_DSTBLEND_ONE_MINUS_SRC_COLOR:
+		return VK_BLEND_FACTOR_ONE_MINUS_SRC_COLOR;
+	case GLS_SRCBLEND_SRC_ALPHA:
+	case GLS_DSTBLEND_SRC_ALPHA:
+		return VK_BLEND_FACTOR_SRC_ALPHA;
+	case GLS_SRCBLEND_ONE_MINUS_SRC_ALPHA:
+	case GLS_DSTBLEND_ONE_MINUS_SRC_ALPHA:
+		return VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+	case GLS_SRCBLEND_DST_ALPHA:
+	case GLS_DSTBLEND_DST_ALPHA:
+		return VK_BLEND_FACTOR_DST_ALPHA;
+	case GLS_SRCBLEND_ONE_MINUS_DST_ALPHA:
+	case GLS_DSTBLEND_ONE_MINUS_DST_ALPHA:
+		return VK_BLEND_FACTOR_ONE_MINUS_DST_ALPHA;
+	case GLS_SRCBLEND_ALPHA_SATURATE:
+		return VK_BLEND_FACTOR_SRC_ALPHA_SATURATE;
+	}
 }
 
 //========================================================================================
@@ -3504,20 +3630,20 @@ shader_t *R_FindShader( const char *name, const int *lightmapIndex, const byte *
 	//
 	if ( shader.lightmapIndex[0] == LIGHTMAP_NONE ) {
 		// dynamic colors at vertexes
-		stages[0].shaderData.bundle[0].cppData.image = image;
+		stages[0].bundle[0].image = image;
 		stages[0].active = true;
 		stages[0].shaderData.rgbGen = colorGen_t::CGEN_LIGHTING_DIFFUSE;
 		stages[0].stateBits = GLS_DEFAULT;
 	} else if ( shader.lightmapIndex[0] == LIGHTMAP_BY_VERTEX ) {
 		// explicit colors at vertexes
-		stages[0].shaderData.bundle[0].cppData.image = image;
+		stages[0].bundle[0].image = image;
 		stages[0].active = true;
 		stages[0].shaderData.rgbGen = colorGen_t::CGEN_EXACT_VERTEX;
 		stages[0].shaderData.alphaGen = alphaGen_t::AGEN_SKIP;
 		stages[0].stateBits = GLS_DEFAULT;
 	} else if ( shader.lightmapIndex[0] == LIGHTMAP_2D ) {
 		// GUI elements
-		stages[0].shaderData.bundle[0].cppData.image = image;
+		stages[0].bundle[0].image = image;
 		stages[0].active = true;
 		stages[0].shaderData.rgbGen = colorGen_t::CGEN_VERTEX;
 		stages[0].shaderData.alphaGen = alphaGen_t::AGEN_VERTEX;
@@ -3526,18 +3652,18 @@ shader_t *R_FindShader( const char *name, const int *lightmapIndex, const byte *
 			  GLS_DSTBLEND_ONE_MINUS_SRC_ALPHA;
 	} else if ( shader.lightmapIndex[0] == LIGHTMAP_WHITEIMAGE ) {
 		// fullbright level
-		stages[0].shaderData.bundle[0].cppData.image = tr.whiteImage;
+		stages[0].bundle[0].image = tr.whiteImage;
 		stages[0].active = true;
 		stages[0].shaderData.rgbGen = colorGen_t::CGEN_IDENTITY_LIGHTING;
 		stages[0].stateBits = GLS_DEFAULT;
 
-		stages[1].shaderData.bundle[0].cppData.image = image;
+		stages[1].bundle[0].image = image;
 		stages[1].active = true;
 		stages[1].shaderData.rgbGen = colorGen_t::CGEN_IDENTITY;
 		stages[1].stateBits |= GLS_SRCBLEND_DST_COLOR | GLS_DSTBLEND_ZERO;
 	} else {
 		// two pass lightmap
-		stages[0].shaderData.bundle[0].cppData.image = tr.lightmaps[shader.lightmapIndex[0]];
+		stages[0].bundle[0].image = tr.lightmaps[shader.lightmapIndex[0]];
 		stages[0].shaderData.bundle[0].isLightmap = true;
 		stages[0].active = true;
 		stages[0].shaderData.rgbGen = colorGen_t::CGEN_IDENTITY; // lightmaps are scaled on creation
@@ -3546,7 +3672,7 @@ shader_t *R_FindShader( const char *name, const int *lightmapIndex, const byte *
 													// that this will always be on
 		stages[0].stateBits = GLS_DEFAULT;
 
-		stages[1].shaderData.bundle[0].cppData.image = image;
+		stages[1].bundle[0].image = image;
 		stages[1].active = true;
 		stages[1].shaderData.rgbGen = colorGen_t::CGEN_IDENTITY;
 		stages[1].stateBits |= GLS_SRCBLEND_DST_COLOR | GLS_DSTBLEND_ZERO;
@@ -3694,28 +3820,6 @@ void	R_ShaderList_f (void) {
 	ri.Printf (PRINT_ALL, "------------------\n");
 }
 
-/*
-===============
-RB_SetShader
-
-Binds the shader to the current command buffer
-===============
-*/
-void RB_SetShader( shader_t *shader ) {
-
-	if( backEndData->pipeline == shader->pipeline ) {
-		assert( backEndData->pipelineLayout == shader->layout );
-		return;
-	}
-
-	vkCmdBindPipeline( backEndData->cmdbuf, VK_PIPELINE_BIND_POINT_GRAPHICS, shader->pipeline );
-
-	// update the context
-	backEndData->pipeline = shader->pipeline;
-	backEndData->pipelineLayout = shader->layout;
-}
-
-
 
 #ifdef USE_STL_FOR_SHADER_LOOKUPS
 // setup my STL shortcut list as to where all the shaders are, saves re-parsing every line for every .TGA request.
@@ -3842,6 +3946,10 @@ CreateInternalShaders
 ====================
 */
 static void CreateInternalShaders( void ) {
+	SPV_InitGlowShaders();
+	SPV_InitWireframeShaders();
+	SPV_InitShadeShaders();
+
 	tr.numShaders = 0;
 	tr.iNumDeniedShaders = 0;
 
@@ -3856,7 +3964,7 @@ static void CreateInternalShaders( void ) {
 	for ( int i = 0 ; i < MAX_SHADER_STAGES ; i++ ) {
 		memcpy( stages[i].shaderData.bundle[0].texMods, texMods[i], sizeof( texMods[i] ) );
 	}
-	stages[0].shaderData.bundle[0].cppData.image = tr.defaultImage;
+	stages[0].bundle[0].image = tr.defaultImage;
 	stages[0].active = true;
 	stages[0].stateBits = GLS_DEFAULT;
 	tr.defaultShader = FinishShader();
@@ -3872,10 +3980,6 @@ static void CreateInternalShaders( void ) {
 	shader.defaultShader = false;
 	tr.distortionShader = FinishShader();
 	shader.defaultShader = true;
-
-	SPV_InitGlowShaders();
-	SPV_InitWireframeShaders();
-	SPV_InitShadeShaders();
 }
 
 static void CreateExternalShaders( void ) {
@@ -3902,27 +4006,6 @@ Ghoul2 Insert Start
 /*
 Ghoul2 Insert End
 */
-
-	// initialize the frame buffers
-	frameBufferBuilder.width = glConfig.vidWidth;
-	frameBufferBuilder.height = glConfig.vidHeight;
-	frameBufferBuilder.addColorAttachment( VK_FORMAT_B8G8R8A8_UNORM );
-	frameBufferBuilder.addDepthStencilAttachment( VK_FORMAT_D24_UNORM_S8_UINT, true );
-	frameBufferBuilder.build( &tr.sceneFrameBuffer );
-
-	frameBufferBuilder.reset();
-	frameBufferBuilder.width = glConfig.vidWidth;
-	frameBufferBuilder.height = glConfig.vidHeight;
-	frameBufferBuilder.addColorAttachment( VK_FORMAT_B8G8R8A8_UNORM );
-	frameBufferBuilder.addDepthStencilAttachment( tr.sceneFrameBuffer->images[tr.sceneFrameBuffer->depthBufferIndex].i );
-	frameBufferBuilder.build( &tr.glowFrameBuffer );
-
-	frameBufferBuilder.reset();
-	frameBufferBuilder.width = glConfig.vidWidth;
-	frameBufferBuilder.height = glConfig.vidHeight;
-	frameBufferBuilder.addColorAttachment( VK_FORMAT_B8G8R8A8_UNORM );
-	frameBufferBuilder.build( &tr.glowBlurFrameBuffer );
-	frameBufferBuilder.build( &tr.postProcessFrameBuffer );
 
 	CreateInternalShaders();
 

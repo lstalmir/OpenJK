@@ -981,7 +981,8 @@ private:
 
 	bool		mPopulated;
 
-	shader_t	*mShader;
+	VkPipeline	mPipeline;
+	VkPipelineLayout mPipelineLayout;
 
 	int			mDescriptorSetLocation;
 	VkDescriptorSet mDescriptorSet;
@@ -1070,44 +1071,15 @@ public:
 	void		Compile()
 	{
 		VkResult res;
-		VkWriteDescriptorSet descriptorSetUpdates[2] = {};
-		VkDescriptorImageInfo descriptors[2] = {};
 
 		if( mDescriptorSet == VK_NULL_HANDLE ) {
-			VkDescriptorSetAllocateInfo descriptorSetAllocateInfo = {};
-
-			descriptorSetAllocateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
-			descriptorSetAllocateInfo.descriptorSetCount = 1;
-			descriptorSetAllocateInfo.pSetLayouts = &mDescriptorSetLayout;
-
-			res = vkAllocateDescriptorSets( vkState.device, &descriptorSetAllocateInfo, &mDescriptorSet );
-			if (res != VK_SUCCESS) {
-				Com_Error( ERR_DROP, "CParticleCloud::Compile: failed to allocate descriptor set (%d)\n", res );
-			}
+			VK_AllocateDescriptorSet( mDescriptorSetLayout, &mDescriptorSet );
 		}
 
-		// update image
-		descriptorSetUpdates[0].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-		descriptorSetUpdates[0].dstSet = mDescriptorSet;
-		descriptorSetUpdates[0].dstBinding = 0;
-		descriptorSetUpdates[0].descriptorCount = 1;
-		descriptorSetUpdates[0].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
-		descriptorSetUpdates[0].pImageInfo = &descriptors[0];
-		descriptors[0].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-		descriptors[0].imageView = mImage->texview;
-
-		// update sampler
-		descriptorSetUpdates[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-		descriptorSetUpdates[1].dstSet = mDescriptorSet;
-		descriptorSetUpdates[1].dstBinding = 1;
-		descriptorSetUpdates[1].descriptorCount = 1;
-		descriptorSetUpdates[1].descriptorType = VK_DESCRIPTOR_TYPE_SAMPLER;
-		descriptorSetUpdates[1].pImageInfo = &descriptors[1];
-		descriptors[1].sampler = ( mFilterMode == 1 ) ? tr.pointClampSampler : tr.linearClampSampler;
-
-		vkUpdateDescriptorSets( vkState.device, ARRAY_LEN( descriptorSetUpdates ), descriptorSetUpdates, 0, NULL );
-
-
+		CDescriptorSetWriter writer( mDescriptorSet );
+		writer.writeImage( 0, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, mImage );
+		writer.writeSampler( 1, ( mFilterMode == 1 ) ? tr.pointClampSampler : tr.linearClampSampler );
+		writer.flush();
 	}
 
 	////////////////////////////////////////////////////////////////////////////////////
@@ -1482,7 +1454,12 @@ public:
 
 		// Setup Vk state and bindings
 		//-----------------------------------
-		RB_SetShader( mShader );
+		if( backEndData->pipeline != mPipeline ) {
+			vkCmdBindPipeline( backEndData->cmdbuf, VK_PIPELINE_BIND_POINT_GRAPHICS, mPipeline );
+
+			backEndData->pipeline = mPipeline;
+			backEndData->pipelineLayout = mPipelineLayout;
+		}
 
 		vkCmdBindDescriptorSets( backEndData->cmdbuf, VK_PIPELINE_BIND_POINT_GRAPHICS, backEndData->pipelineLayout,
 			mDescriptorSetLocation, 1, &mDescriptorSet, 0, NULL );

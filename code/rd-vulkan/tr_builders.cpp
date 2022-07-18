@@ -249,8 +249,8 @@ void CPipelineBuilder::reset( bool setDefaults ) {
 		// dynamic states
 		dynamic.pNext = NULL;
 		dynamic.flags = 0;
-		dynamicStates[dynamicStateCount++] = VK_DYNAMIC_STATE_VIEWPORT;
-		dynamicStates[dynamicStateCount++] = VK_DYNAMIC_STATE_SCISSOR;
+		//dynamicStates[dynamicStateCount++] = VK_DYNAMIC_STATE_VIEWPORT;
+		//dynamicStates[dynamicStateCount++] = VK_DYNAMIC_STATE_SCISSOR;
 
 		// pipeline create info
 		pipelineCreateInfo.pNext = NULL;
