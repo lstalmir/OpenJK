@@ -26,8 +26,8 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 
 #include "../qcommon/q_shared.h"
 #include "../qcommon/qfiles.h"
-#include "../Ratl/pool_vs.h"
 #include "../Ratl/vector_vs.h"
+#include "../Ratl/stack_vs.h"
 #include "tr_common.h"
 #include "tr_public.h"
 #include "mdx_format.h"
@@ -860,13 +860,56 @@ typedef struct {
 
 
 #define MAX_OUTIMAGES 4
-#define MIN_UPLOADBUFFER_SIZE 65536
+#define MIN_UPLOADBUFFER_SIZE (65536*32) // 2MB
 
 typedef struct {
 	buffer_t				*buffer;
 	int						offset;
 	int						age;
 } uploadBuffer_t;
+
+template<int CAPACITY_>
+struct uploadBufferPool_t {
+	static constexpr int CAPACITY = CAPACITY_;
+
+	uploadBuffer_t					buffers[CAPACITY];
+	ratl::stack_vs<int, CAPACITY>	freeBuffers;
+
+	uint32_t						used[Q_max(1, CAPACITY / (8 * sizeof( uint32_t )))];
+
+	uploadBufferPool_t() {
+		int i;
+		for( i = 0; i < CAPACITY; ++i ) {
+			freeBuffers.push((CAPACITY - 1) - i);
+		}
+		memset( used, 0, sizeof( used ) );
+		memset( buffers, 0, sizeof( buffers ) );
+	}
+
+	int alloc() {
+		if( freeBuffers.empty() )
+			return NULL;
+		int index = freeBuffers.top();
+		freeBuffers.pop();
+		return index;
+	}
+
+	void free(int i) {
+		freeBuffers.push(i);
+	}
+
+	bool full() const {
+		return freeBuffers.empty();
+	}
+
+	bool is_used(int i) const {
+		return (used[i >> 5] & (1 << (i & 0xF))) != 0;
+	}
+
+	uploadBuffer_t &operator[]( int i ) {
+		return buffers[i];
+	}
+};
 
 // the renderer front end should never modify vkstate_t
 typedef struct {
@@ -896,8 +939,8 @@ typedef struct {
 	VkFence					fences[MAX_OUTIMAGES];
 	VkSemaphore				semaphores[MAX_OUTIMAGES];
 
-	ratl::pool_vs<uploadBuffer_t, 48>	uploadBuffers;
-	ratl::vector_vs<int, 48>			frameUploadBuffers[MAX_OUTIMAGES]; // upload buffers used in each frame
+	uploadBufferPool_t<16>	uploadBuffers;
+	ratl::vector_vs<int, 8>	frameUploadBuffers[MAX_OUTIMAGES]; // upload buffers used in each frame
 
 	int						resnum;
 	uint32_t				imagenum;
@@ -1578,6 +1621,27 @@ public:
 	void flush( VkCommandBuffer cmdbuf );
 };
 
+class CDynamicGeometryBuilder {
+public:
+	vertexBuffer_t		*vertexBuffer;
+
+	int					vertexCount;
+	int					vertexOffset;
+
+	int					indexCount;
+	int					indexOffset;
+
+	trIndex_t			indexes[SHADER_MAX_INDEXES];
+	tr_shader::vertex_t vertexes[SHADER_MAX_VERTEXES];
+
+public:
+	void checkOverflow( int numVertexes, int numIndexes );
+	void beginGeometry();
+	int	 addVertex();
+	void addTriangle( int, int, int );
+	void endGeometry();
+};
+
 
 /*
 ====================================================================
@@ -1608,7 +1672,14 @@ typedef struct stageVars
 
 typedef struct drawCommand_s {
 	vertexBuffer_t	*vertexBuffer;
+
 	VkDescriptorSet modelDescriptorSet;
+
+	int				vertexCount;
+	int				vertexOffset;
+
+	int				indexCount;
+	int				indexOffset;
 } drawCommand_t;
 
 struct shaderCommands_s
@@ -2001,6 +2072,8 @@ typedef struct {
 	frameBuffer_t			*frameBuffer;		// last written frame buffer
 
 	VkClearColorValue		defaultClearValue;
+
+	CDynamicGeometryBuilder dynamicGeometryBuilder;
 
 	drawSurf_t				drawSurfs[MAX_DRAWSURFS];
 	dlight_t				dlights[MAX_DLIGHTS];

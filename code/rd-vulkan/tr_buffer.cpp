@@ -90,10 +90,10 @@ uploadBuffer_t *VK_GetUploadBuffer( int size ) {
 				Q_max( MIN_UPLOADBUFFER_SIZE, size ),
 				VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
 				VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT );
-
-			uploadBuffer->offset = 0;
-			uploadBuffer->age = 0;
 		}
+
+		uploadBuffer->offset = 0;
+		uploadBuffer->age = 0;
 
 		// assign the buffer to the current frame
 		frameUploadBuffers.push_back( index );
@@ -413,6 +413,13 @@ void R_CreateBuiltinBuffers( void ) {
 	// allocate a buffer for identity model constants
 	tr.identityModelBuffer = R_CreateBuffer( sizeof( tr_shader::model_t ),
 		VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, 0 );
+
+	// initialize a dynamic geometry buffer
+	backEndData->dynamicGeometryBuilder.vertexBuffer = R_CreateVertexBuffer(
+		ARRAY_LEN( backEndData->dynamicGeometryBuilder.vertexes ),
+		ARRAY_LEN( backEndData->dynamicGeometryBuilder.indexes ) );
+	backEndData->dynamicGeometryBuilder.indexCount = 0;
+	backEndData->dynamicGeometryBuilder.vertexCount = 0;
 }
 
 /*

@@ -65,8 +65,8 @@ static void R_DrawElements( shaderCommands_t *input, shaderStage_t *stage ) {
 
 	for( i = 0; i < input->numDraws; ++i ) {
 		vertexBuffer = draw->vertexBuffer->b.buf;
-		vertexOffset = (VkDeviceSize)draw->vertexBuffer->vertexOffset;
-		indexOffset = (VkDeviceSize)draw->vertexBuffer->indexOffset;
+		vertexOffset = (VkDeviceSize)draw->vertexOffset;
+		indexOffset = (VkDeviceSize)draw->indexOffset;
 
 		// bind descriptor set
 		vkCmdBindDescriptorSets( backEndData->cmdbuf, VK_PIPELINE_BIND_POINT_GRAPHICS, backEndData->pipelineLayout, TR_MODEL_SPACE, 1, &draw->modelDescriptorSet, 0, NULL );
@@ -76,7 +76,7 @@ static void R_DrawElements( shaderCommands_t *input, shaderStage_t *stage ) {
 		vkCmdBindIndexBuffer( backEndData->cmdbuf, vertexBuffer, indexOffset, g_scIndexType );
 
 		// draw
-		vkCmdDrawIndexed( backEndData->cmdbuf, draw->vertexBuffer->numIndexes, 1, 0, 0, 0 );
+		vkCmdDrawIndexed( backEndData->cmdbuf, draw->indexCount, 1, 0, 0, 0 );
 	}
 }
 
@@ -1485,6 +1485,9 @@ void RB_EndSurface( void ) {
 
 	input = &tess;
 
+	// flush accumulated dynamic geometry, if any
+	backEndData->dynamicGeometryBuilder.endGeometry();
+
 	if (input->numDraws == 0) {
 		return;
 	}
@@ -1530,18 +1533,18 @@ void RB_EndSurface( void ) {
 		backEnd.pc.c_shaders++;
 
 		for( int i = 0; i < tess.numDraws; ++i ) {
-			vertexBuffer_t *vertexBuffer = tess.draws[i].vertexBuffer;
+			drawCommand_t *draw = &tess.draws[i];
 
-			backEnd.pc.c_vertexes += vertexBuffer-> numVertexes;
-			backEnd.pc.c_indexes += vertexBuffer->numIndexes;
-			backEnd.pc.c_totalIndexes += vertexBuffer->numIndexes * tess.numPasses;
+			backEnd.pc.c_vertexes += draw->vertexCount;
+			backEnd.pc.c_indexes += draw->indexCount;
+			backEnd.pc.c_totalIndexes += draw->indexCount * tess.numPasses;
 #ifdef JK2_MODE
 			if( tess.fogNum && tess.shader->fogPass && r_drawfog->value )
 #else
 			if( tess.fogNum && tess.shader->fogPass && r_drawfog->value == 1 )
 #endif
 			{ // Fogging adds an additional pass
-				backEnd.pc.c_totalIndexes += vertexBuffer->numIndexes;
+				backEnd.pc.c_totalIndexes += draw->indexCount;
 			}
 		}
 	}

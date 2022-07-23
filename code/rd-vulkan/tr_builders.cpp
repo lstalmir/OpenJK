@@ -399,7 +399,7 @@ void CFrameBufferBuilder::addColorAttachment( VkFormat format, bool clear, const
 	att->flags = 0;
 	att->format = format;
 	att->samples = VK_SAMPLE_COUNT_1_BIT;
-	att->loadOp = clear ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+	att->loadOp = clear ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_LOAD;
 	att->storeOp = VK_ATTACHMENT_STORE_OP_STORE;
 	att->stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE;
 	att->stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE;
@@ -656,4 +656,58 @@ void CDescriptorSetWriter::writeSampler( int binding, VkSampler sampler ) {
 void CDescriptorSetWriter::flush() {
 	vkUpdateDescriptorSets( vkState.device, writeCount, writes, 0, NULL );
 	reset();
+}
+
+void CDynamicGeometryBuilder::checkOverflow( int numVertexes, int numIndexes ) {
+	if( ( vertexCount + numVertexes > ARRAY_LEN( vertexes ) ) ||
+		( indexCount + numIndexes > ARRAY_LEN( indexes ) ) ) {
+		endGeometry();
+	}
+}
+
+void CDynamicGeometryBuilder::beginGeometry() {
+	vertexCount = 0;
+	indexCount = 0;
+}
+
+int CDynamicGeometryBuilder::addVertex() {
+	return vertexCount++;
+}
+
+void CDynamicGeometryBuilder::addTriangle( int a, int b, int c ) {
+	indexes[indexCount++] = a;
+	indexes[indexCount++] = b;
+	indexes[indexCount++] = c;
+}
+
+void CDynamicGeometryBuilder::endGeometry() {
+	drawCommand_t *draw;
+
+	if( indexCount > 0 ) {
+		int idxoff = indexOffset * sizeof( *indexes );
+		int vertoff = vertexOffset * sizeof( *vertexes ) + vertexBuffer->vertexOffset;
+
+		// update the vertex buffer
+		VK_UploadBuffer( &vertexBuffer->b, (const byte *)indexes, indexCount * sizeof( *indexes ), idxoff );
+		VK_UploadBuffer( &vertexBuffer->b, (const byte *)vertexes, vertexCount * sizeof( *vertexes ), vertoff );
+
+		// send the draw command
+		RB_CHECKOVERFLOW();
+		assert( tess.shader );
+
+		draw = RB_DrawSurface();
+
+		draw->vertexBuffer = vertexBuffer;
+		draw->modelDescriptorSet = tr.identityModelDescriptorSet; // todo
+		draw->indexOffset = idxoff;
+		draw->indexCount = indexCount;
+		draw->vertexOffset = vertoff;
+		draw->vertexCount = vertexCount;
+
+		vertexOffset += vertexCount;
+		indexOffset += indexCount;
+
+		// begin new geometry
+		beginGeometry();
+	}
 }

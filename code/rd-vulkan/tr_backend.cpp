@@ -147,6 +147,10 @@ void VK_BeginFrame( void ) {
 
 		if( tr.registered ) {
 			R_ClearFrameBuffer( tr.sceneFrameBuffer );
+
+			// reset the dynamic vertex buffer for this frame
+			backEndData->dynamicGeometryBuilder.vertexOffset = 0;
+			backEndData->dynamicGeometryBuilder.indexOffset = 0;
 		}
 	}
 }
@@ -900,14 +904,8 @@ const void *RB_SetColor( const void *data ) {
 RB_StretchPic
 =============
 */
-typedef struct stretchPicVertexData_s {
-	uint32_t indices[6];
-	tr_shader::vertex_t vertices[4];
-} strectPicVertexData_t;
-
 const void *RB_StretchPic( const void *data ) {
-	strectPicVertexData_t vertexData;
-	const VkDeviceSize vertexOffset = offsetof( strectPicVertexData_t, vertices );
+	tr_shader::vertex_t *vertex;
 	const stretchPicCommand_t *cmd;
 	shader_t *shader;
 	drawCommand_t *draw;
@@ -916,62 +914,51 @@ const void *RB_StretchPic( const void *data ) {
 
 	shader = cmd->shader;
 	if( shader != tess.shader ) {
-		if( tess.numDraws ) {
-			RB_EndSurface();
-		}
+		RB_EndSurface();
 		backEnd.currentEntity = &backEnd.entity2D;
 		RB_BeginSurface( shader, 0 );
 	}
 
-	RB_CHECKOVERFLOW();
+	backEndData->dynamicGeometryBuilder.checkOverflow( 4, 6 );
 
-	tr.dynamicVertexBuffer->numIndexes = 6;
-	tr.dynamicVertexBuffer->numVertexes = 4;
-	tr.dynamicVertexBuffer->vertexOffset = vertexOffset;
+	int a = backEndData->dynamicGeometryBuilder.addVertex();
+	vertex = &backEndData->dynamicGeometryBuilder.vertexes[a];
+	vertex->position.x = cmd->x;
+	vertex->position.y = cmd->y;
+	vertex->position.z = 0;
+	vertex->texCoord0.x = cmd->s1;
+	vertex->texCoord0.y = cmd->t1;
+	vertex->vertexColor[0] = backEnd.color2D;
 
-	vertexData.indices[0] = 0;
-	vertexData.indices[1] = 2;
-	vertexData.indices[2] = 1;
-	vertexData.indices[3] = 0;
-	vertexData.indices[4] = 3;
-	vertexData.indices[5] = 2;
+	int b = backEndData->dynamicGeometryBuilder.addVertex();
+	vertex = &backEndData->dynamicGeometryBuilder.vertexes[b];
+	vertex->position.x = cmd->x + cmd->w;
+	vertex->position.y = cmd->y;
+	vertex->position.z = 0;
+	vertex->texCoord0.x = cmd->s2;
+	vertex->texCoord0.y = cmd->t1;
+	vertex->vertexColor[0] = backEnd.color2D;
 
-	vertexData.vertices[0].position.x = cmd->x;
-	vertexData.vertices[0].position.y = cmd->y;
-	vertexData.vertices[0].position.z = 0;
-	vertexData.vertices[0].texCoord0.x = cmd->s1;
-	vertexData.vertices[0].texCoord0.y = cmd->t1;
-	vertexData.vertices[0].vertexColor[0] = backEnd.color2D;
+	int c = backEndData->dynamicGeometryBuilder.addVertex();
+	vertex = &backEndData->dynamicGeometryBuilder.vertexes[c];
+	vertex->position.x = cmd->x + cmd->w;
+	vertex->position.y = cmd->y + cmd->h;
+	vertex->position.z = 0;
+	vertex->texCoord0.x = cmd->s2;
+	vertex->texCoord0.y = cmd->t2;
+	vertex->vertexColor[0] = backEnd.color2D;
 
-	vertexData.vertices[1].position.x = cmd->x + cmd->w;
-	vertexData.vertices[1].position.y = cmd->y;
-	vertexData.vertices[1].position.z = 0;
-	vertexData.vertices[1].texCoord0.x = cmd->s2;
-	vertexData.vertices[1].texCoord0.y = cmd->t1;
-	vertexData.vertices[1].vertexColor[0] = backEnd.color2D;
+	int d = backEndData->dynamicGeometryBuilder.addVertex();
+	vertex = &backEndData->dynamicGeometryBuilder.vertexes[d];
+	vertex->position.x = cmd->x;
+	vertex->position.y = cmd->y + cmd->h;
+	vertex->position.z = 0;
+	vertex->texCoord0.x = cmd->s1;
+	vertex->texCoord0.y = cmd->t2;
+	vertex->vertexColor[0] = backEnd.color2D;
 
-	vertexData.vertices[2].position.x = cmd->x + cmd->w;
-	vertexData.vertices[2].position.y = cmd->y + cmd->h;
-	vertexData.vertices[2].position.z = 0;
-	vertexData.vertices[2].texCoord0.x = cmd->s2;
-	vertexData.vertices[2].texCoord0.y = cmd->t2;
-	vertexData.vertices[2].vertexColor[0] = backEnd.color2D;
-
-	vertexData.vertices[3].position.x = cmd->x;
-	vertexData.vertices[3].position.y = cmd->y + cmd->h;
-	vertexData.vertices[3].position.z = 0;
-	vertexData.vertices[3].texCoord0.x = cmd->s1;
-	vertexData.vertices[3].texCoord0.y = cmd->t2;
-	vertexData.vertices[3].vertexColor[0] = backEnd.color2D;
-
-	vkCmdUpdateBuffer( backEndData->cmdbuf, tr.dynamicVertexBuffer->b.buf, 0, sizeof( vertexData ), &vertexData );
-
-	draw = RB_DrawSurface();
-	draw->vertexBuffer = tr.dynamicVertexBuffer;
-	draw->modelDescriptorSet = tr.identityModelDescriptorSet;
-
-	// todo: remove
-	RB_EndSurface();
+	backEndData->dynamicGeometryBuilder.addTriangle( a, c, b );
+	backEndData->dynamicGeometryBuilder.addTriangle( a, d, c );
 
 	return (const void *)( cmd + 1 );
 }
@@ -983,8 +970,7 @@ RB_RotatePic
 =============
 */
 const void *RB_RotatePic( const void *data ) {
-	strectPicVertexData_t vertexData;
-	const VkDeviceSize vertexOffset = offsetof( strectPicVertexData_t, vertices );
+	tr_shader::vertex_t *vertex;
 	const rotatePicCommand_t *cmd;
 	shader_t *shader;
 	drawCommand_t *draw;
@@ -993,72 +979,61 @@ const void *RB_RotatePic( const void *data ) {
 
 	shader = cmd->shader;
 	if( shader != tess.shader ) {
-		if( tess.numDraws ) {
-			RB_EndSurface();
-		}
+		RB_EndSurface();
 		backEnd.currentEntity = &backEnd.entity2D;
 		RB_BeginSurface( shader, 0 );
 	}
 
-	RB_CHECKOVERFLOW();
-
 	float angle = DEG2RAD( cmd->a );
-	float s = sinf( angle );
-	float c = cosf( angle );
+	float sina = sinf( angle );
+	float cosa = cosf( angle );
 
 	matrix3_t m = {
-		{ c, s, 0.0f },
-		{ -s, c, 0.0f },
+		{ cosa, sina, 0.0f },
+		{ -sina, cosa, 0.0f },
 		{ cmd->x + cmd->w, cmd->y, 1.0f }
 	};
 
-	tr.dynamicVertexBuffer->numIndexes = 6;
-	tr.dynamicVertexBuffer->numVertexes = 4;
-	tr.dynamicVertexBuffer->vertexOffset = vertexOffset;
+	backEndData->dynamicGeometryBuilder.checkOverflow( 4, 6 );
 
-	vertexData.indices[0] = 0;
-	vertexData.indices[1] = 1;
-	vertexData.indices[2] = 2;
-	vertexData.indices[3] = 0;
-	vertexData.indices[4] = 2;
-	vertexData.indices[5] = 3;
+	int a = backEndData->dynamicGeometryBuilder.addVertex();
+	vertex = &backEndData->dynamicGeometryBuilder.vertexes[a];
+	vertex->position.x = m[0][0] * ( -cmd->w ) + m[2][0];
+	vertex->position.y = m[0][1] * ( -cmd->w ) + m[2][1];
+	vertex->position.z = 0;
+	vertex->texCoord0.x = cmd->s1;
+	vertex->texCoord0.y = cmd->t1;
+	vertex->vertexColor[0] = backEnd.color2D;
 
-	vertexData.vertices[0].position.x = m[0][0] * ( -cmd->w ) + m[2][0];
-	vertexData.vertices[0].position.y = m[0][1] * ( -cmd->w ) + m[2][1];
-	vertexData.vertices[0].position.z = 0;
-	vertexData.vertices[0].texCoord0.x = cmd->s1;
-	vertexData.vertices[0].texCoord0.y = cmd->t1;
-	vertexData.vertices[0].vertexColor[0] = backEnd.color2D;
+	int b = backEndData->dynamicGeometryBuilder.addVertex();
+	vertex = &backEndData->dynamicGeometryBuilder.vertexes[b];
+	vertex->position.x = m[2][0];
+	vertex->position.y = m[2][1];
+	vertex->position.z = 0;
+	vertex->texCoord0.x = cmd->s2;
+	vertex->texCoord0.y = cmd->t1;
+	vertex->vertexColor[0] = backEnd.color2D;
 
-	vertexData.vertices[1].position.x = m[2][0];
-	vertexData.vertices[1].position.y = m[2][1];
-	vertexData.vertices[1].position.z = 0;
-	vertexData.vertices[1].texCoord0.x = cmd->s2;
-	vertexData.vertices[1].texCoord0.y = cmd->t1;
-	vertexData.vertices[1].vertexColor[0] = backEnd.color2D;
+	int c = backEndData->dynamicGeometryBuilder.addVertex();
+	vertex = &backEndData->dynamicGeometryBuilder.vertexes[c];
+	vertex->position.x = m[1][0] * ( cmd->h ) + m[2][0];
+	vertex->position.y = m[1][1] * ( cmd->h ) + m[2][1];
+	vertex->position.z = 0;
+	vertex->texCoord0.x = cmd->s2;
+	vertex->texCoord0.y = cmd->t2;
+	vertex->vertexColor[0] = backEnd.color2D;
 
-	vertexData.vertices[2].position.x = m[1][0] * ( cmd->h ) + m[2][0];
-	vertexData.vertices[2].position.y = m[1][1] * ( cmd->h ) + m[2][1];
-	vertexData.vertices[2].position.z = 0;
-	vertexData.vertices[2].texCoord0.x = cmd->s2;
-	vertexData.vertices[2].texCoord0.y = cmd->t2;
-	vertexData.vertices[2].vertexColor[0] = backEnd.color2D;
+	int d = backEndData->dynamicGeometryBuilder.addVertex();
+	vertex = &backEndData->dynamicGeometryBuilder.vertexes[d];
+	vertex->position.x = m[0][0] * ( -cmd->w ) + m[1][0] * ( cmd->h ) + m[2][0];
+	vertex->position.y = m[0][1] * ( -cmd->w ) + m[1][1] * ( cmd->h ) + m[2][1];
+	vertex->position.z = 0;
+	vertex->texCoord0.x = cmd->s1;
+	vertex->texCoord0.y = cmd->t2;
+	vertex->vertexColor[0] = backEnd.color2D;
 
-	vertexData.vertices[3].position.x = m[0][0] * ( -cmd->w ) + m[1][0] * ( cmd->h ) + m[2][0];
-	vertexData.vertices[3].position.y = m[0][1] * ( -cmd->w ) + m[1][1] * ( cmd->h ) + m[2][1];
-	vertexData.vertices[3].position.z = 0;
-	vertexData.vertices[3].texCoord0.x = cmd->s1;
-	vertexData.vertices[3].texCoord0.y = cmd->t2;
-	vertexData.vertices[3].vertexColor[0] = backEnd.color2D;
-
-	vkCmdUpdateBuffer( backEndData->cmdbuf, tr.dynamicVertexBuffer->b.buf, 0, sizeof( vertexData ), &vertexData );
-
-	draw = RB_DrawSurface();
-	draw->vertexBuffer = tr.dynamicVertexBuffer;
-	draw->modelDescriptorSet = tr.identityModelDescriptorSet;
-
-	// todo: remove
-	RB_EndSurface();
+	backEndData->dynamicGeometryBuilder.addTriangle( a, c, b );
+	backEndData->dynamicGeometryBuilder.addTriangle( a, d, c );
 
 	return (const void *)( cmd + 1 );
 }
@@ -1069,8 +1044,7 @@ RB_RotatePic2
 =============
 */
 const void *RB_RotatePic2( const void *data ) {
-	strectPicVertexData_t vertexData;
-	const VkDeviceSize vertexOffset = offsetof( strectPicVertexData_t, vertices );
+	tr_shader::vertex_t *vertex;
 	const rotatePicCommand_t *cmd;
 	shader_t *shader;
 	drawCommand_t *draw;
@@ -1081,72 +1055,61 @@ const void *RB_RotatePic2( const void *data ) {
 	// FIXME is this needed
 	if( shader->numUnfoggedPasses ) {
 		if( shader != tess.shader ) {
-			if( tess.numDraws ) {
-				RB_EndSurface();
-			}
+			RB_EndSurface();
 			backEnd.currentEntity = &backEnd.entity2D;
 			RB_BeginSurface( shader, 0 );
 		}
 
-		RB_CHECKOVERFLOW();
+		backEndData->dynamicGeometryBuilder.checkOverflow( 4, 6 );
 
 		float angle = DEG2RAD( cmd->a );
-		float s = sinf( angle );
-		float c = cosf( angle );
+		float sina = sinf( angle );
+		float cosa = cosf( angle );
 
 		matrix3_t m = {
-			{ c, s, 0.0f },
-			{ -s, c, 0.0f },
+			{ cosa, sina, 0.0f },
+			{ -sina, cosa, 0.0f },
 			{ cmd->x, cmd->y, 1.0f }
 		};
 
-		tr.dynamicVertexBuffer->numIndexes = 6;
-		tr.dynamicVertexBuffer->numVertexes = 4;
-		tr.dynamicVertexBuffer->vertexOffset = vertexOffset;
+		int a = backEndData->dynamicGeometryBuilder.addVertex();
+		vertex = &backEndData->dynamicGeometryBuilder.vertexes[a];
+		vertex->position.x = m[0][0] * ( -cmd->w ) + m[2][0];
+		vertex->position.y = m[0][1] * ( -cmd->w ) + m[2][1];
+		vertex->position.z = 0;
+		vertex->texCoord0.x = cmd->s1;
+		vertex->texCoord0.y = cmd->t1;
+		vertex->vertexColor[0] = backEnd.color2D;
 
-		vertexData.indices[0] = 0;
-		vertexData.indices[1] = 1;
-		vertexData.indices[2] = 2;
-		vertexData.indices[3] = 0;
-		vertexData.indices[4] = 2;
-		vertexData.indices[5] = 3;
+		int b = backEndData->dynamicGeometryBuilder.addVertex();
+		vertex = &backEndData->dynamicGeometryBuilder.vertexes[b];
+		vertex->position.x = m[2][0];
+		vertex->position.y = m[2][1];
+		vertex->position.z = 0;
+		vertex->texCoord0.x = cmd->s2;
+		vertex->texCoord0.y = cmd->t1;
+		vertex->vertexColor[0] = backEnd.color2D;
 
-		vertexData.vertices[0].position.x = m[0][0] * ( -cmd->w ) + m[2][0];
-		vertexData.vertices[0].position.y = m[0][1] * ( -cmd->w ) + m[2][1];
-		vertexData.vertices[0].position.z = 0;
-		vertexData.vertices[0].texCoord0.x = cmd->s1;
-		vertexData.vertices[0].texCoord0.y = cmd->t1;
-		vertexData.vertices[0].vertexColor[0] = backEnd.color2D;
+		int c = backEndData->dynamicGeometryBuilder.addVertex();
+		vertex = &backEndData->dynamicGeometryBuilder.vertexes[c];
+		vertex->position.x = m[1][0] * ( cmd->h ) + m[2][0];
+		vertex->position.y = m[1][1] * ( cmd->h ) + m[2][1];
+		vertex->position.z = 0;
+		vertex->texCoord0.x = cmd->s2;
+		vertex->texCoord0.y = cmd->t2;
+		vertex->vertexColor[0] = backEnd.color2D;
 
-		vertexData.vertices[1].position.x = m[2][0];
-		vertexData.vertices[1].position.y = m[2][1];
-		vertexData.vertices[1].position.z = 0;
-		vertexData.vertices[1].texCoord0.x = cmd->s2;
-		vertexData.vertices[1].texCoord0.y = cmd->t1;
-		vertexData.vertices[1].vertexColor[0] = backEnd.color2D;
+		int d = backEndData->dynamicGeometryBuilder.addVertex();
+		vertex = &backEndData->dynamicGeometryBuilder.vertexes[d];
+		vertex->position.x = m[0][0] * ( -cmd->w ) + m[1][0] * ( cmd->h ) + m[2][0];
+		vertex->position.y = m[0][1] * ( -cmd->w ) + m[1][1] * ( cmd->h ) + m[2][1];
+		vertex->position.z = 0;
+		vertex->texCoord0.x = cmd->s1;
+		vertex->texCoord0.y = cmd->t2;
+		vertex->vertexColor[0] = backEnd.color2D;
 
-		vertexData.vertices[2].position.x = m[1][0] * ( cmd->h ) + m[2][0];
-		vertexData.vertices[2].position.y = m[1][1] * ( cmd->h ) + m[2][1];
-		vertexData.vertices[2].position.z = 0;
-		vertexData.vertices[2].texCoord0.x = cmd->s2;
-		vertexData.vertices[2].texCoord0.y = cmd->t2;
-		vertexData.vertices[2].vertexColor[0] = backEnd.color2D;
-
-		vertexData.vertices[3].position.x = m[0][0] * ( -cmd->w ) + m[1][0] * ( cmd->h ) + m[2][0];
-		vertexData.vertices[3].position.y = m[0][1] * ( -cmd->w ) + m[1][1] * ( cmd->h ) + m[2][1];
-		vertexData.vertices[3].position.z = 0;
-		vertexData.vertices[3].texCoord0.x = cmd->s1;
-		vertexData.vertices[3].texCoord0.y = cmd->t2;
-		vertexData.vertices[3].vertexColor[0] = backEnd.color2D;
-
-		vkCmdUpdateBuffer( backEndData->cmdbuf, tr.dynamicVertexBuffer->b.buf, 0, sizeof( vertexData ), &vertexData );
-
-		draw = RB_DrawSurface();
-		draw->vertexBuffer = tr.dynamicVertexBuffer;
-		draw->modelDescriptorSet = tr.identityModelDescriptorSet;
-
-		// todo: remove
-		RB_EndSurface();
+		backEndData->dynamicGeometryBuilder.addTriangle( a, c, b );
+		backEndData->dynamicGeometryBuilder.addTriangle( a, d, c );
 	}
 
 	return (const void *)( cmd + 1 );
