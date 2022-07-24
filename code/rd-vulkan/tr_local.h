@@ -644,6 +644,17 @@ typedef struct {
 } srfTriangles_t;
 
 
+typedef struct {
+	surfaceType_t	surfaceType;
+
+	buffer_t		*modelBuffer;
+
+	vertexBuffer_t	*vertexBuffer;
+	VkDescriptorSet	modelDescriptorSet;
+
+} trMD3Surface_t;
+
+
 extern	void (*rb_surfaceTable[SF_NUM_SURFACE_TYPES])(void *);
 
 /*
@@ -770,19 +781,35 @@ typedef enum {
 
 } modtype_t;
 
-typedef struct model_s {
-	char		name[MAX_QPATH];
-	modtype_t	type;
-	int			index;				// model = tr.models[model->mod_index]
+typedef struct trMD3Model_s {
+	int				flags;
 
-	int			dataSize;			// just for listing purposes
-	bmodel_t	*bmodel;			// only if type == MOD_BRUSH
-	md3Header_t	*md3[MD3_MAX_LODS];	// only if type == MOD_MESH
+	int				numFrames;
+	md3Frame_t		*frames;
+
+	int				numTags;
+	md3Tag_t		*tags;
+
+	int				numSurfaces;
+	trMD3Surface_t	*surfaces;
+	
+	int				numSkins;
+	
+} trMD3Model_t;
+
+typedef struct model_s {
+	char			name[MAX_QPATH];
+	modtype_t		type;
+	int				index;				// model = tr.models[model->mod_index]
+
+	int				dataSize;			// just for listing purposes
+	bmodel_t		*bmodel;			// only if type == MOD_BRUSH
+	trMD3Model_t	*md3[MD3_MAX_LODS]; // only if type == MOD_MESH
 					/*
 					Ghoul2 Insert Start
 					*/
-	mdxmHeader_t *mdxm;				// only if type == MOD_GL2M which is a GHOUL II Mesh file NOT a GHOUL II animation file
-	mdxaHeader_t *mdxa;				// only if type == MOD_GL2A which is a GHOUL II Animation file
+	mdxmHeader_t	*mdxm;				// only if type == MOD_GL2M which is a GHOUL II Mesh file NOT a GHOUL II animation file
+	mdxaHeader_t	*mdxa;				// only if type == MOD_GL2A which is a GHOUL II Animation file
 					/*
 					Ghoul2 Insert End
 					*/

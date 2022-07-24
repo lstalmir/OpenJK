@@ -71,14 +71,14 @@ float ProjectRadius( float r, vec3_t location )
 R_CullModel
 =============
 */
-static int R_CullModel( md3Header_t *header, trRefEntity_t *ent ) {
+static int R_CullModel( trMD3Model_t *header, trRefEntity_t *ent ) {
 	vec3_t		bounds[2];
 	md3Frame_t	*oldFrame, *newFrame;
 	int			i;
 
 	// compute frame pointers
-	newFrame = ( md3Frame_t * ) ( ( byte * ) header + header->ofsFrames ) + ent->e.frame;
-	oldFrame = ( md3Frame_t * ) ( ( byte * ) header + header->ofsFrames ) + ent->e.oldframe;
+	newFrame = header->frames + ent->e.frame;
+	oldFrame = header->frames + ent->e.oldframe;
 
 	// cull bounding sphere ONLY if this is not an upscaled entity
 	if ( !ent->e.nonNormalizedAxes )
@@ -163,9 +163,9 @@ RE_GetModelBounds
 
 void RE_GetModelBounds(refEntity_t *refEnt, vec3_t bounds1, vec3_t bounds2)
 {
-	md3Frame_t		*frame;
-	md3Header_t		*header;
-	model_t			*model;
+	md3Frame_t			*frame;
+	trMD3Model_t		*header;
+	model_t				*model;
 
 	assert(refEnt);
 
@@ -173,7 +173,7 @@ void RE_GetModelBounds(refEntity_t *refEnt, vec3_t bounds1, vec3_t bounds2)
 	assert(model);
 	header = model->md3[0];
 	assert(header);
-	frame = ( md3Frame_t * ) ( ( byte * ) header + header->ofsFrames ) + refEnt->frame;
+	frame = header->frames + refEnt->frame;
 	assert(frame);
 
 	VectorCopy(frame->bounds[0], bounds1);
@@ -202,8 +202,7 @@ static int R_ComputeLOD( trRefEntity_t *ent ) {
 //	if ( tr.currentModel->md3[0] )
 	{	//normal md3
 		md3Frame_t *frame;
-		frame = ( md3Frame_t * ) ( ( ( unsigned char * ) tr.currentModel->md3[0] ) + tr.currentModel->md3[0]->ofsFrames );
-		frame += ent->e.frame;
+		frame = tr.currentModel->md3[0]->frames + ent->e.frame;
 		radius = RadiusFromBounds( frame->bounds[0], frame->bounds[1] );
 	}
 
@@ -240,7 +239,7 @@ R_ComputeFogNum
 
 =================
 */
-static int R_ComputeFogNum( md3Header_t *header, trRefEntity_t *ent ) {
+static int R_ComputeFogNum( trMD3Model_t *header, trRefEntity_t *ent ) {
 	int				i;
 	fog_t			*fog;
 	md3Frame_t		*md3Frame;
@@ -257,7 +256,7 @@ static int R_ComputeFogNum( md3Header_t *header, trRefEntity_t *ent ) {
 
 
 	// FIXME: non-normalized axis issues
-	md3Frame = ( md3Frame_t * ) ( ( byte * ) header + header->ofsFrames ) + ent->e.frame;
+	md3Frame = header->frames + ent->e.frame;
 	VectorAdd( ent->e.origin, md3Frame->localOrigin, localOrigin );
 
 	int partialFog = 0;
@@ -301,8 +300,8 @@ R_AddMD3Surfaces
 */
 void R_AddMD3Surfaces( trRefEntity_t *ent ) {
 	int				i;
-	md3Header_t		*header = 0;
-	md3Surface_t	*surface = 0;
+	trMD3Model_t	*header = 0;
+	trMD3Surface_t	*surface = 0;
 	md3Shader_t		*md3Shader = 0;
 	shader_t		*shader = 0;
 	shader_t		*main_shader = 0;
@@ -376,9 +375,10 @@ void R_AddMD3Surfaces( trRefEntity_t *ent ) {
 	//
 	main_shader = R_GetShaderByHandle( ent->e.customShader );
 
-	surface = (md3Surface_t *)( (byte *)header + header->ofsSurfaces );
 	for ( i = 0 ; i < header->numSurfaces ; i++ ) {
+		surface = &header->surfaces[i];
 
+		#if 0
 		if ( ent->e.customShader ) {// a little more efficient
 			shader = main_shader;
 		} else if ( ent->e.customSkin > 0 && ent->e.customSkin < tr.numSkins ) {
@@ -403,6 +403,9 @@ void R_AddMD3Surfaces( trRefEntity_t *ent ) {
 			md3Shader += ent->e.skinNum % surface->numShaders;
 			shader = tr.shaders[ md3Shader->shaderIndex ];
 		}
+		#else
+		shader = tr.defaultShader;
+		#endif
 
 
 		// we will add shadows even if the main object isn't visible in the view
@@ -429,8 +432,6 @@ void R_AddMD3Surfaces( trRefEntity_t *ent ) {
 		if ( !personalModel ) {
 			R_AddDrawSurf( (surfaceType_t *)surface, shader, fogNum, qfalse );
 		}
-
-		surface = (md3Surface_t *)( (byte *)surface + surface->ofsEnd );
 	}
 
 }

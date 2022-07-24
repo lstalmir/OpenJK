@@ -74,11 +74,14 @@ struct CachedEndianedModelBinary_s
 
 	int		iLastLevelUsedOn;
 
+	void	*pModel;
+
 	CachedEndianedModelBinary_s()
 	{
 		pModelDiskImage = 0;
 		iLastLevelUsedOn    = -1;
 		iAllocSize = 0;
+		pModel = 0;
 		ShaderRegisterData.clear();
 	}
 };
@@ -179,8 +182,8 @@ qboolean RE_RegisterModels_GetDiskFile( const char *psModelFileName, void **ppvB
 
 // if return == true, no further action needed by the caller...
 //
-void *RE_RegisterModels_Malloc(int iSize, void *pvDiskBufferIfJustLoaded, const char *psModelFileName, qboolean *pqbAlreadyFound, memtag_t eTag)
-{
+void *RE_RegisterModels_Malloc(int iSize, void *pvDiskBufferIfJustLoaded, const char *psModelFileName, qboolean *pqbAlreadyFound, memtag_t eTag) {
+	void *pModel = NULL;
 	char sModelName[MAX_QPATH];
 
 	Q_strncpyz(sModelName,psModelFileName,sizeof(sModelName));
@@ -237,7 +240,17 @@ void *RE_RegisterModels_Malloc(int iSize, void *pvDiskBufferIfJustLoaded, const 
 
 	ModelBin.iLastLevelUsedOn = RE_RegisterMedia_GetLevel();
 
-	return ModelBin.pModelDiskImage;
+	pModel = ModelBin.pModelDiskImage;
+
+	if( eTag == TAG_MODEL_MD3 ) {
+		if( ModelBin.pModel == NULL ) {
+			ModelBin.pModel = R_Malloc( iSize, eTag );
+		}
+
+		pModel = ModelBin.pModel;
+	}
+
+	return pModel;
 }
 
 
@@ -785,15 +798,24 @@ static qboolean R_LoadMD3 (model_t *mod, int lod, void *buffer, const char *mod_
 	int					i, j;
 	md3Header_t			*pinmodel;
 	md3Surface_t		*surf;
+	trMD3Surface_t		*trsurf;
 	md3Shader_t			*shader;
 	int					version;
 	int					size;
-
-#ifdef Q3_BIG_ENDIAN
-	md3Frame_t			*frame;
+	int					numSurfaces;
+	int					numFrames;
+	int					numTags;
+	CDescriptorSetWriter descriptorSetWriter( VK_NULL_HANDLE );
+	tr_shader::vertex_t	*verts;
+	trIndex_t			*indexes;
 	md3Triangle_t		*tri;
 	md3St_t				*st;
 	md3XyzNormal_t		*xyz;
+	unsigned			lat, lng;
+	float				latRad, lngRad;
+
+#ifdef Q3_BIG_ENDIAN
+	md3Frame_t			*frame;
 	md3Tag_t			*tag;
 #endif
 
@@ -803,12 +825,16 @@ static qboolean R_LoadMD3 (model_t *mod, int lod, void *buffer, const char *mod_
 	// read some fields from the binary, but only LittleLong() them when we know this wasn't an already-cached model...
 	//
 	version = pinmodel->version;
-	size	= pinmodel->ofsEnd;
+	numSurfaces = pinmodel->numSurfaces;
+	numFrames = pinmodel->numFrames;
+	numTags = pinmodel->numTags;
 
 	if (!bAlreadyCached)
 	{
-		version = LittleLong(version);
-		size	= LittleLong(size);
+		LL( version );
+		LL( numSurfaces );
+		LL( numFrames );
+		LL( numTags );
 	}
 
 	if (version != MD3_VERSION) {
@@ -817,11 +843,17 @@ static qboolean R_LoadMD3 (model_t *mod, int lod, void *buffer, const char *mod_
 		return qfalse;
 	}
 
+	// compute size of the mesh
+	size = sizeof( trMD3Model_t ) +
+		   sizeof( trMD3Surface_t ) * numSurfaces +
+		   sizeof( md3Frame_t ) * numFrames +
+		   sizeof( md3Tag_t ) * numFrames * numTags;
+
 	mod->type      = MOD_MESH;
 	mod->dataSize += size;
 
 	qboolean bAlreadyFound = qfalse;
-	mod->md3[lod] = (md3Header_t *) RE_RegisterModels_Malloc(size, buffer, mod_name, &bAlreadyFound, TAG_MODEL_MD3);
+	mod->md3[lod] = (trMD3Model_t *)RE_RegisterModels_Malloc( size, buffer, mod_name, &bAlreadyFound, TAG_MODEL_MD3 );
 
 	assert(bAlreadyCached == bAlreadyFound);
 
@@ -834,21 +866,10 @@ static qboolean R_LoadMD3 (model_t *mod, int lod, void *buffer, const char *mod_
 		// Aaaargh. Kill me now...
 		//
 		bAlreadyCached = qtrue;
-		assert( mod->md3[lod] == buffer );
 //		memcpy( mod->md3[lod], buffer, size );	// and don't do this now, since it's the same thing
-
-		LL(mod->md3[lod]->ident);
-		LL(mod->md3[lod]->version);
-		LL(mod->md3[lod]->numFrames);
-		LL(mod->md3[lod]->numTags);
-		LL(mod->md3[lod]->numSurfaces);
-		LL(mod->md3[lod]->ofsFrames);
-		LL(mod->md3[lod]->ofsTags);
-		LL(mod->md3[lod]->ofsSurfaces);
-		LL(mod->md3[lod]->ofsEnd);
 	}
 
-	if ( mod->md3[lod]->numFrames < 1 ) {
+	if ( numFrames < 1 ) {
 		ri.Printf( PRINT_WARNING, "R_LoadMD3: %s has no frames\n", mod_name );
 		return qfalse;
 	}
@@ -882,8 +903,26 @@ static qboolean R_LoadMD3 (model_t *mod, int lod, void *buffer, const char *mod_
 	}
 #endif
 
+	mod->md3[lod]->flags = LittleLong( pinmodel->flags );
+	mod->md3[lod]->numFrames = LittleLong( pinmodel->numFrames );
+	mod->md3[lod]->numTags = LittleLong( pinmodel->numTags );
+	mod->md3[lod]->numSurfaces = numSurfaces;
+	mod->md3[lod]->surfaces = (trMD3Surface_t *)( (byte *)mod->md3[lod] + sizeof( trMD3Model_t ) );
+	mod->md3[lod]->numFrames = numFrames;
+	mod->md3[lod]->frames = (md3Frame_t *)( mod->md3[lod]->surfaces + numSurfaces );
+	mod->md3[lod]->numTags = numTags;
+	mod->md3[lod]->tags = (md3Tag_t *)( mod->md3[lod]->frames + numFrames );
+
+	// copy the frames and tags
+	memcpy( mod->md3[lod]->frames, (byte *)pinmodel + pinmodel->ofsFrames, sizeof( md3Frame_t ) * numFrames );
+	memcpy( mod->md3[lod]->tags, (byte *)pinmodel + pinmodel->ofsTags, sizeof( md3Tag_t ) * numFrames * numTags );
+
+	verts = (tr_shader::vertex_t *)R_Malloc( sizeof( tr_shader::vertex_t ) * MD3_MAX_VERTS * MD3_MAX_FRAMES, TAG_TEMP_WORKSPACE );
+	indexes = (trIndex_t *)R_Malloc( sizeof( trIndex_t ) * MD3_MAX_TRIANGLES * 3, TAG_TEMP_WORKSPACE );
+
 	// swap all the surfaces
-	surf = (md3Surface_t *) ( (byte *)mod->md3[lod] + mod->md3[lod]->ofsSurfaces );
+	surf = (md3Surface_t *)( (byte *)pinmodel + pinmodel->ofsSurfaces );
+	trsurf = mod->md3[lod]->surfaces;
 	for ( i = 0 ; i < mod->md3[lod]->numSurfaces ; i++) {
         LL(surf->flags);
         LL(surf->numFrames);
@@ -904,9 +943,6 @@ static qboolean R_LoadMD3 (model_t *mod, int lod, void *buffer, const char *mod_
 			Com_Error (ERR_DROP, "R_LoadMD3: %s has more than %i triangles on a surface (%i)",
 				mod_name, SHADER_MAX_INDEXES / 3, surf->numTriangles );
 		}
-
-		// change to surface identifier
-		surf->ident = SF_MD3;
 
 		// lowercase the surface name so skin compares are faster
 		Q_strlwr( surf->name );
@@ -961,10 +997,71 @@ static qboolean R_LoadMD3 (model_t *mod, int lod, void *buffer, const char *mod_
 		}
 #endif
 
+		trsurf->surfaceType = SF_MD3;
+
+		// allocate buffers
+		trsurf->modelBuffer = R_CreateBuffer( sizeof( tr_shader::model_t ), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, 0 );
+		trsurf->vertexBuffer = R_CreateVertexBuffer( surf->numVerts * surf->numFrames, surf->numTriangles * 3 );
+
+		VK_AllocateDescriptorSet( tr.modelDescriptorSetLayout, &trsurf->modelDescriptorSet );
+		descriptorSetWriter.reset( trsurf->modelDescriptorSet );
+		descriptorSetWriter.writeBuffer( 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, trsurf->modelBuffer );
+		descriptorSetWriter.flush();
+
+		// upload vertex data
+		tri = (md3Triangle_t *)( (byte *)surf + surf->ofsTriangles );
+		for( j = 0; j < surf->numTriangles; j++, tri++ ) {
+			indexes[3 * j + 0] = LittleLong( tri->indexes[0] );
+			indexes[3 * j + 1] = LittleLong( tri->indexes[1] );
+			indexes[3 * j + 2] = LittleLong( tri->indexes[2] );
+		}
+
+		// swap all the ST
+		st = (md3St_t *)( (byte *)surf + surf->ofsSt );
+		for( j = 0; j < surf->numVerts; j++, st++ ) {
+			verts[j].texCoord0.x = LittleFloat( st->st[0] );
+			verts[j].texCoord0.y = LittleFloat( st->st[1] );
+		}
+
+		// swap all the XyzNormals
+		xyz = (md3XyzNormal_t *)( (byte *)surf + surf->ofsXyzNormals );
+		for( j = 0; j < surf->numVerts * surf->numFrames; j++, xyz++ ) {
+			LS( xyz->xyz[0] );
+			LS( xyz->xyz[1] );
+			LS( xyz->xyz[2] );
+
+			LS( xyz->normal );
+
+			verts[j].position.x = xyz->xyz[0] * MD3_XYZ_SCALE;
+			verts[j].position.y = xyz->xyz[1] * MD3_XYZ_SCALE;
+			verts[j].position.z = xyz->xyz[2] * MD3_XYZ_SCALE;
+
+			lat = ( xyz->normal >> 8 ) & 0xff;
+			lng = ( xyz->normal & 0xff );
+			lat *= ( TR_FUNCTABLE_SIZE / 256 );
+			lng *= ( TR_FUNCTABLE_SIZE / 256 );
+
+			latRad = ( lat / (float)TR_FUNCTABLE_SIZE ) * 2.f * M_PI;
+			lngRad = ( lng / (float)TR_FUNCTABLE_SIZE ) * 2.f * M_PI;
+
+			// decode X as cos( lat ) * sin( long )
+			// decode Y as sin( lat ) * sin( long )
+			// decode Z as cos( long )
+			verts[j].normal.x = cos( latRad ) * sin( lngRad );
+			verts[j].normal.y = sin( latRad ) * sin( lngRad );
+			verts[j].normal.z = cos( lngRad );
+		}
+
+		VK_UploadBuffer( &trsurf->vertexBuffer->b, (byte *)indexes, surf->numTriangles * 3 * sizeof( *indexes ), trsurf->vertexBuffer->indexOffset );
+		VK_UploadBuffer( &trsurf->vertexBuffer->b, (byte *)verts, surf->numVerts * surf->numFrames * sizeof( *verts ), trsurf->vertexBuffer->vertexOffset );
+
 		// find the next surface
 		surf = (md3Surface_t *)( (byte *)surf + surf->ofsEnd );
+		trsurf++;
 	}
 
+	R_Free( verts );
+	R_Free( indexes );
 	return qtrue;
 }
 
@@ -1094,7 +1191,7 @@ void R_Modellist_f( void ) {
 R_GetTag for MD3s
 ================
 */
-static md3Tag_t *R_GetTag( md3Header_t *mod, int frame, const char *tagName ) {
+static md3Tag_t *R_GetTag( trMD3Model_t *mod, int frame, const char *tagName ) {
 	md3Tag_t		*tag;
 	int				i;
 
@@ -1103,7 +1200,7 @@ static md3Tag_t *R_GetTag( md3Header_t *mod, int frame, const char *tagName ) {
 		frame = mod->numFrames - 1;
 	}
 
-	tag = (md3Tag_t *)((byte *)mod + mod->ofsTags) + frame * mod->numTags;
+	tag = mod->tags + frame * mod->numTags;
 	for ( i = 0 ; i < mod->numTags ; i++, tag++ ) {
 		if ( !strcmp( tag->name, tagName ) ) {
 			return tag;	// found it
@@ -1176,11 +1273,11 @@ void R_ModelBounds( qhandle_t handle, vec3_t mins, vec3_t maxs ) {
 	}
 
 	if ( model->md3[0] ) {
-		md3Header_t	*header;
-		md3Frame_t	*frame;
+		trMD3Model_t	*header;
+		md3Frame_t		*frame;
 		header = model->md3[0];
 
-		frame = (md3Frame_t *)( (byte *)header + header->ofsFrames );
+		frame = header->frames;
 
 		VectorCopy( frame->bounds[0], mins );
 		VectorCopy( frame->bounds[1], maxs );
