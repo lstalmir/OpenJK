@@ -10,8 +10,8 @@ typedef struct {
 wireframeConstants_t tr_wireframe;
 #endif
 
-#define TR_WAVE_VALUE( table, base, phase, freq, amplitude ) \
-	( ( base ) + table[( (uint)( ( ( phase ) + tr.floatTime * ( freq ) ) * TR_FUNCTABLE_SIZE ) ) & TR_FUNCTABLE_MASK] * ( amplitude ) )
+#define TR_WAVE_VALUE( func, base, phase, freq, amplitude ) \
+	( ( base ) + func( (uint)( ( ( phase ) + tr.floatTime * ( freq ) ) * TR_FUNCTABLE_SIZE ) ) * ( amplitude ) )
 
 #define TR_WAVEFORM_VALUE( table, wf ) \
 	TR_WAVE_VALUE( table, wf.base, wf.phase, wf.frequency, wf.amplitude )
@@ -19,19 +19,19 @@ wireframeConstants_t tr_wireframe;
 #define TR_WAVE_VALUE_FOR_FUNC( func, base, phase, freq, amplitude, out )                   \
 	switch( func ) {                                                                        \
 	case GF_SIN:                                                                            \
-		out = TR_WAVE_VALUE( tr_funcs.sinTable, base, phase, freq, amplitude );             \
+		out = TR_WAVE_VALUE( R_sinFunc, base, phase, freq, amplitude );             \
 		break;                                                                              \
 	case GF_TRIANGLE:                                                                       \
-		out = TR_WAVE_VALUE( tr_funcs.triangleTable, base, phase, freq, amplitude );        \
+		out = TR_WAVE_VALUE( R_triangleFunc, base, phase, freq, amplitude );        \
 		break;                                                                              \
 	case GF_SQUARE:                                                                         \
-		out = TR_WAVE_VALUE( tr_funcs.squareTable, base, phase, freq, amplitude );          \
+		out = TR_WAVE_VALUE( R_squareFunc, base, phase, freq, amplitude );          \
 		break;                                                                              \
 	case GF_SAWTOOTH:                                                                       \
-		out = TR_WAVE_VALUE( tr_funcs.sawToothTable, base, phase, freq, amplitude );        \
+		out = TR_WAVE_VALUE( R_sawToothFunc, base, phase, freq, amplitude );        \
 		break;                                                                              \
 	case GF_INVERSE_SAWTOOTH:                                                               \
-		out = TR_WAVE_VALUE( tr_funcs.inverseSawToothTable, base, phase, freq, amplitude ); \
+		out = TR_WAVE_VALUE( R_inverseSawToothFunc, base, phase, freq, amplitude ); \
 		break;                                                                              \
 	case GF_NONE:                                                                           \
 	default:                                                                                \
@@ -158,7 +158,7 @@ void RB_CalcBulgeVertex( float3 position, float3 normal, float2 st, deformStage_
 		now = tr.floatTime * ds.bulgeSpeed * 0.001f;
 		off = (float)( TR_FUNCTABLE_SIZE / ( TR_M_PI * 2 ) ) * ( st.x * ds.bulgeWidth + now );
 
-		scale = tr_funcs.sinTable[off & TR_FUNCTABLE_MASK] * ds.bulgeHeight;
+		scale = R_sinFunc( off ) * ds.bulgeHeight;
 
 		position += normal * scale;
 	}
@@ -598,7 +598,7 @@ void RB_CalcWaveColor( waveForm_t wf, out float4 dstColor ) {
 	}
 	glow = saturate( glow );
 
-	dstColor.xyz = float4( glow, glow, glow, 1 );
+	dstColor.xyz = glow;
 }
 
 /*
@@ -732,8 +732,8 @@ void RB_CalcTurbulentTexCoord( waveForm_t wf, float3 v, inout float2 st ) {
 
 	now = ( wf.phase + tr.floatTime * wf.frequency );
 
-	st.x += tr_funcs.sinTable[( (int)( ( ( v.x + v.z ) * 1.0 / 128 * 0.125 + now ) * TR_FUNCTABLE_SIZE ) ) & ( TR_FUNCTABLE_MASK )] * wf.amplitude;
-	st.y += tr_funcs.sinTable[( (int)( ( v.y * 1.0 / 128 * 0.125 + now ) * TR_FUNCTABLE_SIZE ) ) & ( TR_FUNCTABLE_MASK )] * wf.amplitude;
+	st.x += R_sinFunc( (int)( ( ( v.x + v.z ) * 1.0 / 128 * 0.125 + now ) * TR_FUNCTABLE_SIZE ) ) * wf.amplitude;
+	st.y += R_sinFunc( (int)( ( v.y * 1.0 / 128 * 0.125 + now ) * TR_FUNCTABLE_SIZE ) ) * wf.amplitude;
 }
 
 /*
@@ -846,8 +846,8 @@ static void ComputeTexCoords( vertex_t vertex, out stageVars_t svars ) {
 			svars.texcoords[b] = vertex.texCoord4;
 			break;
 		case TCGEN_VECTOR:
-			svars.texcoords[b].x = dot( vertex.position.xyz, tr_shader.bundle[b].tcGenVectors[0] );
-			svars.texcoords[b].y = dot( vertex.position.xyz, tr_shader.bundle[b].tcGenVectors[1] );
+			svars.texcoords[b].x = dot( vertex.position.xyz, tr_shader.bundle[b].tcGenVectors[0].xyz );
+			svars.texcoords[b].y = dot( vertex.position.xyz, tr_shader.bundle[b].tcGenVectors[1].xyz );
 			break;
 		case TCGEN_FOG:
 			svars.texcoords[b] = RB_CalcFogTexCoords( vertex.position.xyz );
@@ -1059,7 +1059,7 @@ void RB_CalcDiffuseEntityColor( float3 normal, inout float4 color ) {
 
 	RB_CalcDiffuseColor( normal, color );
 
-	color.rgb *= entColor;
+	color.rgb *= entColor.rgb;
 	color.a = entColor.a;
 }
 
@@ -1399,6 +1399,7 @@ float4 PS_Main( shadeVertex_t i )
 #ifdef TR_WIREFRAME
 	return i.color;
 #endif
-	//return ComputeColor( i.entPosition, i.entNormal, i.color, 0, 0 );
-	return tr_texture_0.Sample(tr_sampler_0, i.texcoord);
+	float4 color = ComputeColor( i.entPosition, i.entNormal, i.color, 0, 0 );
+	float4 tex_0 = tr_texture_0.Sample( tr_sampler_0, i.texcoord );
+	return color * tex_0;
 }

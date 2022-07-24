@@ -348,7 +348,16 @@ static bool VK_ExtensionSupported( const _initContext_t *ctx, const char *name )
 }
 
 template<typename _initContext_t>
-static bool VK_EnableExtension( _initContext_t *ctx, const char *name, qboolean required ) {
+static bool VK_ExtensionEnabled( _initContext_t *ctx, const char *name ) {
+	for( uint32_t i = 0; i < ctx->enabledExtensionCount; ++i ) {
+		if( Q_stricmp( ctx->enabledExtensions[i], name ) == 0 )
+			return true;
+	}
+	return false;
+}
+
+template<typename _initContext_t>
+static bool VK_EnableExtension( _initContext_t *ctx, const char *name, qboolean required = qfalse ) {
 	bool extensionEnabled = false;
 	if( VK_ExtensionSupported( ctx, name ) && ctx->enabledExtensionCount < MAX_EXTENSIONS ) {
 		ctx->enabledExtensions[ctx->enabledExtensionCount] = name;
@@ -425,6 +434,13 @@ static void VK_InitInstanceExtensions( vkinstance_initContext_t *ctx ) {
 	// required extensions
 	VK_EnableExtension( ctx, VK_KHR_SURFACE_EXTENSION_NAME, REQUIRED );
 	VK_EnableExtension( ctx, SURFACE_EXTENSION_NAME, REQUIRED );
+
+#if defined( _DEBUG )
+	if( enableOptionalExtensions ) {
+		// debug extensions
+		VK_EnableExtension( ctx, VK_EXT_DEBUG_UTILS_EXTENSION_NAME );
+	}
+#endif
 }
 
 /***********************************************************************************************************/
@@ -484,6 +500,10 @@ static void InitVulkanInstance( void ) {
 	res = vkCreateInstance( &instanceCreateInfo, NULL, &vkState.instance );
 	if( res != VK_SUCCESS ) {
 		Com_Error( ERR_FATAL, "InitVulkan: failed to create Vulkan instance (%d)\n", res );
+	}
+
+	if( VK_ExtensionEnabled( initCtx, VK_EXT_DEBUG_UTILS_EXTENSION_NAME ) ) {
+		vkState.pfnSetDebugObjectName = VK_GetProcAddress<PFN_vkSetDebugUtilsObjectNameEXT>( "vkSetDebugUtilsObjectNameEXT", REQUIRED );
 	}
 
 	R_Free( initCtx->supportedExtensions );
@@ -750,6 +770,8 @@ void InitVulkanDescriptorSets( void ) {
 	writer.reset( tr.commonDescriptorSet );
 	writer.writeBuffer( 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, tr.globalsBuffer );
 	writer.writeBuffer( 1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, tr.funcTablesBuffer );
+	writer.writeBuffer( 4, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, tr.fogsBuffer );
+	writer.writeImage( 5, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, tr.noiseImage );
 	writer.flush();
 
 	// samplers descriptor set
@@ -830,6 +852,7 @@ void VK_InitSwapchain( void ) {
 			img->width = swapchainCreateInfo.imageExtent.width;
 			img->height = swapchainCreateInfo.imageExtent.height;
 			img->internalFormat = swapchainCreateInfo.imageFormat;
+			img->allAspectFlags = VK_IMAGE_ASPECT_COLOR_BIT;
 
 			// assign a debug name for the image
 			sprintf( img->imgName, "<swapchainImage[%d]>", i );

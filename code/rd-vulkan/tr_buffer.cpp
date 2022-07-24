@@ -156,11 +156,11 @@ void VK_UploadBuffer( buffer_t *buffer, const byte *data, int size, int offset )
 		assert( ( uploadBuffer->buffer->size - uploadBuffer->offset ) >= size );
 
 		// update the upload buffer
-		VK_UploadBuffer( uploadBuffer->buffer, data, size, offset );
+		VK_UploadBuffer( uploadBuffer->buffer, data, size, uploadBuffer->offset );
 
 		// copy the data from the upload buffer to the final resource
 		VkBufferCopy uploadRegion = {};
-		uploadRegion.srcOffset = offset;
+		uploadRegion.srcOffset = uploadBuffer->offset;
 		uploadRegion.dstOffset = offset;
 		uploadRegion.size = size;
 
@@ -402,24 +402,24 @@ R_CreateBuiltinBuffers
 ==================
 */
 void R_CreateBuiltinBuffers( void ) {
+	tr_shader::fog_t fog;
+
 	// allocate a buffer for global parameters
 	tr.globalsBuffer = R_CreateBuffer( sizeof( tr.globals ), VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, 0 );
-
-	// allocate a buffer for dynamic vertex data
-	tr.dynamicVertexBuffer = R_CreateVertexBuffer( SHADER_MAX_VERTEXES, SHADER_MAX_INDEXES );
-	tr.dynamicVertexBuffer->numIndexes = 0;
-	tr.dynamicVertexBuffer->numVertexes = 0;
 
 	// allocate a buffer for identity model constants
 	tr.identityModelBuffer = R_CreateBuffer( sizeof( tr_shader::model_t ),
 		VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, 0 );
 
+	// allocate a buffer with an identity fog
+	tr.fogsBuffer = R_CreateBuffer( sizeof( fog ),
+		VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, 0 );
+
+	memset( &fog, 0, sizeof( fog ) );
+	VK_UploadBuffer( tr.fogsBuffer, (byte *)&fog, sizeof( fog ), 0 );
+
 	// initialize a dynamic geometry buffer
-	backEndData->dynamicGeometryBuilder.vertexBuffer = R_CreateVertexBuffer(
-		ARRAY_LEN( backEndData->dynamicGeometryBuilder.vertexes ),
-		ARRAY_LEN( backEndData->dynamicGeometryBuilder.indexes ) );
-	backEndData->dynamicGeometryBuilder.indexCount = 0;
-	backEndData->dynamicGeometryBuilder.vertexCount = 0;
+	backEndData->dynamicGeometryBuilder.init();
 }
 
 /*

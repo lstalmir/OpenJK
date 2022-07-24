@@ -1018,6 +1018,21 @@ static void VK_InitImage( image_t *image, const char *name, int width, int heigh
 		Com_Error( ERR_FATAL, "VK_InitImage: failed to create VkImage object (%d)\n", res );
 	}
 
+	VK_SetDebugObjectName( image->tex, VK_OBJECT_TYPE_IMAGE, image->imgName );
+
+	// set the aspect flags based on the format of the image
+	if( VK_IsDepthStencil( image->internalFormat ) ) {
+		if( VK_IsStencilOnly( image->internalFormat ) )
+			image->allAspectFlags = VK_IMAGE_ASPECT_STENCIL_BIT;
+		else if( VK_IsDepthOnly( image->internalFormat ) )
+			image->allAspectFlags = VK_IMAGE_ASPECT_DEPTH_BIT;
+		else
+			image->allAspectFlags = VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT;
+	}
+	else {
+		image->allAspectFlags = VK_IMAGE_ASPECT_COLOR_BIT;
+	}
+
 	if( usage & ( VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT ) ) {
 		VkImageViewCreateInfo imageViewCreateInfo = {};
 
@@ -1026,21 +1041,9 @@ static void VK_InitImage( image_t *image, const char *name, int width, int heigh
 		imageViewCreateInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
 		imageViewCreateInfo.image = image->tex;
 		imageViewCreateInfo.format = image->internalFormat;
+		imageViewCreateInfo.subresourceRange.aspectMask = image->allAspectFlags;
 		imageViewCreateInfo.subresourceRange.levelCount = VK_REMAINING_MIP_LEVELS;
 		imageViewCreateInfo.subresourceRange.layerCount = 1;
-
-		// set the aspect flags based on the format of the image
-		if( VK_IsDepthStencil( image->internalFormat ) ) {
-			if( VK_IsStencilOnly( image->internalFormat ) )
-				imageViewCreateInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_STENCIL_BIT;
-			else if( VK_IsDepthOnly( image->internalFormat ) )
-				imageViewCreateInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
-			else
-				imageViewCreateInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT;
-		}
-		else {
-			imageViewCreateInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-		}
 
 		res = vkCreateImageView( vkState.device, &imageViewCreateInfo, NULL, &image->texview );
 		if( res != VK_SUCCESS ) {
@@ -1385,7 +1388,7 @@ R_CreateBuiltinImages
 void R_UpdateSaveGameImage( const char *filename );
 
 void R_CreateBuiltinImages( void ) {
-	int x, y;
+	int x, y, i;
 	byte data[DEFAULT_SIZE][DEFAULT_SIZE][4];
 	CFrameBufferBuilder frameBufferBuilder;
 
@@ -1396,6 +1399,17 @@ void R_CreateBuiltinImages( void ) {
 
 	tr.whiteImage = R_CreateImage( "*white", (byte *)data, 8, 8, VK_FORMAT_B8G8R8A8_UNORM, qfalse, qfalse, qtrue, VK_SAMPLER_ADDRESS_MODE_REPEAT );
 	tr.screenImage = R_CreateTransientImage( "*screen", glConfig.vidWidth, glConfig.vidHeight, VK_FORMAT_B8G8R8A8_UNORM, VK_SAMPLER_ADDRESS_MODE_REPEAT );
+
+	int randSeed = 0;
+	for( x = 0; x < DEFAULT_SIZE; ++x ) {
+		for( y = 0; y < DEFAULT_SIZE; ++y ) {
+			for( i = 0; i < 4; ++i ) {
+				data[y][x][i] = Q_rand( &randSeed ) & 0xFF;
+			}
+		}
+	}
+
+	tr.noiseImage = R_CreateImage( "*noise", (byte *)data, DEFAULT_SIZE, DEFAULT_SIZE, VK_FORMAT_B8G8R8A8_UNORM, qfalse, qfalse, qfalse, VK_SAMPLER_ADDRESS_MODE_REPEAT );
 
 	// Create the scene image
 	frameBufferBuilder.width = glConfig.vidWidth;
@@ -1484,6 +1498,8 @@ void R_SetColorMappings( void ) {
 
 	tr.identityLight = 1.0 / ( 1 << tr.overbrightBits );
 	tr.identityLightByte = 255 * tr.identityLight;
+
+	tr.globals.identityLight = tr.identityLight;
 
 
 	if( r_intensity->value < 1.0f ) {

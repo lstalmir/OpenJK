@@ -43,12 +43,20 @@ bool		styleUpdated[MAX_LIGHT_STYLES];
 extern bool g_bRenderGlowingObjects;
 
 
+static void R_BindDescriptorSet( int space, VkDescriptorSet descriptorSet ) {
+	if( backEndData->descriptorSets[space] == descriptorSet )
+		return;
+
+	vkCmdBindDescriptorSets( backEndData->cmdbuf, VK_PIPELINE_BIND_POINT_GRAPHICS, backEndData->pipelineLayout, space, 1, &descriptorSet, 0, NULL );
+
+	backEndData->descriptorSets[space] = descriptorSet;
+}
+
 static void R_DrawElements( shaderCommands_t *input, shaderStage_t *stage ) {
-	drawCommand_t *draw = input->draws;
+	drawCommand_t *draw;
 	VkBuffer vertexBuffer;
 	VkDeviceSize vertexOffset;
 	VkDeviceSize indexOffset;
-	VkDescriptorSet descriptorSets[4];
 	int i;
 
 	// make sure there is a framebuffer bound
@@ -56,20 +64,18 @@ static void R_DrawElements( shaderCommands_t *input, shaderStage_t *stage ) {
 		R_BindFrameBuffer( tr.sceneFrameBuffer );
 	}
 
-	// bind common descriptor sets
-	descriptorSets[TR_GLOBALS_SPACE] = tr.commonDescriptorSet;
-	descriptorSets[TR_SAMPLERS_SPACE] = tr.samplerDescriptorSet;
-	descriptorSets[TR_SHADER_SPACE] = stage->descriptorSet;
-
-	vkCmdBindDescriptorSets( backEndData->cmdbuf, VK_PIPELINE_BIND_POINT_GRAPHICS, backEndData->pipelineLayout, 0, 3, descriptorSets, 0, NULL );
+	R_BindDescriptorSet( TR_GLOBALS_SPACE, tr.commonDescriptorSet );
+	R_BindDescriptorSet( TR_SAMPLERS_SPACE, tr.samplerDescriptorSet );
+	R_BindDescriptorSet( TR_SHADER_SPACE, stage->descriptorSet );
 
 	for( i = 0; i < input->numDraws; ++i ) {
+		draw = &input->draws[i];
+
 		vertexBuffer = draw->vertexBuffer->b.buf;
 		vertexOffset = (VkDeviceSize)draw->vertexOffset;
 		indexOffset = (VkDeviceSize)draw->indexOffset;
 
-		// bind descriptor set
-		vkCmdBindDescriptorSets( backEndData->cmdbuf, VK_PIPELINE_BIND_POINT_GRAPHICS, backEndData->pipelineLayout, TR_MODEL_SPACE, 1, &draw->modelDescriptorSet, 0, NULL );
+		R_BindDescriptorSet( TR_MODEL_SPACE, draw->modelDescriptorSet );
 
 		// bind vertex buffers
 		vkCmdBindVertexBuffers( backEndData->cmdbuf, 0, 1, &vertexBuffer, &vertexOffset );
@@ -91,8 +97,7 @@ SURFACE SHADERS
 
 
 void VK_BindImage( image_t *image, int loc ) {
-	vkCmdBindDescriptorSets( backEndData->cmdbuf, VK_PIPELINE_BIND_POINT_GRAPHICS, backEndData->pipelineLayout,
-		TR_TEXTURE_SPACE_0 + loc, 1, &image->descriptorSet, 0, NULL );
+	R_BindDescriptorSet( TR_TEXTURE_SPACE_0 + loc, image->descriptorSet );
 }
 
 

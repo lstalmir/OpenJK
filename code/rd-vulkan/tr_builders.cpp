@@ -447,9 +447,9 @@ void CFrameBufferBuilder::addDepthStencilAttachment( VkFormat format, bool clear
 	att->flags = 0;
 	att->format = format;
 	att->samples = VK_SAMPLE_COUNT_1_BIT;
-	att->loadOp = clear ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+	att->loadOp = clear ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_LOAD;
 	att->storeOp = VK_ATTACHMENT_STORE_OP_STORE;
-	att->stencilLoadOp = clear ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_DONT_CARE;
+	att->stencilLoadOp = clear ? VK_ATTACHMENT_LOAD_OP_CLEAR : VK_ATTACHMENT_LOAD_OP_LOAD;
 	att->stencilStoreOp = VK_ATTACHMENT_STORE_OP_STORE;
 	att->initialLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 	att->finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
@@ -658,10 +658,33 @@ void CDescriptorSetWriter::flush() {
 	reset();
 }
 
+void CDynamicGeometryBuilder::init() {
+	root = (vertexBufferList_t *)R_Malloc( sizeof( vertexBufferList_t ), TAG_HUNKALLOC );
+	root->vertexBuffer = R_CreateVertexBuffer( ARRAY_LEN( vertexes ), ARRAY_LEN( indexes ) );
+	root->next = NULL;
+}
+
+void CDynamicGeometryBuilder::reset() {
+	curr = root;
+	vertexOffset = 0;
+	vertexCount = 0;
+	indexOffset = 0;
+	indexCount = 0;
+}
+
 void CDynamicGeometryBuilder::checkOverflow( int numVertexes, int numIndexes ) {
-	if( ( vertexCount + numVertexes > ARRAY_LEN( vertexes ) ) ||
-		( indexCount + numIndexes > ARRAY_LEN( indexes ) ) ) {
+	if( ( vertexOffset + vertexCount + numVertexes > ARRAY_LEN( vertexes ) ) ||
+		( indexOffset + indexCount + numIndexes > ARRAY_LEN( indexes ) ) ) {
 		endGeometry();
+		// move to the next vertex buffer
+		if( !curr->next ) {
+			curr->next = (vertexBufferList_t *)R_Malloc( sizeof( vertexBufferList_t ), TAG_HUNKALLOC );
+			curr->next->vertexBuffer = R_CreateVertexBuffer( ARRAY_LEN( vertexes ), ARRAY_LEN( indexes ) );
+			curr->next->next = NULL;
+		}
+		curr = curr->next;
+		vertexOffset = 0;
+		indexOffset = 0;
 	}
 }
 
@@ -685,11 +708,11 @@ void CDynamicGeometryBuilder::endGeometry() {
 
 	if( indexCount > 0 ) {
 		int idxoff = indexOffset * sizeof( *indexes );
-		int vertoff = vertexOffset * sizeof( *vertexes ) + vertexBuffer->vertexOffset;
+		int vertoff = vertexOffset * sizeof( *vertexes ) + curr->vertexBuffer->vertexOffset;
 
 		// update the vertex buffer
-		VK_UploadBuffer( &vertexBuffer->b, (const byte *)indexes, indexCount * sizeof( *indexes ), idxoff );
-		VK_UploadBuffer( &vertexBuffer->b, (const byte *)vertexes, vertexCount * sizeof( *vertexes ), vertoff );
+		VK_UploadBuffer( &curr->vertexBuffer->b, (const byte *)indexes, indexCount * sizeof( *indexes ), idxoff );
+		VK_UploadBuffer( &curr->vertexBuffer->b, (const byte *)vertexes, vertexCount * sizeof( *vertexes ), vertoff );
 
 		// send the draw command
 		RB_CHECKOVERFLOW();
@@ -697,7 +720,7 @@ void CDynamicGeometryBuilder::endGeometry() {
 
 		draw = RB_DrawSurface();
 
-		draw->vertexBuffer = vertexBuffer;
+		draw->vertexBuffer = curr->vertexBuffer;
 		draw->modelDescriptorSet = tr.identityModelDescriptorSet; // todo
 		draw->indexOffset = idxoff;
 		draw->indexCount = indexCount;

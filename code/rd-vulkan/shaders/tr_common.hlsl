@@ -128,4 +128,29 @@ float3 PerpendicularVector( float3 src ) {
 	return normalize( ProjectPointOnPlane( tempvec, src ) );
 }
 
+
+/*
+** reads data from func table
+*/
+float R_sinFunc( int index ) {
+	index &= TR_FUNCTABLE_MASK;
+	return tr_funcs.sinTable[index >> 2][index & 0x3];
+}
+float R_squareFunc( int index ) {
+	index &= TR_FUNCTABLE_MASK;
+	return tr_funcs.squareTable[index >> 2][index & 0x3];
+}
+float R_triangleFunc( int index ) {
+	index &= TR_FUNCTABLE_MASK;
+	return tr_funcs.triangleTable[index >> 2][index & 0x3];
+}
+float R_sawToothFunc( int index ) {
+	index &= TR_FUNCTABLE_MASK;
+	return tr_funcs.sawToothTable[index >> 2][index & 0x3];
+}
+float R_inverseSawToothFunc( int index ) {
+	index &= TR_FUNCTABLE_MASK;
+	return tr_funcs.inverseSawToothTable[index >> 2][index & 0x3];
+}
+
 #endif // TR_COMMON_HLSL_

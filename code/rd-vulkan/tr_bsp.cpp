@@ -1414,6 +1414,17 @@ void RE_LoadWorldMap_Actual( const char *name, world_t &worldData, int index ) {
 
 		// only set tr.world now that we know the entire level has loaded properly
 		tr.world = &worldData;
+
+		// update the fogs buffer
+		CDescriptorSetWriter writer( tr.commonDescriptorSet );
+		writer.writeBuffer( 4, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, worldData.fogsBuffer );
+		writer.flush();
+	}
+	else {
+		// restore the original fogs buffer
+		CDescriptorSetWriter writer( tr.commonDescriptorSet );
+		writer.writeBuffer( 4, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, tr.fogsBuffer );
+		writer.flush();
 	}
 
 

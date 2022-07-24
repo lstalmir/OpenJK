@@ -87,6 +87,7 @@ typedef struct image_s {
 	VmaAllocation		allocation;
 
 	VkFormat			internalFormat;
+	VkImageAspectFlags	allAspectFlags;
 
 	VkSamplerAddressMode wrapClampMode;
 
@@ -950,6 +951,8 @@ typedef struct {
 	VkPhysicalDeviceProperties physicalDeviceProperties;
 	char					physicalDeviceDriverVersion[32];
 
+	PFN_vkSetDebugUtilsObjectNameEXT pfnSetDebugObjectName;
+
 } vkstate_t;
 
 
@@ -1014,6 +1017,7 @@ typedef struct {
 	image_t					*defaultImage;
 	image_t					*scratchImage[NUM_SCRATCH_IMAGES];
 	image_t					*fogImage;
+	image_t					*noiseImage;
 	image_t					*dlightImage;	// inverse-quare highlight for projective adding
 	image_t					*whiteImage;			// full of 0xff
 	image_t					*identityLightImage;	// full of tr.identityLightByte
@@ -1021,6 +1025,8 @@ typedef struct {
 	image_t					*screenImage; //reserve us a gl texnum to use with RF_DISTORTION
 
 	image_t					*screenshotImage;
+
+	buffer_t				*fogsBuffer;
 
 	// samplers
 	VkSampler				wrapModeSampler;
@@ -1065,9 +1071,6 @@ typedef struct {
 	VkPipeline				wireframePipeline;
 	VkPipeline				wireframeXRayPipeline;
 	VkPipelineLayout		wireframePipelineLayout;
-
-	// Vertex buffer with data generated in runtime.
-	vertexBuffer_t			*dynamicVertexBuffer;
 
 	buffer_t				*identityModelBuffer;
 
@@ -1355,12 +1358,17 @@ void VK_ClearColorImage( image_t *image, const VkClearColorValue *value );
 void VK_ClearDepthStencilImage( image_t *image, const VkClearDepthStencilValue *value );
 void VK_AllocateDescriptorSet( VkDescriptorSetLayout layout, VkDescriptorSet *set );
 void VK_DeleteDescriptorSet( VkDescriptorSet set );
-
+void VK_SetDebugObjectName( uint64_t object, VkObjectType type, const char *name );
 int VK_AlignUniformBufferSize( int structureSize );
 
 template<typename T>
 inline T VK_GetProcAddress( const char *name, qboolean required = qfalse ) {
 	return ( T )VK_GetProcAddress( name, required );
+}
+
+template<typename T>
+inline void VK_SetDebugObjectName( T object, VkObjectType type, const char *name ) {
+	VK_SetDebugObjectName( (uint64_t)object, type, name );
 }
 
 #define GLS_SRCBLEND_ZERO						0x00000001
@@ -1622,8 +1630,13 @@ public:
 };
 
 class CDynamicGeometryBuilder {
-public:
-	vertexBuffer_t		*vertexBuffer;
+	struct vertexBufferList_t {
+		vertexBuffer_t		*vertexBuffer;
+		vertexBufferList_t	*next;
+	};
+
+	vertexBufferList_t	*root;
+	vertexBufferList_t	*curr;
 
 	int					vertexCount;
 	int					vertexOffset;
@@ -1631,10 +1644,13 @@ public:
 	int					indexCount;
 	int					indexOffset;
 
+public:
 	trIndex_t			indexes[SHADER_MAX_INDEXES];
 	tr_shader::vertex_t vertexes[SHADER_MAX_VERTEXES];
 
 public:
+	void init();
+	void reset();
 	void checkOverflow( int numVertexes, int numIndexes );
 	void beginGeometry();
 	int	 addVertex();
@@ -2068,6 +2084,8 @@ typedef struct {
 
 	VkPipeline				pipeline;			// current pipeline
 	VkPipelineLayout		pipelineLayout;		// current pipeline layout
+
+	VkDescriptorSet			descriptorSets[TR_NUM_SPACES];
 
 	frameBuffer_t			*frameBuffer;		// last written frame buffer
 

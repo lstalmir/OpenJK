@@ -118,6 +118,7 @@ void VK_BeginFrame( void ) {
 		backEndData->frameBuffer = NULL;
 		backEndData->pipeline = VK_NULL_HANDLE;
 		backEndData->pipelineLayout = VK_NULL_HANDLE;
+		memset( backEndData->descriptorSets, 0, sizeof( backEndData->descriptorSets ) );
 
 		// wait until the resources are available
 		res = vkWaitForFences( vkState.device, 1, &vkState.fences[vkState.resnum], VK_FALSE, UINT64_MAX );
@@ -149,8 +150,10 @@ void VK_BeginFrame( void ) {
 			R_ClearFrameBuffer( tr.sceneFrameBuffer );
 
 			// reset the dynamic vertex buffer for this frame
-			backEndData->dynamicGeometryBuilder.vertexOffset = 0;
-			backEndData->dynamicGeometryBuilder.indexOffset = 0;
+			backEndData->dynamicGeometryBuilder.reset();
+
+			// upload the globals
+			VK_UploadBuffer( tr.globalsBuffer, (byte *)&tr.globals, sizeof( tr.globals ), 0 );
 		}
 	}
 }
@@ -164,6 +167,8 @@ void VK_EndFrame( void ) {
 	VkResult res;
 
 	assert( vkState.imagenum != UINT32_MAX );
+
+	RB_EndSurface();
 
 	// get the current frame buffer
 	frameBuffer_t *frameBuffer = backEndData->frameBuffer;
@@ -248,7 +253,7 @@ void VK_SetImageLayout( image_t *im, VkImageLayout dstLayout, VkAccessFlags dstA
 		imageMemoryBarrier.newLayout = dstLayout;
 		imageMemoryBarrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
 		imageMemoryBarrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-		imageMemoryBarrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+		imageMemoryBarrier.subresourceRange.aspectMask = im->allAspectFlags;
 		imageMemoryBarrier.subresourceRange.baseArrayLayer = 0;
 		imageMemoryBarrier.subresourceRange.layerCount = VK_REMAINING_ARRAY_LAYERS;
 		imageMemoryBarrier.subresourceRange.baseMipLevel = 0;
@@ -350,6 +355,23 @@ void VK_DeleteDescriptorSet( VkDescriptorSet set ) {
 	vkFreeDescriptorSets( vkState.device, vkState.descriptorPool, 1, &set );
 }
 
+/*
+** VK_SetDebugObjectName
+*/
+void VK_SetDebugObjectName( uint64_t object, VkObjectType type, const char *name ) {
+#if defined( _DEBUG )
+	if( vkState.pfnSetDebugObjectName ) {
+		VkDebugUtilsObjectNameInfoEXT objectNameInfo = {};
+		objectNameInfo.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_OBJECT_NAME_INFO_EXT;
+		objectNameInfo.objectHandle = object;
+		objectNameInfo.objectType = type;
+		objectNameInfo.pObjectName = name;
+
+		vkState.pfnSetDebugObjectName( vkState.device, &objectNameInfo );
+	}
+#endif
+}
+
 
 /*
 ================
@@ -408,8 +430,8 @@ void SetViewportAndScissor( int depthRange ) {
 	vkCmdSetViewport( backEndData->cmdbuf, 0, 1, &viewport );
 
 	// set the scissor rect
-	scissor.offset.x = backEnd.viewParms.viewportX;
-	scissor.offset.y = backEnd.viewParms.viewportY;
+	scissor.offset.x = Q_max( 0, backEnd.viewParms.viewportX );
+	scissor.offset.y = Q_max( 0, backEnd.viewParms.viewportY );
 	scissor.extent.width = backEnd.viewParms.viewportWidth;
 	scissor.extent.height = backEnd.viewParms.viewportHeight;
 	vkCmdSetScissor( backEndData->cmdbuf, 0, 1, &scissor );
@@ -891,9 +913,9 @@ const void *RB_SetColor( const void *data ) {
 
 	cmd = (const setColorCommand_t *)data;
 
-	backEnd.color2D.r = (byte)( cmd->color[0] * 255 );
+	backEnd.color2D.r = (byte)( cmd->color[2] * 255 );
 	backEnd.color2D.g = (byte)( cmd->color[1] * 255 );
-	backEnd.color2D.b = (byte)( cmd->color[2] * 255 );
+	backEnd.color2D.b = (byte)( cmd->color[0] * 255 );
 	backEnd.color2D.a = (byte)( cmd->color[3] * 255 );
 
 	return (const void *)( cmd + 1 );

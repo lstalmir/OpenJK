@@ -4,6 +4,8 @@
 #if defined( __cplusplus )
 #	include "qcommon/q_math.h"
 
+#	pragma( pack, push: 4 )
+
 struct image_s;
 
 // contains all types used for c/c++ - hlsl interop
@@ -14,7 +16,7 @@ namespace tr_shader {
 	typedef uint32_t qboolean32;
 
 	// define hlsl vector types for C++ interop
-	typedef struct alignas( 4 ) {
+	typedef struct {
 		union {
 			struct { // vector-like components
 				float x;
@@ -28,7 +30,7 @@ namespace tr_shader {
 		float operator[]( int i ) const { return m[i]; }
 	} float1;
 
-	typedef struct alignas( 8 ) {
+	typedef struct {
 		union {
 			struct { // vector-like components
 				float x;
@@ -44,7 +46,7 @@ namespace tr_shader {
 		float operator[]( int i ) const { return m[i]; }
 	} float2;
 
-	typedef struct alignas( 16 ) {
+	typedef struct {
 		union {
 			struct { // vector-like components
 				float x;
@@ -62,7 +64,7 @@ namespace tr_shader {
 		float operator[]( int i ) const { return m[i]; }
 	} float3;
 
-	typedef struct alignas( 16 ) {
+	typedef struct {
 		union {
 			struct { // vector-like components
 				float x;
@@ -82,7 +84,7 @@ namespace tr_shader {
 		float operator[]( int i ) const { return m[i]; }
 	} float4;
 
-	typedef struct alignas( 16 ) {
+	typedef struct {
 		union {
 			struct { // vector-like components
 				int32_t x;
@@ -103,11 +105,30 @@ namespace tr_shader {
 	} int4;
 
 	// define hlsl matrix types for C/C++ interop.
-	typedef float2 float2x2[2];
+	typedef struct {
+		union {
+			struct { // matrix-like components
+				float m00;
+				float m01;
+				float2 __m_unused0;
+				float m10;
+				float m11;
+				float2 __m_unused1;
+			};
+			struct { // vector-like components
+				float2 r0;
+				float2 __r_unused0;
+				float2 r1;
+				float2 __r_unused1;
+			};
+			float m[4][2];
+		};
+	} float2x2;
+
 	typedef float4 float4x3[3];
 	typedef float4 float4x4[4];
 
-	typedef struct alignas( 4 ) {
+	typedef struct {
 		union {
 			struct { // vector-like components
 				byte x;
@@ -237,6 +258,7 @@ typedef bool qboolean32;
 #define TR_TEXTURE_SPACE_3 TR_DescriptorSpace( 7 )
 #define TR_CUSTOM_SPACE_0 TR_DescriptorSpace( 8 )
 #define TR_CUSTOM_SPACE_1 TR_DescriptorSpace( 9 )
+#define TR_NUM_SPACES 10
 
 
 	TR_ENUM( genFunc_t,
@@ -375,8 +397,10 @@ typedef bool qboolean32;
 
 	typedef struct {
 		float3 origin;	   // in world coordinates
+		float __unused0;
 		float4x3 axis;	   // orientation in world
 		float3 viewOrigin; // viewParms->or.origin in local coordinates
+		float __unused1;
 		float4x4 modelMatrix;
 	} orientationr_t;
 
@@ -440,17 +464,15 @@ typedef bool qboolean32;
 	typedef struct {
 		orientationr_t ori;
 		orientationr_t world;
-		float3 pvsOrigin;	  // may be different than or.origin for portals
-		bool isPortal;		  // true if this view is through a portal
-		bool isMirror;		  // the portal is a mirror, invert the face culling
-		int frameSceneNum;	  // copied from tr.frameSceneNum
-		int frameCount;		  // copied from tr.frameCount
+		float4x4 projectionMatrix;
 		cplane_t portalPlane; // clip anything behind this if mirroring
+		cplane_t frustum[5];
+		float4 visBounds[2];
+		float3 pvsOrigin;	  // may be different than or.origin for portals
+		qboolean32 isPortal;		  // true if this view is through a portal
+		qboolean32 isMirror;  // the portal is a mirror, invert the face culling
 		int viewportX, viewportY, viewportWidth, viewportHeight;
 		float fovX, fovY;
-		float4x4 projectionMatrix;
-		cplane_t frustum[5];
-		float3 visBounds[2];
 		float zFar;
 	} viewParms_t;
 
@@ -466,12 +488,14 @@ typedef bool qboolean32;
 		float amplitude;
 		float phase;
 		float frequency;
+
+		float3 __unused0;
 	} waveForm_t;
 
 	typedef struct {
-		deform_t deformation; // vertex coordinate modification type
-
 		float3 moveVector;
+
+		deform_t deformation; // vertex coordinate modification type
 		waveForm_t deformationWave;
 		float deformationSpread;
 
@@ -481,14 +505,14 @@ typedef bool qboolean32;
 	} deformStage_t;
 
 	typedef struct {
-		texMod_t type;
-
 		// used for TMOD_TURBULENT and TMOD_STRETCH
 		waveForm_t wave;
 
 		// used for TMOD_TRANSFORM
 		float2x2 mat;	  // s' = s * m[0][0] + t * m[1][0] + trans[0]
 		float2 translate; // t' = s * m[0][1] + t * m[0][1] + trans[1]
+
+		texMod_t type;
 
 		// used for TMOD_SCALE
 		//	float			scale[2];			// s *= scale[0]
@@ -503,6 +527,7 @@ typedef bool qboolean32;
 		// - = counterclockwise
 		// float			rotateSpeed;
 
+		float __unused0;
 	} texModInfo_t;
 
 	typedef struct textureBundle_s {
@@ -525,21 +550,22 @@ typedef bool qboolean32;
 		textureBundle_t bundle[NUM_TEXTURE_BUNDLES];
 
 		waveForm_t rgbWave;
-		colorGen_t rgbGen;
-
 		waveForm_t alphaWave;
+
+		colorGen_t rgbGen;
 		alphaGen_t alphaGen;
 
 		uint constantColor;
-
 		float portalRange;
+
+		acff_t adjustColorsForFog;
 
 		int fogNum;
 
+		float __unused0;
+
 		int numDeforms;
 		deformStage_t deforms[TR_MAX_SHADER_DEFORMS];
-
-		acff_t adjustColorsForFog;
 
 	} shaderStage_t;
 
@@ -626,6 +652,9 @@ typedef bool qboolean32;
 
 		float floatTime;
 
+		float rangedFog;
+		float distanceCull;
+
 		float4x3 viewaxis;
 
 		world_t world;
@@ -637,12 +666,9 @@ typedef bool qboolean32;
 
 		int viewCluster;
 
-		sunParms_t sunParms;
 		int sunSurfaceLight; // from the sky shader for this level
-
-		float rangedFog;
-
-		float distanceCull;
+		float3 __unused0;
+		sunParms_t sunParms;
 
 		int numFogs;
 		int numModels;
@@ -654,15 +680,25 @@ typedef bool qboolean32;
 	// function tables are initialized once and don't ever change
 	// put them in a separate buffer that is not backed on the CPU to save memory
 	typedef struct {
+#if defined( __cplusplus )
 		float sinTable[TR_FUNCTABLE_SIZE];
 		float squareTable[TR_FUNCTABLE_SIZE];
 		float triangleTable[TR_FUNCTABLE_SIZE];
 		float sawToothTable[TR_FUNCTABLE_SIZE];
 		float inverseSawToothTable[TR_FUNCTABLE_SIZE];
+#else
+		float4 sinTable[TR_FUNCTABLE_SIZE / 4];
+		float4 squareTable[TR_FUNCTABLE_SIZE / 4];
+		float4 triangleTable[TR_FUNCTABLE_SIZE / 4];
+		float4 sawToothTable[TR_FUNCTABLE_SIZE / 4];
+		float4 inverseSawToothTable[TR_FUNCTABLE_SIZE / 4];
+#endif
 	} trFuncTables_t;
 
 #if defined( __cplusplus )
 } // namespace tr_shader
+
+#	pragma( pack, pop )
 #endif
 
 #endif // TR_SHADER_H_

@@ -641,7 +641,7 @@ static void ParseTexMod( const char *_text, shaderStage_t *stage )
 			ri.Printf( PRINT_WARNING, "WARNING: missing transform parms in shader '%s'\n", shader.name );
 			return;
 		}
-		tmi->mat[0][0] = atof( token );
+		tmi->mat.m[0][0] = atof( token );
 
 		token = COM_ParseExt( text, qfalse );
 		if ( token[0] == 0 )
@@ -649,7 +649,7 @@ static void ParseTexMod( const char *_text, shaderStage_t *stage )
 			ri.Printf( PRINT_WARNING, "WARNING: missing transform parms in shader '%s'\n", shader.name );
 			return;
 		}
-		tmi->mat[0][1] = atof( token );
+		tmi->mat.m[0][1] = atof( token );
 
 		token = COM_ParseExt( text, qfalse );
 		if ( token[0] == 0 )
@@ -657,7 +657,7 @@ static void ParseTexMod( const char *_text, shaderStage_t *stage )
 			ri.Printf( PRINT_WARNING, "WARNING: missing transform parms in shader '%s'\n", shader.name );
 			return;
 		}
-		tmi->mat[1][0] = atof( token );
+		tmi->mat.m[1][0] = atof( token );
 
 		token = COM_ParseExt( text, qfalse );
 		if ( token[0] == 0 )
@@ -665,7 +665,7 @@ static void ParseTexMod( const char *_text, shaderStage_t *stage )
 			ri.Printf( PRINT_WARNING, "WARNING: missing transform parms in shader '%s'\n", shader.name );
 			return;
 		}
-		tmi->mat[1][1] = atof( token );
+		tmi->mat.m[1][1] = atof( token );
 
 		token = COM_ParseExt( text, qfalse );
 		if ( token[0] == 0 )
@@ -3233,6 +3233,8 @@ static shader_t *FinishShader( void ) {
 		//
 		pStage->shaderBuffer = R_CreateBuffer( sizeof( pStage->shaderData ),
 			VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, 0 );
+
+		VK_UploadBuffer( pStage->shaderBuffer, (byte *)&pStage->shaderData, sizeof( pStage->shaderData ), 0 );
 
 		//
 		// allocate and initialize the descriptor set
