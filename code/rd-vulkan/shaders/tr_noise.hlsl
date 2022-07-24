@@ -11,7 +11,7 @@ float GetNoiseTime( int time ) {
 	float s = time & TR_NOISE_MASK;
 	float t = time / TR_NOISE_SIZE;
 
-	noise = tr_noise.Sample( tr_linearRepeatSampler, float2( s, t ) );
+	noise = tr_noise.SampleLevel( tr_linearRepeatSampler, float2( s, t ), 0 );
 
 	return ( 1 + dot( noise, noise ) / 4 );
 }
@@ -19,8 +19,8 @@ float GetNoiseTime( int time ) {
 float R_NoiseGet( float4 seed ) {
 	float4 noiseXY, noiseZW;
 
-	noiseXY = tr_noise.Sample( tr_linearRepeatSampler, seed.xy );
-	noiseZW = tr_noise.Sample( tr_linearRepeatSampler, seed.zw );
+	noiseXY = tr_noise.SampleLevel( tr_linearRepeatSampler, seed.xy, 0 );
+	noiseZW = tr_noise.SampleLevel( tr_linearRepeatSampler, seed.zw, 0 );
 
 	return dot( noiseXY, noiseZW ) / 4;
 }

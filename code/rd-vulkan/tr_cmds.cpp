@@ -362,6 +362,8 @@ void RE_BeginFrame( stereoFrame_t stereoFrame ) {
 	tr.frameCount++;
 	tr.frameSceneNum = 0;
 
+	tr.globals.floatTime = ri.Milliseconds() * 0.001f;
+
 	VK_BeginFrame();
 
 #if 0
