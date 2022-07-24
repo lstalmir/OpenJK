@@ -95,8 +95,7 @@ void CPipelineLayoutBuilder::reset() {
 	addDescriptorSetLayout( tr.modelDescriptorSetLayout );
 	addDescriptorSetLayout( tr.textureDescriptorSetLayout );
 	addDescriptorSetLayout( tr.textureDescriptorSetLayout );
-	addDescriptorSetLayout( tr.textureDescriptorSetLayout );
-	addDescriptorSetLayout( tr.textureDescriptorSetLayout );
+	addDescriptorSetLayout( tr.viewDescriptorSetLayout );
 }
 
 void CPipelineLayoutBuilder::addDescriptorSetLayout( VkDescriptorSetLayout layout ) {
@@ -139,7 +138,7 @@ CPipelineBuilder::CPipelineBuilder() {
 	// these don't ever change
 	vertexInput.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
 	vertexInput.pVertexAttributeDescriptions = vertexAttributes;
-	vertexInput.pVertexBindingDescriptions = &vertexBinding;
+	vertexInput.pVertexBindingDescriptions = vertexBindings;
 	inputAssembly.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
 	multisample.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO;
 	depthStencil.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO;
@@ -176,12 +175,14 @@ void CPipelineBuilder::reset( bool setDefaults ) {
 	for( i = 0; i < shaderStageCount; ++i ) {
 		if( shaderStages[i].module ) {
 			vkDestroyShaderModule( vkState.device, shaderStages[i].module, NULL );
+			shaderStages[i].module = VK_NULL_HANDLE;
 		}
 	}
 
 	shaderStageCount = 0;
 	dynamicStateCount = 0;
 	vertexAttributeCount = 0;
+	vertexBindingCount = 0;
 
 	if( setDefaults ) {
 		// vertex input
@@ -249,8 +250,8 @@ void CPipelineBuilder::reset( bool setDefaults ) {
 		// dynamic states
 		dynamic.pNext = NULL;
 		dynamic.flags = 0;
-		//dynamicStates[dynamicStateCount++] = VK_DYNAMIC_STATE_VIEWPORT;
-		//dynamicStates[dynamicStateCount++] = VK_DYNAMIC_STATE_SCISSOR;
+		// dynamicStates[dynamicStateCount++] = VK_DYNAMIC_STATE_VIEWPORT;
+		// dynamicStates[dynamicStateCount++] = VK_DYNAMIC_STATE_SCISSOR;
 
 		// pipeline create info
 		pipelineCreateInfo.pNext = NULL;
@@ -314,7 +315,7 @@ void CPipelineBuilder::setDynamicState( VkDynamicState state ) {
 	dynamicStates[dynamicStateCount++] = state;
 }
 
-void CPipelineBuilder::addVertexAttribute( VkFormat format, int offset ) {
+void CPipelineBuilder::addVertexAttribute( VkFormat format, int offset, int binding ) {
 	VkVertexInputAttributeDescription *attr;
 
 	if( vertexAttributeCount == TR_MAX_VERTEX_INPUT_ATTRIBUTE_COUNT ) {
@@ -322,7 +323,7 @@ void CPipelineBuilder::addVertexAttribute( VkFormat format, int offset ) {
 	}
 
 	attr = &vertexAttributes[vertexAttributeCount];
-	attr->binding = 0;
+	attr->binding = binding;
 	attr->format = format;
 	attr->location = vertexAttributeCount;
 	attr->offset = offset;
@@ -330,8 +331,24 @@ void CPipelineBuilder::addVertexAttribute( VkFormat format, int offset ) {
 	vertexAttributeCount++;
 }
 
+void CPipelineBuilder::addVertexBinding( int stride, VkVertexInputRate rate ) {
+	VkVertexInputBindingDescription *binding;
+
+	if( vertexBindingCount == TR_MAX_VERTEX_INPUT_BINDING_COUNT ) {
+		Com_Error( ERR_FATAL, "CPipelineBuilder: max vertex binding count limit reached\n" );
+	}
+
+	binding = &vertexBindings[vertexBindingCount];
+	binding->binding = vertexBindingCount;
+	binding->stride = stride;
+	binding->inputRate = rate;
+
+	vertexBindingCount++;
+}
+
 void CPipelineBuilder::build( VkPipeline *pipeline ) {
 	VkResult res;
+	int i;
 
 	// update number of defined shader stages
 	pipelineCreateInfo.stageCount = shaderStageCount;
@@ -341,7 +358,7 @@ void CPipelineBuilder::build( VkPipeline *pipeline ) {
 
 	// update number of vertex input attributes and bindings
 	vertexInput.vertexAttributeDescriptionCount = vertexAttributeCount;
-	vertexInput.vertexBindingDescriptionCount = ( vertexAttributeCount > 0 ) ? 1 : 0;
+	vertexInput.vertexBindingDescriptionCount = vertexBindingCount;
 
 	// setup the default viewport state
 	// it won't be used because the dynamic viewport and scissor rects are always enabled,
@@ -370,6 +387,29 @@ void CPipelineBuilder::build( VkPipeline *pipeline ) {
 	viewportState.pScissors = &scissor;
 
 	pipelineCreateInfo.pViewportState = &viewportState;
+
+	// setup the specialization constants
+	VkSpecializationInfo specializationInfo;
+	VkSpecializationMapEntry specializationMapEntry;
+	if( shaderSpec != 0 ) {
+		specializationMapEntry.constantID = 0;
+		specializationMapEntry.offset = 0;
+		specializationMapEntry.size = sizeof( shaderSpec );
+
+		specializationInfo.mapEntryCount = 1;
+		specializationInfo.pMapEntries = &specializationMapEntry;
+		specializationInfo.dataSize = sizeof( shaderSpec );
+		specializationInfo.pData = &shaderSpec;
+
+		for( i = 0; i < shaderStageCount; ++i ) {
+			shaderStages[i].pSpecializationInfo = &specializationInfo;
+		}
+	}
+	else {
+		for( i = 0; i < shaderStageCount; ++i ) {
+			shaderStages[i].pSpecializationInfo = NULL;
+		}
+	}
 
 	// create the pipeline
 	res = vkCreateGraphicsPipelines( vkState.device, NULL, 1, &pipelineCreateInfo, NULL, pipeline );
@@ -720,12 +760,14 @@ void CDynamicGeometryBuilder::endGeometry() {
 
 		draw = RB_DrawSurface();
 
-		draw->vertexBuffer = curr->vertexBuffer;
-		draw->modelDescriptorSet = tr.identityModelDescriptorSet; // todo
+		draw->numVertexBuffers = 1;
+		draw->vertexBuffers[0] = curr->vertexBuffer;
+
+		draw->vertexOffsets[0] = vertoff;
+		draw->vertexCount = vertexCount;
+
 		draw->indexOffset = idxoff;
 		draw->indexCount = indexCount;
-		draw->vertexOffset = vertoff;
-		draw->vertexCount = vertexCount;
 
 		vertexOffset += vertexCount;
 		indexOffset += indexCount;

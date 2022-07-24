@@ -558,8 +558,8 @@ void R_SetupProjection( void ) {
 
 	tr.viewParms.projectionMatrix[2] = 0;
 	tr.viewParms.projectionMatrix[6] = 0;
-	tr.viewParms.projectionMatrix[10] = -( zFar + zNear ) / depth;
-	tr.viewParms.projectionMatrix[14] = -2 * zFar * zNear / depth;
+	tr.viewParms.projectionMatrix[10] = zNear / depth;
+	tr.viewParms.projectionMatrix[14] = zFar * zNear / depth;
 
 	tr.viewParms.projectionMatrix[3] = 0;
 	tr.viewParms.projectionMatrix[7] = 0;

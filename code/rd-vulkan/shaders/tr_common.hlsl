@@ -44,13 +44,10 @@ SamplerState				tr_sampler_0 : register( s1, TR_TEXTURE_SPACE_0 );
 Texture2D					tr_texture_1 : register( t0, TR_TEXTURE_SPACE_1 );
 SamplerState				tr_sampler_1 : register( s1, TR_TEXTURE_SPACE_1 );
 
-// Texture space (6)
-Texture2D					tr_texture_2 : register( t0, TR_TEXTURE_SPACE_2 );
-SamplerState				tr_sampler_2 : register( s1, TR_TEXTURE_SPACE_2 );
-
-// Texture space (7)
-Texture2D					tr_texture_3 : register( t0, TR_TEXTURE_SPACE_3 );
-SamplerState				tr_sampler_3 : register( s1, TR_TEXTURE_SPACE_3 );
+// ViewParms space (6)
+cbuffer trViewParms : register( b0, TR_VIEW_SPACE ) {
+	viewParms_t				tr_view;
+}
 
 
 // Math constants

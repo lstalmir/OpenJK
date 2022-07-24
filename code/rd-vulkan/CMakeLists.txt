@@ -106,6 +106,8 @@ if(BuildSPRdVulkan OR BuildJK2SPRdVulkan)
 		"${SPDir}/rd-vulkan/shaders/tr_dissolve.hlsl"
 		"${SPDir}/rd-vulkan/shaders/tr_noise.hlsl"
 		"${SPDir}/rd-vulkan/shaders/tr_shade.hlsl"
+		"${SPDir}/rd-vulkan/shaders/tr_shade_calc.hlsl"
+		"${SPDir}/rd-vulkan/shaders/tr_shade_md3.hlsl"
 		"${SPDir}/rd-vulkan/shaders/tr_shadows.hlsl"
 		"${SPDir}/rd-vulkan/shaders/tr_sun.hlsl"
 		"${SPDir}/rd-vulkan/shaders/tr_wireframe.hlsl"
@@ -245,6 +247,7 @@ if(BuildSPRdVulkan OR BuildJK2SPRdVulkan)
 		add_dxc_command(TARGET ${ProjectName} FILE "${SPDir}/rd-vulkan/shaders/tr_dissolve.hlsl" SPIRV STAGE PS)
 		add_dxc_command(TARGET ${ProjectName} FILE "${SPDir}/rd-vulkan/shaders/tr_shade.hlsl" SPIRV STAGE VS)
 		add_dxc_command(TARGET ${ProjectName} FILE "${SPDir}/rd-vulkan/shaders/tr_shade.hlsl" SPIRV STAGE PS)
+		add_dxc_command(TARGET ${ProjectName} FILE "${SPDir}/rd-vulkan/shaders/tr_shade_md3.hlsl" SPIRV STAGE VS)
 		add_dxc_command(TARGET ${ProjectName} FILE "${SPDir}/rd-vulkan/shaders/tr_shadows.hlsl" SPIRV STAGE VS)
 		add_dxc_command(TARGET ${ProjectName} FILE "${SPDir}/rd-vulkan/shaders/tr_shadows.hlsl" SPIRV STAGE PS)
 		add_dxc_command(TARGET ${ProjectName} FILE "${SPDir}/rd-vulkan/shaders/tr_sun.hlsl" SPIRV STAGE VS)

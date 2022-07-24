@@ -136,7 +136,7 @@ qhandle_t RE_RegisterShaderLightMap( const char *name, const int *lightmapIndex,
 		return 0;
 	}
 
-	sh = R_FindShader( name, lightmapIndex, styles, qtrue );
+	sh = R_FindShader( name, lightmapIndex, styles, qtrue, 0 );
 
 	// we want to return 0 if the shader failed to
 	// load for some reason, but R_FindShader should
@@ -2970,15 +2970,7 @@ static shader_t *FinishShader( void ) {
 	CPipelineBuilder pipelineBuilder;
 
 	// initialize the pipeline builder with the default pipeline state
-	SPV_InitShadePipelineBuilder( &pipelineBuilder );
-
-	pipelineBuilder.pipelineCreateInfo.flags = VK_PIPELINE_CREATE_DERIVATIVE_BIT;
-	pipelineBuilder.pipelineCreateInfo.basePipelineHandle = tr.shadePipeline;
-	pipelineBuilder.pipelineCreateInfo.basePipelineIndex = -1;
-	pipelineBuilder.pipelineCreateInfo.layout = tr.shadePipelineLayout;
-	pipelineBuilder.pipelineCreateInfo.renderPass = tr.sceneFrameBuffer->renderPass;
-	pipelineBuilder.pipelineCreateInfo.subpass = 0;
-
+	SPV_InitShadePipelineBuilder( &pipelineBuilder, shader.spec );
 
 	hasLightmapStage = qfalse;
 
@@ -3548,7 +3540,7 @@ and src*dest blending applied with the texture, as apropriate for
 most world construction surfaces.
 ===============
 */
-shader_t *R_FindShader( const char *name, const int *lightmapIndex, const byte *styles, qboolean mipRawImage ) {
+shader_t *R_FindShader( const char *name, const int *lightmapIndex, const byte *styles, qboolean mipRawImage, int spec ) {
 	char		strippedName[MAX_QPATH];
 	int			hash;
 	const char 	*shaderText;
@@ -3585,6 +3577,7 @@ shader_t *R_FindShader( const char *name, const int *lightmapIndex, const byte *
 		// with that same strippedName a new default shader is created.
 		if (IsShader(sh, strippedName, lightmapIndex, styles))
 		{	// match found
+			assert( sh->spec == spec );
 			return sh;
 		}
 	}
@@ -3598,6 +3591,8 @@ shader_t *R_FindShader( const char *name, const int *lightmapIndex, const byte *
 	Q_strncpyz(shader.name, strippedName, sizeof(shader.name));
 	memcpy(shader.lightmapIndex, lightmapIndex, sizeof(shader.lightmapIndex));
 	memcpy(shader.styles, styles, sizeof(shader.styles));
+
+	shader.spec = spec;
 
 	//
 	// attempt to define shader from an explicit parameter file
@@ -3697,7 +3692,7 @@ way to ask for different implicit lighting modes (vertex, lightmap, etc)
 qhandle_t RE_RegisterShader( const char *name ) {
 	shader_t	*sh;
 
-	sh = R_FindShader( name, lightmaps2d, stylesDefault, qtrue );
+	sh = R_FindShader( name, lightmaps2d, stylesDefault, qtrue, 0 );
 
 	// we want to return 0 if the shader failed to
 	// load for some reason, but R_FindShader should
@@ -3722,7 +3717,7 @@ For menu graphics that should never be picmiped
 qhandle_t RE_RegisterShaderNoMip( const char *name ) {
 	shader_t	*sh;
 
-	sh = R_FindShader( name, lightmaps2d, stylesDefault, qfalse );
+	sh = R_FindShader( name, lightmaps2d, stylesDefault, qfalse, 0 );
 
 	// we want to return 0 if the shader failed to
 	// load for some reason, but R_FindShader should
@@ -3985,9 +3980,9 @@ static void CreateInternalShaders( void ) {
 }
 
 static void CreateExternalShaders( void ) {
-	tr.projectionShadowShader = R_FindShader( "projectionShadow", lightmapsNone, stylesDefault, qtrue );
+	tr.projectionShadowShader = R_FindShader( "projectionShadow", lightmapsNone, stylesDefault, qtrue, 0 );
 	tr.projectionShadowShader->sort = SS_STENCIL_SHADOW;
-	tr.sunShader = R_FindShader( "sun", lightmapsVertex, stylesDefault, qtrue );
+	tr.sunShader = R_FindShader( "sun", lightmapsVertex, stylesDefault, qtrue, 0 );
 }
 
 /*

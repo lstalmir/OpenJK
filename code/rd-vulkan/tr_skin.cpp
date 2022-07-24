@@ -324,7 +324,7 @@ qhandle_t RE_RegisterIndividualSkin( const char *name , qhandle_t hSkin)
 		}
 		surf = skin->surfaces[ skin->numSurfaces ] = (skinSurface_t *) R_Hunk_Alloc( sizeof( *skin->surfaces[0] ), qtrue );
 		Q_strncpyz( surf->name, surfName, sizeof( surf->name ) );
-		surf->shader = R_FindShader( token, lightmapsNone, stylesDefault, qtrue );
+		surf->shader = R_FindShader( token, lightmapsNone, stylesDefault, qtrue, 0 );
 		skin->numSurfaces++;
 	}
 
@@ -397,7 +397,7 @@ qhandle_t RE_RegisterSkin( const char *name) {
 #ifdef JK2_MODE
 		skin->numSurfaces = 1;
 		skin->surfaces[0] = (skinSurface_t *) R_Hunk_Alloc( sizeof(skin->surfaces[0]), qtrue );
-		skin->surfaces[0]->shader = R_FindShader( name, lightmapsNone, stylesDefault, qtrue );
+		skin->surfaces[0]->shader = R_FindShader( name, lightmapsNone, stylesDefault, qtrue, 0 );
 		return hSkin;
 #endif
 /*		skin->numSurfaces = 1;

@@ -420,6 +420,25 @@ void R_CreateBuiltinBuffers( void ) {
 
 	// initialize a dynamic geometry buffer
 	backEndData->dynamicGeometryBuilder.init();
+
+	// allocate a 2D entity model buffer
+	backEnd.entity2D.modelBuffer = R_CreateBuffer( sizeof( backEnd.entity2D.model ), VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, 0 );
+	memset( &backEnd.entity2D.model, 0, sizeof( backEnd.entity2D.model ) );
+
+	backEnd.entity2D.model.entity2D = qtrue;
+
+	backEnd.entity2D.model.ori.modelMatrix[0][0] = 1.f / 320;
+	backEnd.entity2D.model.ori.modelMatrix[1][1] = 1.f / 240;
+	backEnd.entity2D.model.ori.modelMatrix[2][2] = 1;
+	backEnd.entity2D.model.ori.modelMatrix[3][3] = 1;
+	backEnd.entity2D.model.ori.modelMatrix[3][0] = -1;
+	backEnd.entity2D.model.ori.modelMatrix[3][1] = -1;
+
+	VK_UploadBuffer( backEnd.entity2D.modelBuffer, (byte *)&backEnd.entity2D.model, sizeof( backEnd.entity2D.model ), 0 );
+
+	// allocate a viewParms buffer
+	tr.viewParms.buffer = R_CreateBuffer( sizeof( tr.viewParms.shaderData ), VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, 0 );
+	memset( &tr.viewParms.shaderData, 0, sizeof( tr.viewParms.shaderData ) );
 }
 
 /*

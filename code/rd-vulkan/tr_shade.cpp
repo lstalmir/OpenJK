@@ -43,7 +43,7 @@ bool		styleUpdated[MAX_LIGHT_STYLES];
 extern bool g_bRenderGlowingObjects;
 
 
-static void R_BindDescriptorSet( int space, VkDescriptorSet descriptorSet ) {
+void R_BindDescriptorSet( int space, VkDescriptorSet descriptorSet ) {
 	if( backEndData->descriptorSets[space] == descriptorSet )
 		return;
 
@@ -54,10 +54,10 @@ static void R_BindDescriptorSet( int space, VkDescriptorSet descriptorSet ) {
 
 static void R_DrawElements( shaderCommands_t *input, shaderStage_t *stage ) {
 	drawCommand_t *draw;
-	VkBuffer vertexBuffer;
-	VkDeviceSize vertexOffset;
+	VkBuffer vertexBuffers[TR_MAX_VERTEX_INPUT_BINDING_COUNT];
+	VkDeviceSize vertexOffsets[TR_MAX_VERTEX_INPUT_BINDING_COUNT];
 	VkDeviceSize indexOffset;
-	int i;
+	int i, j;
 
 	// make sure there is a framebuffer bound
 	if( !backEndData->frameBuffer ) {
@@ -68,18 +68,24 @@ static void R_DrawElements( shaderCommands_t *input, shaderStage_t *stage ) {
 	R_BindDescriptorSet( TR_SAMPLERS_SPACE, tr.samplerDescriptorSet );
 	R_BindDescriptorSet( TR_SHADER_SPACE, stage->descriptorSet );
 
+	if( !backEndData->descriptorSets[TR_VIEW_SPACE] ) {
+		R_BindDescriptorSet( TR_VIEW_SPACE, tr.viewParms.descriptorSet );
+	}
+
 	for( i = 0; i < input->numDraws; ++i ) {
 		draw = &input->draws[i];
 
-		vertexBuffer = draw->vertexBuffer->b.buf;
-		vertexOffset = (VkDeviceSize)draw->vertexOffset;
+		for( j = 0; j < draw->numVertexBuffers; ++j ) {
+			vertexBuffers[j] = draw->vertexBuffers[j]->b.buf;
+			vertexOffsets[j] = (VkDeviceSize)draw->vertexOffsets[j];
+		}
 		indexOffset = (VkDeviceSize)draw->indexOffset;
 
-		R_BindDescriptorSet( TR_MODEL_SPACE, draw->modelDescriptorSet );
+		R_BindDescriptorSet( TR_MODEL_SPACE, backEnd.currentEntity->modelDescriptorSet );
 
 		// bind vertex buffers
-		vkCmdBindVertexBuffers( backEndData->cmdbuf, 0, 1, &vertexBuffer, &vertexOffset );
-		vkCmdBindIndexBuffer( backEndData->cmdbuf, vertexBuffer, indexOffset, g_scIndexType );
+		vkCmdBindVertexBuffers( backEndData->cmdbuf, 0, draw->numVertexBuffers, vertexBuffers, vertexOffsets );
+		vkCmdBindIndexBuffer( backEndData->cmdbuf, vertexBuffers[0], indexOffset, g_scIndexType );
 
 		// draw
 		vkCmdDrawIndexed( backEndData->cmdbuf, draw->indexCount, 1, 0, 0, 0 );

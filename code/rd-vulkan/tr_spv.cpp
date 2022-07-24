@@ -40,6 +40,7 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 #include "tr_wireframe_PS.h"
 #include "tr_shade_VS.h"
 #include "tr_shade_PS.h"
+#include "tr_shade_md3_VS.h"
 
 /**
 ===============
@@ -200,11 +201,7 @@ void SPV_InitWireframeShaders( void ) {
 	pipelineBuilder.pipelineCreateInfo.subpass = 0;
 
 	// setup the vertex input
-	pipelineBuilder.vertexBinding.binding = 0;
-	pipelineBuilder.vertexBinding.stride = sizeof( tr_shader::vertex_t );
-	pipelineBuilder.vertexBinding.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
-
-	pipelineBuilder.addVertexAttributes<tr_shader::vertex_t>();
+	pipelineBuilder.addVertexAttributesAndBinding<tr_shader::vertex_t>();
 
 	// setup the pipeline shader stages
 	pipelineBuilder.setShader( VK_SHADER_STAGE_VERTEX_BIT, tr_wireframe_VS );
@@ -241,7 +238,7 @@ void SPV_InitShadeShaders( void ) {
 	// use the default pipeline layout
 	pipelineLayoutBuilder.build( &tr.shadePipelineLayout );
 
-	SPV_InitShadePipelineBuilder( &pipelineBuilder );
+	SPV_InitShadePipelineBuilder( &pipelineBuilder, 0 );
 
 	pipelineBuilder.pipelineCreateInfo.flags = VK_PIPELINE_CREATE_ALLOW_DERIVATIVES_BIT;
 
@@ -258,21 +255,44 @@ void SPV_InitShadeShaders( void ) {
 
 	// create the shade pipeline
 	pipelineBuilder.build( &tr.shadePipeline );
+
+	// create the md3 shade pipeline
+	pipelineBuilder.reset( qfalse );
+	SPV_InitShadePipelineBuilder( &pipelineBuilder, TR_SHADER_SPEC_MD3 );
+
+	pipelineBuilder.build( &tr.md3ShadePipeline );
 }
 
-void SPV_InitShadePipelineBuilder( CPipelineBuilder *builder ) {
+void SPV_InitShadePipelineBuilder( CPipelineBuilder *builder, int spec ) {
 	builder->pipelineCreateInfo.layout = tr.shadePipelineLayout;
 	builder->pipelineCreateInfo.renderPass = tr.sceneFrameBuffer->renderPass;
 	builder->pipelineCreateInfo.subpass = 0;
+	builder->pipelineCreateInfo.basePipelineIndex = -1;
+	builder->pipelineCreateInfo.basePipelineHandle = tr.shadePipeline;
 
-	// setup the pipeline shader stages
-	builder->setShader( VK_SHADER_STAGE_VERTEX_BIT, tr_shade_VS );
-	builder->setShader( VK_SHADER_STAGE_FRAGMENT_BIT, tr_shade_PS );
+	// set specialization constants
+	builder->shaderSpec = spec;
 
 	// setup the vertex input
-	builder->vertexBinding.binding = 0;
-	builder->vertexBinding.stride = sizeof( tr_shader::vertex_t );
-	builder->vertexBinding.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+	builder->addVertexAttributesAndBinding<tr_shader::vertex_t>();
 
-	builder->addVertexAttributes<tr_shader::vertex_t>();
+	if( spec & TR_SHADER_SPEC_MD3 ) {
+		builder->pipelineCreateInfo.basePipelineHandle = tr.md3ShadePipeline;
+
+		// md3 shaders receive 2 vertex streams
+		builder->addVertexAttributesAndBinding<tr_shader::oldVertex_t>();
+
+		// use md3 pipeline shaders
+		builder->setShader( VK_SHADER_STAGE_VERTEX_BIT, tr_shade_md3_VS );
+	}
+	else {
+		// use default shade shader
+		builder->setShader( VK_SHADER_STAGE_VERTEX_BIT, tr_shade_VS );
+	}
+
+	builder->setShader( VK_SHADER_STAGE_FRAGMENT_BIT, tr_shade_PS );
+
+	if( builder->pipelineCreateInfo.basePipelineHandle ) {
+		builder->pipelineCreateInfo.flags |= VK_PIPELINE_CREATE_DERIVATIVE_BIT;
+	}
 }

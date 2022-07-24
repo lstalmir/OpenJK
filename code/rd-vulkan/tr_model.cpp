@@ -226,7 +226,7 @@ void *RE_RegisterModels_Malloc(int iSize, void *pvDiskBufferIfJustLoaded, const 
 			const char *const psShaderName	 =		   &((char*)ModelBin.pModelDiskImage)[iShaderNameOffset];
 				  int  *const piShaderPokePtr= (int *) &((char*)ModelBin.pModelDiskImage)[iShaderPokeOffset];
 
-			shader_t *sh = R_FindShader( psShaderName, lightmapsNone, stylesDefault, qtrue );
+			shader_t *sh = R_FindShader( psShaderName, lightmapsNone, stylesDefault, qtrue, TR_SHADER_SPEC_MD3 );
 
 			if ( sh->defaultShader )
 			{
@@ -959,7 +959,7 @@ static qboolean R_LoadMD3 (model_t *mod, int lod, void *buffer, const char *mod_
         for ( j = 0 ; j < surf->numShaders ; j++, shader++ ) {
             shader_t	*sh;
 
-            sh = R_FindShader( shader->name, lightmapsNone, stylesDefault, qtrue );
+            sh = R_FindShader( shader->name, lightmapsNone, stylesDefault, qtrue, TR_SHADER_SPEC_MD3 );
 			if ( sh->defaultShader ) {
 				shader->shaderIndex = 0;
 			} else {
@@ -968,6 +968,8 @@ static qboolean R_LoadMD3 (model_t *mod, int lod, void *buffer, const char *mod_
 			RE_RegisterModels_StoreShaderRequest(mod_name, &shader->name[0], &shader->shaderIndex);
         }
 
+		trsurf->numShaders = surf->numShaders;
+		trsurf->shaders = (md3Shader_t *)( (byte *)surf + surf->ofsShaders );
 
 #ifdef Q3_BIG_ENDIAN
 		// swap all the triangles
@@ -998,15 +1000,10 @@ static qboolean R_LoadMD3 (model_t *mod, int lod, void *buffer, const char *mod_
 #endif
 
 		trsurf->surfaceType = SF_MD3;
+		trsurf->name = surf->name;
 
 		// allocate buffers
-		trsurf->modelBuffer = R_CreateBuffer( sizeof( tr_shader::model_t ), VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT, 0 );
 		trsurf->vertexBuffer = R_CreateVertexBuffer( surf->numVerts * surf->numFrames, surf->numTriangles * 3 );
-
-		VK_AllocateDescriptorSet( tr.modelDescriptorSetLayout, &trsurf->modelDescriptorSet );
-		descriptorSetWriter.reset( trsurf->modelDescriptorSet );
-		descriptorSetWriter.writeBuffer( 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, trsurf->modelBuffer );
-		descriptorSetWriter.flush();
 
 		// upload vertex data
 		tri = (md3Triangle_t *)( (byte *)surf + surf->ofsTriangles );

@@ -340,7 +340,7 @@ static shader_t *ShaderForShaderNum( int shaderNum, const int *lightmapNum, cons
 			styles = vertexStyles;
 		}
 	*/
-	shader = R_FindShader( dsh->shader, lightmapNum, styles, qtrue );
+	shader = R_FindShader( dsh->shader, lightmapNum, styles, qtrue, 0 );
 
 	// if the shader had errors, just use default shader
 	if( shader->defaultShader ) {
@@ -577,7 +577,7 @@ static void ParseTriSurf( dsurface_t *ds, mapVert_t *verts, msurface_t *surf, in
 		}
 
 		for( k = 0; k < MAXLIGHTMAPS; k++ ) {
-			R_ColorShiftLightingBytes( verts[i].color[k], tri_verts[i].vertexColor[k].m );
+			R_ColorShiftLightingBytes( verts[i].color[k], tri_verts[i].vertexColor.m ); // todo: fixme
 		}
 	}
 
@@ -1066,7 +1066,7 @@ static void R_LoadFogs( lump_t *l, lump_t *brushesLump, lump_t *sidesLump, world
 		}
 
 		// get information from the shader for fog parameters
-		shader = R_FindShader( fogs->shader, lightmaps, stylesDefault, qtrue );
+		shader = R_FindShader( fogs->shader, lightmaps, stylesDefault, qtrue, 0 );
 
 		assert( shader->fogParms );
 		if( !shader->fogParms ) { // bad shader!!

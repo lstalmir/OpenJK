@@ -759,6 +759,11 @@ void InitVulkanDescriptorSetLayouts( void ) {
 	builder.addBinding( VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE );
 	builder.addBinding( VK_DESCRIPTOR_TYPE_SAMPLER );
 	builder.build( &tr.textureDescriptorSetLayout );
+
+	// view descriptor set layout
+	builder.reset();
+	builder.addBinding( VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER );
+	builder.build( &tr.viewDescriptorSetLayout );
 }
 
 void InitVulkanDescriptorSets( void ) {
@@ -777,11 +782,18 @@ void InitVulkanDescriptorSets( void ) {
 	// samplers descriptor set
 	VK_AllocateDescriptorSet( tr.samplerDescriptorSetLayout, &tr.samplerDescriptorSet );
 
-	// identity model descriptor set
-	VK_AllocateDescriptorSet( tr.modelDescriptorSetLayout, &tr.identityModelDescriptorSet );
+	// 2D entity model descriptor set
+	VK_AllocateDescriptorSet( tr.modelDescriptorSetLayout, &backEnd.entity2D.modelDescriptorSet );
 
-	writer.reset( tr.identityModelDescriptorSet );
-	writer.writeBuffer( 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, tr.identityModelBuffer );
+	writer.reset( backEnd.entity2D.modelDescriptorSet );
+	writer.writeBuffer( 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, backEnd.entity2D.modelBuffer );
+	writer.flush();
+
+	// view descriptor set
+	VK_AllocateDescriptorSet( tr.viewDescriptorSetLayout, &tr.viewParms.descriptorSet );
+
+	writer.reset( tr.viewParms.descriptorSet );
+	writer.writeBuffer( 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, tr.viewParms.buffer );
 	writer.flush();
 }
 

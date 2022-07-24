@@ -378,7 +378,6 @@ void R_AddMD3Surfaces( trRefEntity_t *ent ) {
 	for ( i = 0 ; i < header->numSurfaces ; i++ ) {
 		surface = &header->surfaces[i];
 
-		#if 0
 		if ( ent->e.customShader ) {// a little more efficient
 			shader = main_shader;
 		} else if ( ent->e.customSkin > 0 && ent->e.customSkin < tr.numSkins ) {
@@ -399,14 +398,10 @@ void R_AddMD3Surfaces( trRefEntity_t *ent ) {
 		} else if ( surface->numShaders <= 0 ) {
 			shader = tr.defaultShader;
 		} else {
-			md3Shader = (md3Shader_t *) ( (byte *)surface + surface->ofsShaders );
+			md3Shader = surface->shaders;
 			md3Shader += ent->e.skinNum % surface->numShaders;
 			shader = tr.shaders[ md3Shader->shaderIndex ];
 		}
-		#else
-		shader = tr.defaultShader;
-		#endif
-
 
 		// we will add shadows even if the main object isn't visible in the view
 

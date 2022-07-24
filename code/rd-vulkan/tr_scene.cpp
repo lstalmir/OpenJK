@@ -208,6 +208,8 @@ RE_AddRefEntityToScene
 =====================
 */
 void RE_AddRefEntityToScene( const refEntity_t *ent ) {
+	trRefEntity_t *entity;
+
 	if ( !tr.registered ) {
 		return;
 	}
@@ -221,8 +223,37 @@ void RE_AddRefEntityToScene( const refEntity_t *ent ) {
 		Com_Error( ERR_DROP, "RE_AddRefEntityToScene: bad reType %i", ent->reType );
 	}
 
-	backEndData->entities[r_numentities].e = *ent;
-	backEndData->entities[r_numentities].lightingCalculated = qfalse;
+	entity = &backEndData->entities[r_numentities];
+
+	entity->e = *ent;
+	entity->lightingCalculated = qfalse;
+
+	// create a model buffer for the entity
+	entity->modelBuffer = R_CreateBuffer( sizeof( entity->model ), VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, 0 );
+	memset( &entity->model, 0, sizeof( entity->model ) );
+
+	entity->model.ori.modelMatrix[0][0] = ent->axis[0][0];
+	entity->model.ori.modelMatrix[0][1] = ent->axis[1][0];
+	entity->model.ori.modelMatrix[0][2] = ent->axis[2][0];
+	entity->model.ori.modelMatrix[1][0] = ent->axis[0][1];
+	entity->model.ori.modelMatrix[1][1] = ent->axis[1][1];
+	entity->model.ori.modelMatrix[1][2] = ent->axis[2][1];
+	entity->model.ori.modelMatrix[2][0] = ent->axis[0][2];
+	entity->model.ori.modelMatrix[2][1] = ent->axis[1][2];
+	entity->model.ori.modelMatrix[2][2] = ent->axis[2][2];
+	entity->model.ori.modelMatrix[3][3] = 1;
+
+	entity->model.ori.origin.x = ent->origin[0];
+	entity->model.ori.origin.y = ent->origin[1];
+	entity->model.ori.origin.z = ent->origin[2];
+
+	VK_UploadBuffer( entity->modelBuffer, (byte *)&entity->model, sizeof( entity->model ), 0 );
+
+	// create a descriptor set for the entity
+	VK_AllocateDescriptorSet( tr.modelDescriptorSetLayout, &entity->modelDescriptorSet );
+	CDescriptorSetWriter writer( entity->modelDescriptorSet );
+	writer.writeBuffer( 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, entity->modelBuffer );
+	writer.flush();
 
 	r_numentities++;
 }
@@ -384,7 +415,7 @@ void RE_RenderScene( const refdef_t *fd ) {
 	// The refdef takes 0-at-the-top y coordinates, so
 	// convert to GL's 0-at-the-bottom space
 	//
-	memset( &parms, 0, sizeof( parms ) );
+	parms = tr.viewParms;
 	parms.viewportX = tr.refdef.x;
 	parms.viewportY = glConfig.vidHeight - ( tr.refdef.y + tr.refdef.height );
 	parms.viewportWidth = tr.refdef.width;

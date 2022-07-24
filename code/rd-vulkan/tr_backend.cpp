@@ -645,8 +645,7 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 
 	// draw everything
 	oldEntityNum = -1;
-	backEnd.currentEntity = &tr.worldEntity;
-	oldShader = NULL;
+	oldShader = tess.shader;
 	oldFogNum = -1;
 	oldDepthRange = qfalse;
 	oldDlighted = qfalse;
@@ -728,11 +727,16 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 
 		if( shader != oldShader || fogNum != oldFogNum || dlighted != oldDlighted || ( entityNum != oldEntityNum && !shader->entityMergable ) ) {
 			if( oldShader != NULL ) {
+				RB_EndSurface();
+
 				if( !didShadowPass && shader && shader->sort > SS_BANNER ) {
 					RB_ShadowFinish();
 					didShadowPass = true;
 				}
 			}
+
+			RB_BeginSurface( shader, fogNum );
+
 			oldShader = shader;
 			oldFogNum = fogNum;
 			oldDlighted = dlighted;
@@ -779,6 +783,15 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 				SetViewportAndScissor( depthRange );
 				oldDepthRange = depthRange;
 			}
+
+			// update the uniform buffer
+			memcpy( &backEnd.currentEntity->model.ori.modelMatrix, backEnd.ori.modelMatrix, sizeof( backEnd.ori.modelMatrix ) );
+
+			backEnd.currentEntity->model.ori.origin.x = backEnd.ori.origin[0];
+			backEnd.currentEntity->model.ori.origin.y = backEnd.ori.origin[1];
+			backEnd.currentEntity->model.ori.origin.z = backEnd.ori.origin[2];
+
+			VK_UploadBuffer( backEnd.currentEntity->modelBuffer, (byte *)&backEnd.currentEntity->model, sizeof( backEnd.currentEntity->model ), 0 );
 
 			oldEntityNum = entityNum;
 		}
@@ -950,7 +963,7 @@ const void *RB_StretchPic( const void *data ) {
 	vertex->position.z = 0;
 	vertex->texCoord0.x = cmd->s1;
 	vertex->texCoord0.y = cmd->t1;
-	vertex->vertexColor[0] = backEnd.color2D;
+	vertex->vertexColor = backEnd.color2D;
 
 	int b = backEndData->dynamicGeometryBuilder.addVertex();
 	vertex = &backEndData->dynamicGeometryBuilder.vertexes[b];
@@ -959,7 +972,7 @@ const void *RB_StretchPic( const void *data ) {
 	vertex->position.z = 0;
 	vertex->texCoord0.x = cmd->s2;
 	vertex->texCoord0.y = cmd->t1;
-	vertex->vertexColor[0] = backEnd.color2D;
+	vertex->vertexColor = backEnd.color2D;
 
 	int c = backEndData->dynamicGeometryBuilder.addVertex();
 	vertex = &backEndData->dynamicGeometryBuilder.vertexes[c];
@@ -968,7 +981,7 @@ const void *RB_StretchPic( const void *data ) {
 	vertex->position.z = 0;
 	vertex->texCoord0.x = cmd->s2;
 	vertex->texCoord0.y = cmd->t2;
-	vertex->vertexColor[0] = backEnd.color2D;
+	vertex->vertexColor = backEnd.color2D;
 
 	int d = backEndData->dynamicGeometryBuilder.addVertex();
 	vertex = &backEndData->dynamicGeometryBuilder.vertexes[d];
@@ -977,7 +990,7 @@ const void *RB_StretchPic( const void *data ) {
 	vertex->position.z = 0;
 	vertex->texCoord0.x = cmd->s1;
 	vertex->texCoord0.y = cmd->t2;
-	vertex->vertexColor[0] = backEnd.color2D;
+	vertex->vertexColor = backEnd.color2D;
 
 	backEndData->dynamicGeometryBuilder.addTriangle( a, c, b );
 	backEndData->dynamicGeometryBuilder.addTriangle( a, d, c );
@@ -1025,7 +1038,7 @@ const void *RB_RotatePic( const void *data ) {
 	vertex->position.z = 0;
 	vertex->texCoord0.x = cmd->s1;
 	vertex->texCoord0.y = cmd->t1;
-	vertex->vertexColor[0] = backEnd.color2D;
+	vertex->vertexColor = backEnd.color2D;
 
 	int b = backEndData->dynamicGeometryBuilder.addVertex();
 	vertex = &backEndData->dynamicGeometryBuilder.vertexes[b];
@@ -1034,7 +1047,7 @@ const void *RB_RotatePic( const void *data ) {
 	vertex->position.z = 0;
 	vertex->texCoord0.x = cmd->s2;
 	vertex->texCoord0.y = cmd->t1;
-	vertex->vertexColor[0] = backEnd.color2D;
+	vertex->vertexColor = backEnd.color2D;
 
 	int c = backEndData->dynamicGeometryBuilder.addVertex();
 	vertex = &backEndData->dynamicGeometryBuilder.vertexes[c];
@@ -1043,7 +1056,7 @@ const void *RB_RotatePic( const void *data ) {
 	vertex->position.z = 0;
 	vertex->texCoord0.x = cmd->s2;
 	vertex->texCoord0.y = cmd->t2;
-	vertex->vertexColor[0] = backEnd.color2D;
+	vertex->vertexColor = backEnd.color2D;
 
 	int d = backEndData->dynamicGeometryBuilder.addVertex();
 	vertex = &backEndData->dynamicGeometryBuilder.vertexes[d];
@@ -1052,7 +1065,7 @@ const void *RB_RotatePic( const void *data ) {
 	vertex->position.z = 0;
 	vertex->texCoord0.x = cmd->s1;
 	vertex->texCoord0.y = cmd->t2;
-	vertex->vertexColor[0] = backEnd.color2D;
+	vertex->vertexColor = backEnd.color2D;
 
 	backEndData->dynamicGeometryBuilder.addTriangle( a, c, b );
 	backEndData->dynamicGeometryBuilder.addTriangle( a, d, c );
@@ -1101,7 +1114,7 @@ const void *RB_RotatePic2( const void *data ) {
 		vertex->position.z = 0;
 		vertex->texCoord0.x = cmd->s1;
 		vertex->texCoord0.y = cmd->t1;
-		vertex->vertexColor[0] = backEnd.color2D;
+		vertex->vertexColor = backEnd.color2D;
 
 		int b = backEndData->dynamicGeometryBuilder.addVertex();
 		vertex = &backEndData->dynamicGeometryBuilder.vertexes[b];
@@ -1110,7 +1123,7 @@ const void *RB_RotatePic2( const void *data ) {
 		vertex->position.z = 0;
 		vertex->texCoord0.x = cmd->s2;
 		vertex->texCoord0.y = cmd->t1;
-		vertex->vertexColor[0] = backEnd.color2D;
+		vertex->vertexColor = backEnd.color2D;
 
 		int c = backEndData->dynamicGeometryBuilder.addVertex();
 		vertex = &backEndData->dynamicGeometryBuilder.vertexes[c];
@@ -1119,7 +1132,7 @@ const void *RB_RotatePic2( const void *data ) {
 		vertex->position.z = 0;
 		vertex->texCoord0.x = cmd->s2;
 		vertex->texCoord0.y = cmd->t2;
-		vertex->vertexColor[0] = backEnd.color2D;
+		vertex->vertexColor = backEnd.color2D;
 
 		int d = backEndData->dynamicGeometryBuilder.addVertex();
 		vertex = &backEndData->dynamicGeometryBuilder.vertexes[d];
@@ -1128,7 +1141,7 @@ const void *RB_RotatePic2( const void *data ) {
 		vertex->position.z = 0;
 		vertex->texCoord0.x = cmd->s1;
 		vertex->texCoord0.y = cmd->t2;
-		vertex->vertexColor[0] = backEnd.color2D;
+		vertex->vertexColor = backEnd.color2D;
 
 		backEndData->dynamicGeometryBuilder.addTriangle( a, c, b );
 		backEndData->dynamicGeometryBuilder.addTriangle( a, d, c );
@@ -1179,6 +1192,12 @@ const void *RB_DrawSurfs( const void *data ) {
 
 	backEnd.refdef = cmd->refdef;
 	backEnd.viewParms = cmd->viewParms;
+
+	// update the viewParms buffer
+	memcpy( &backEnd.viewParms.shaderData.projectionMatrix, backEnd.viewParms.projectionMatrix, sizeof( backEnd.viewParms.projectionMatrix ) );
+	VK_UploadBuffer( backEnd.viewParms.buffer, (byte *)&backEnd.viewParms.shaderData, sizeof( backEnd.viewParms.shaderData ), 0 );
+
+	R_BindDescriptorSet( TR_VIEW_SPACE, backEnd.viewParms.descriptorSet );
 
 	RB_RenderDrawSurfList( cmd->drawSurfs, cmd->numDrawSurfs );
 

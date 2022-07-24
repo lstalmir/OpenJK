@@ -25,7 +25,7 @@ sunVertex_t VS_Main( sunVertexInput_t i ) {
 		float4( -1, 1, 1, 0 )
 	};
 
-	dist = tr.viewParms.zFar / 1.75; // div sqrt(3)
+	dist = tr_view.zFar / 1.75; // div sqrt(3)
 	size = dist * 0.4;
 
 	dir = tr.sunParms.sunDirection.xyz;
@@ -44,10 +44,10 @@ sunVertex_t VS_Main( sunVertexInput_t i ) {
 	o.tex0 = vert.zw;
 
 	// transform the vertex
-	o.position.xyz += tr.viewParms.ori.origin;
-	o.position = mul( tr.viewParms.world.modelMatrix, o.position );
+	o.position.xyz += tr_view.ori.origin;
+	o.position = mul( tr_view.world.modelMatrix, o.position );
 	//todo: viewMatrix
-	o.position = mul( tr.viewParms.projectionMatrix, o.position );
+	o.position = mul( tr_view.projectionMatrix, o.position );
 
 	return o;
 }

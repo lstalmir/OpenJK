@@ -254,11 +254,15 @@ typedef bool qboolean32;
 #define TR_MODEL_SPACE TR_DescriptorSpace( 3 )
 #define TR_TEXTURE_SPACE_0 TR_DescriptorSpace( 4 )
 #define TR_TEXTURE_SPACE_1 TR_DescriptorSpace( 5 )
-#define TR_TEXTURE_SPACE_2 TR_DescriptorSpace( 6 )
-#define TR_TEXTURE_SPACE_3 TR_DescriptorSpace( 7 )
+#define TR_VIEW_SPACE TR_DescriptorSpace( 6 )
 #define TR_CUSTOM_SPACE_0 TR_DescriptorSpace( 8 )
 #define TR_CUSTOM_SPACE_1 TR_DescriptorSpace( 9 )
 #define TR_NUM_SPACES 10
+
+#define TR_SHADER_SPEC_MD3			0x1
+#define TR_SHADER_SPEC_GLM			0x2
+#define TR_SHADER_SPEC_GLA			0x4
+#define TR_SHADER_SPEC_NOTEXMODS	0x8
 
 
 	TR_ENUM( genFunc_t,
@@ -367,8 +371,8 @@ typedef bool qboolean32;
 			float2 lightmaps[TR_MAX_LIGHTMAPS];
 		};
 #endif
-		TR_CppOrHlsl( byte4, float4 ) vertexColor[4]	TR_InputSemantic( COLOR );
-		TR_CppOrHlsl( byte4, float4 ) vertexAlpha[4]	TR_InputSemantic( ALPHA );
+		TR_CppOrHlsl( byte4, float4 ) vertexColor		TR_InputSemantic( COLOR );
+		TR_CppOrHlsl( byte, float ) vertexAlpha			TR_InputSemantic( ALPHA );
 		TR_CppOrHlsl( byte, uint ) vertexDlightBits		TR_InputSemantic( DLIGHT );
 
 #if defined( __cplusplus )
@@ -381,18 +385,58 @@ typedef bool qboolean32;
 			{ 4, 0, VK_FORMAT_R32G32_SFLOAT, 48 },		 // texCoord2
 			{ 5, 0, VK_FORMAT_R32G32_SFLOAT, 56 },		 // texCoord3
 			{ 6, 0, VK_FORMAT_R32G32_SFLOAT, 64 },		 // texCoord4
-			{ 7, 0, VK_FORMAT_B8G8R8A8_UNORM, 72 },		 // vertexColor[0]
-			{ 8, 0, VK_FORMAT_B8G8R8A8_UNORM, 76 },		 // vertexColor[1]
-			{ 9, 0, VK_FORMAT_B8G8R8A8_UNORM, 80 },		 // vertexColor[2]
-			{ 10, 0, VK_FORMAT_B8G8R8A8_UNORM, 84 },	 // vertexColor[3]
-			{ 11, 0, VK_FORMAT_B8G8R8A8_UNORM, 88 },	 // vertexAlpha[0]
-			{ 12, 0, VK_FORMAT_B8G8R8A8_UNORM, 92 },	 // vertexAlpha[1]
-			{ 13, 0, VK_FORMAT_B8G8R8A8_UNORM, 96 },	 // vertexAlpha[2]
-			{ 14, 0, VK_FORMAT_B8G8R8A8_UNORM, 100 },	 // vertexAlpha[3]
-			{ 15, 0, VK_FORMAT_R8_UNORM, 104 }			// vertexAlpha[3]
+			{ 7, 0, VK_FORMAT_B8G8R8A8_UNORM, 72 },		 // vertexColor
+			{ 8, 0, VK_FORMAT_R8_UNORM, 76 },			 // vertexAlpha
+			{ 9, 0, VK_FORMAT_R8_UNORM, 77 }			 // vertexDlightBits
+		};
+
+		inline static const VkVertexInputBindingDescription m_scBinding = {
+			0, 80, VK_VERTEX_INPUT_RATE_VERTEX
 		};
 #endif
 	} vertex_t;
+	
+	typedef struct oldVertex_s {
+		float4 position									TR_InputSemantic( POSITION1 );
+		float4 normal									TR_InputSemantic( NORMAL1 );
+		float2 texCoord0								TR_InputSemantic( TEXCOORD5 );
+#if defined( __cplusplus )
+		union {
+			struct {
+#endif
+				float2 texCoord1						TR_InputSemantic( TEXCOORD6 );
+				float2 texCoord2						TR_InputSemantic( TEXCOORD7 );
+				float2 texCoord3						TR_InputSemantic( TEXCOORD8 );
+				float2 texCoord4						TR_InputSemantic( TEXCOORD9 );
+#if defined( __cplusplus )
+			};
+			float2 lightmaps[TR_MAX_LIGHTMAPS];
+		};
+#endif
+		TR_CppOrHlsl( byte4, float4 ) vertexColor		TR_InputSemantic( COLOR1 );
+		TR_CppOrHlsl( byte, float ) vertexAlpha			TR_InputSemantic( ALPHA1 );
+		TR_CppOrHlsl( byte, uint ) vertexDlightBits		TR_InputSemantic( DLIGHT1 );
+
+#if defined( __cplusplus )
+		// store vertex input attributes with the vertex type
+		inline static const VkVertexInputAttributeDescription m_scAttributes[] = {
+			{ 10, 1, VK_FORMAT_R32G32B32A32_SFLOAT, 0 },	 // position
+			{ 11, 1, VK_FORMAT_R32G32B32A32_SFLOAT, 16 },	 // normal
+			{ 12, 1, VK_FORMAT_R32G32_SFLOAT, 32 },			 // texCoord0
+			{ 13, 1, VK_FORMAT_R32G32_SFLOAT, 40 },			 // texCoord1
+			{ 14, 1, VK_FORMAT_R32G32_SFLOAT, 48 },			 // texCoord2
+			{ 15, 1, VK_FORMAT_R32G32_SFLOAT, 56 },			 // texCoord3
+			{ 16, 1, VK_FORMAT_R32G32_SFLOAT, 64 },			 // texCoord4
+			{ 17, 1, VK_FORMAT_B8G8R8A8_UNORM, 72 },		 // vertexColor
+			{ 18, 1, VK_FORMAT_R8_UNORM, 76 },				 // vertexAlpha
+			{ 19, 1, VK_FORMAT_R8_UNORM, 77 }				 // vertexDlightBits
+		};
+
+		inline static const VkVertexInputBindingDescription m_scBinding = {
+			1, 80, VK_VERTEX_INPUT_RATE_VERTEX
+		};
+#endif
+	} oldVertex_t;
 
 
 	typedef struct {
@@ -620,6 +664,8 @@ typedef bool qboolean32;
 
 		trRefEntity_t e;
 
+		qboolean32 entity2D;
+
 	} model_t;
 
 	typedef struct {
@@ -658,7 +704,6 @@ typedef bool qboolean32;
 		float4x3 viewaxis;
 
 		world_t world;
-		viewParms_t viewParms;
 
 		float identityLight;   // 1.0 / ( 1 << overbrightBits )
 		int identityLightByte; // identityLight * 255

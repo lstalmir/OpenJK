@@ -156,9 +156,13 @@ typedef struct {
 	int			ambientLightInt;	// 32 bit rgba packed
 	vec3_t		directedLight;
 	int			dlightBits;
+
+	vertexBuffer_t		*vertexBuffer;
 	
-	vertexBuffer_t	*vertexBuffer;
-	VkDescriptorSet modelDescriptorSet;
+	VkDescriptorSet		modelDescriptorSet;
+	buffer_t			*modelBuffer;
+
+	tr_shader::model_t	model;
 
 } trRefEntity_t;
 
@@ -413,6 +417,8 @@ typedef struct shader_s {
 	int			lightmapIndex[MAXLIGHTMAPS];	// for a shader to match, both name and lightmapIndex must match
 	byte		styles[MAXLIGHTMAPS];
 
+	int			spec;
+
 	int			index;					// this shader == tr.shaders[index]
 	int			sortedIndex;			// this shader == tr.sortedShaders[sortedIndex]
 
@@ -510,6 +516,11 @@ typedef struct {
 	cplane_t	frustum[5];
 	vec3_t		visBounds[2];
 	float		zFar;
+
+	tr_shader::viewParms_t	shaderData;
+
+	buffer_t				*buffer;
+	VkDescriptorSet			descriptorSet;
 } viewParms_t;
 
 
@@ -639,7 +650,6 @@ typedef struct {
 	//	float			radius;
 
 	vertexBuffer_t	*vertexBuffer;
-	VkDescriptorSet modelDescriptorSet;
 
 } srfTriangles_t;
 
@@ -647,10 +657,16 @@ typedef struct {
 typedef struct {
 	surfaceType_t	surfaceType;
 
-	buffer_t		*modelBuffer;
+	const char		*name;
 
 	vertexBuffer_t	*vertexBuffer;
-	VkDescriptorSet	modelDescriptorSet;
+
+	int				numShaders;
+	md3Shader_t		*shaders;
+
+	int				numVertexes;
+	int				numIndexes;
+	int				numFrames;
 
 } trMD3Surface_t;
 
@@ -1069,10 +1085,10 @@ typedef struct {
 	VkDescriptorSetLayout	shaderDescriptorSetLayout;
 	VkDescriptorSetLayout	modelDescriptorSetLayout;
 	VkDescriptorSetLayout	textureDescriptorSetLayout;
+	VkDescriptorSetLayout	viewDescriptorSetLayout;
 
 	VkDescriptorSet			commonDescriptorSet;
 	VkDescriptorSet			samplerDescriptorSet;
-	VkDescriptorSet			identityModelDescriptorSet;
 
 	frameBuffer_t			*postProcessFrameBuffer;
 	
@@ -1086,6 +1102,7 @@ typedef struct {
 	frameBuffer_t			*glowBlurFrameBuffer;
 
 	VkPipeline				shadePipeline;
+	VkPipeline				md3ShadePipeline;
 	VkPipelineLayout		shadePipelineLayout;
 
 	VkPipeline				shadeDisintegratePipeline;
@@ -1387,6 +1404,7 @@ void VK_AllocateDescriptorSet( VkDescriptorSetLayout layout, VkDescriptorSet *se
 void VK_DeleteDescriptorSet( VkDescriptorSet set );
 void VK_SetDebugObjectName( uint64_t object, VkObjectType type, const char *name );
 int VK_AlignUniformBufferSize( int structureSize );
+void R_BindDescriptorSet( int space, VkDescriptorSet descriptorSet );
 
 template<typename T>
 inline T VK_GetProcAddress( const char *name, qboolean required = qfalse ) {
@@ -1453,7 +1471,7 @@ void		RE_RegisterMedia_LevelLoadBegin(const char *psMapName, ForceReload_e eForc
 void		RE_RegisterMedia_LevelLoadEnd(void);
 int			RE_RegisterMedia_GetLevel(void);
 qboolean	RE_RegisterModels_LevelLoadEnd(qboolean bDeleteEverythingNotUsedThisLevel = qfalse );
-void*		RE_RegisterModels_Malloc(int iSize, void *pvDiskBufferIfJustLoaded, const char *psModelFileName, qboolean *pqbAlreadyFound, memtag_t eTag);
+void		*RE_RegisterModels_Malloc( int iSize, void *pvDiskBufferIfJustLoaded, const char *psModelFileName, qboolean *pqbAlreadyFound, memtag_t eTag );
 void		RE_RegisterModels_StoreShaderRequest(const char *psModelFileName, const char *psShaderName, const int *piShaderIndexPoke);
 void		RE_RegisterModels_Info_f(void);
 qboolean	RE_RegisterImages_LevelLoadEnd(void);
@@ -1510,7 +1528,7 @@ extern	const byte	stylesDefault[MAXLIGHTMAPS];
 qhandle_t		 RE_RegisterShader( const char *name );
 qhandle_t		 RE_RegisterShaderNoMip( const char *name );
 
-shader_t	*R_FindShader( const char *name, const int *lightmapIndex, const byte *styles, qboolean mipRawImage );
+shader_t	*R_FindShader( const char *name, const int *lightmapIndex, const byte *styles, qboolean mipRawImage, int spec );
 shader_t	*R_GetShaderByHandle( qhandle_t hShader );
 void		R_InitShaders( void );
 void		R_ShaderList_f( void );
@@ -1524,7 +1542,7 @@ void SPV_InitDescriptorSetLayouts( void );
 void SPV_InitGlowShaders( void );
 void SPV_InitWireframeShaders( void );
 void SPV_InitShadeShaders( void );
-void SPV_InitShadePipelineBuilder( class CPipelineBuilder *builder );
+void SPV_InitShadePipelineBuilder( class CPipelineBuilder *builder, int spec );
 
 
 #define TR_MAX_DESCRIPTOR_SET_BINDING_COUNT 16
@@ -1564,17 +1582,20 @@ public:
 
 #define TR_MAX_SHADER_STAGE_COUNT 5
 #define TR_MAX_DYNAMIC_STATE_COUNT 10
-#define TR_MAX_VERTEX_INPUT_ATTRIBUTE_COUNT 16
+#define TR_MAX_VERTEX_INPUT_ATTRIBUTE_COUNT 20
+#define TR_MAX_VERTEX_INPUT_BINDING_COUNT 2
 
 class CPipelineBuilder {
 public:
 	int										shaderStageCount;
 	VkPipelineShaderStageCreateInfo			shaderStages[TR_MAX_SHADER_STAGE_COUNT];
+	int32_t									shaderSpec;
 	int										dynamicStateCount;
 	VkDynamicState							dynamicStates[TR_MAX_DYNAMIC_STATE_COUNT];
 	int										vertexAttributeCount;
 	VkVertexInputAttributeDescription		vertexAttributes[TR_MAX_VERTEX_INPUT_ATTRIBUTE_COUNT];
-	VkVertexInputBindingDescription			vertexBinding;
+	int										vertexBindingCount;
+	VkVertexInputBindingDescription			vertexBindings[TR_MAX_VERTEX_INPUT_BINDING_COUNT];
 	VkPipelineVertexInputStateCreateInfo	vertexInput;
 	VkPipelineInputAssemblyStateCreateInfo	inputAssembly;
 	VkPipelineMultisampleStateCreateInfo	multisample;
@@ -1591,7 +1612,8 @@ public:
 	void reset( bool setDefaults );
 	void setShader( VkShaderStageFlagBits stage, const uint32_t *code, int codeSize );
 	void setDynamicState( VkDynamicState state );
-	void addVertexAttribute( VkFormat format, int offset );
+	void addVertexAttribute( VkFormat format, int offset, int binding = 0 );
+	void addVertexBinding( int stride, VkVertexInputRate rate );
 	void build( VkPipeline *pipeline );
 
 	template<typename T, int codeSize>
@@ -1609,6 +1631,17 @@ public:
 		}
 		memcpy( vertexAttributes + vertexAttributeCount, T::m_scAttributes, sizeof( T::m_scAttributes ) );
 		vertexAttributeCount += ARRAY_LEN( T::m_scAttributes );
+	}
+
+	template<typename T>
+	void addVertexAttributesAndBinding() {
+		if( vertexBindingCount + 1 > TR_MAX_VERTEX_INPUT_BINDING_COUNT ) {
+			Com_Error( ERR_FATAL, "CPipelineBuilder: max vertex binding count limit reached\n" );
+		}
+		memcpy( vertexBindings + vertexBindingCount, &T::m_scBinding, sizeof( T::m_scBinding ) );
+		vertexBindingCount++;
+
+		addVertexAttributes<T>();
 	}
 };
 
@@ -1714,12 +1747,11 @@ typedef struct stageVars
 #define	NUM_TEX_COORDS		(MAXLIGHTMAPS+1)
 
 typedef struct drawCommand_s {
-	vertexBuffer_t	*vertexBuffer;
-
-	VkDescriptorSet modelDescriptorSet;
+	int				numVertexBuffers;
+	vertexBuffer_t	*vertexBuffers[TR_MAX_VERTEX_INPUT_BINDING_COUNT];
 
 	int				vertexCount;
-	int				vertexOffset;
+	int				vertexOffsets[TR_MAX_VERTEX_INPUT_BINDING_COUNT];
 
 	int				indexCount;
 	int				indexOffset;

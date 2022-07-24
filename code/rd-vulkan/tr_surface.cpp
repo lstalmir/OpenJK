@@ -977,10 +977,13 @@ RB_SurfaceTriangles
 */
 void RB_SurfaceTriangles( srfTriangles_t *srf ) {
 	drawCommand_t *draw = RB_DrawSurface();
-	draw->vertexBuffer = srf->vertexBuffer;
-	draw->modelDescriptorSet = srf->modelDescriptorSet;
+
+	draw->numVertexBuffers = 1;
+	draw->vertexBuffers[0] = srf->vertexBuffer;
+
 	draw->vertexCount = srf->vertexBuffer->numVertexes;
-	draw->vertexOffset = srf->vertexBuffer->vertexOffset;
+	draw->vertexOffsets[0] = srf->vertexBuffer->vertexOffset;
+
 	draw->indexCount = srf->vertexBuffer->numIndexes;
 	draw->indexOffset = srf->vertexBuffer->indexOffset;
 }
@@ -1116,10 +1119,16 @@ RB_SurfaceMesh
 */
 void RB_SurfaceMesh( trMD3Surface_t *surface ) {
 	drawCommand_t *draw = RB_DrawSurface();
-	draw->vertexBuffer = surface->vertexBuffer;
-	draw->modelDescriptorSet = surface->modelDescriptorSet;
+
+	// bind 2 vertex streams to lerp between frames
+	draw->numVertexBuffers = 2;
+	draw->vertexBuffers[0] = surface->vertexBuffer;
+	draw->vertexBuffers[1] = surface->vertexBuffer;
+
 	draw->vertexCount = surface->vertexBuffer->numVertexes;
-	draw->vertexOffset = surface->vertexBuffer->vertexOffset;
+	draw->vertexOffsets[0] = surface->vertexBuffer->vertexOffset + surface->numVertexes * sizeof( tr_shader::vertex_t ) * backEnd.currentEntity->e.frame;
+	draw->vertexOffsets[1] = surface->vertexBuffer->vertexOffset + surface->numVertexes * sizeof( tr_shader::vertex_t ) * backEnd.currentEntity->e.oldframe;
+
 	draw->indexCount = surface->vertexBuffer->numIndexes;
 	draw->indexOffset = surface->vertexBuffer->indexOffset;
 }
@@ -1799,8 +1808,15 @@ void RB_SurfaceEntity( surfaceType_t *surfType ) {
 #endif
 
 	draw = RB_DrawSurface();
-	draw->vertexBuffer = e->vertexBuffer;
-	draw->modelDescriptorSet = e->modelDescriptorSet;
+
+	draw->numVertexBuffers = 1;
+	draw->vertexBuffers[0] = e->vertexBuffer;
+
+	draw->vertexCount = e->vertexBuffer->numVertexes;
+	draw->vertexOffsets[0] = e->vertexBuffer->vertexOffset;
+
+	draw->indexCount = e->vertexBuffer->numIndexes;
+	draw->indexOffset = e->vertexBuffer->indexOffset;
 }
 
 void RB_SurfaceBad( surfaceType_t *surfType ) {
