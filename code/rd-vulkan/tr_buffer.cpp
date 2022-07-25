@@ -202,11 +202,11 @@ void *VK_UploadBuffer( buffer_t *buffer, int size, int offset ) {
 		assert( ( uploadBuffer->buffer->size - uploadBuffer->offset ) >= size );
 
 		// update the upload buffer
-		void* data = VK_UploadBuffer( uploadBuffer->buffer, size, offset );
+		void* data = VK_UploadBuffer( uploadBuffer->buffer, size, uploadBuffer->offset );
 
 		// copy the data from the upload buffer to the final resource
 		VkBufferCopy uploadRegion = {};
-		uploadRegion.srcOffset = offset;
+		uploadRegion.srcOffset = uploadBuffer->offset;
 		uploadRegion.dstOffset = offset;
 		uploadRegion.size = size;
 
@@ -215,6 +215,8 @@ void *VK_UploadBuffer( buffer_t *buffer, int size, int offset ) {
 			buffer->buf,
 			1, &uploadRegion );
 
+		uploadBuffer->offset += size;
+
 		return data;
 	}
 	else {
@@ -222,7 +224,7 @@ void *VK_UploadBuffer( buffer_t *buffer, int size, int offset ) {
 		assert( buffer->allocationInfo.pMappedData );
 		assert( buffer->memoryPropertyFlags & VK_MEMORY_PROPERTY_HOST_COHERENT_BIT );
 
-		return buffer->allocationInfo.pMappedData;
+		return (byte *)buffer->allocationInfo.pMappedData + offset;
 	}
 }
 
