@@ -917,9 +917,6 @@ static qboolean R_LoadMD3 (model_t *mod, int lod, void *buffer, const char *mod_
 	memcpy( mod->md3[lod]->frames, (byte *)pinmodel + pinmodel->ofsFrames, sizeof( md3Frame_t ) * numFrames );
 	memcpy( mod->md3[lod]->tags, (byte *)pinmodel + pinmodel->ofsTags, sizeof( md3Tag_t ) * numFrames * numTags );
 
-	verts = (tr_shader::vertex_t *)R_Malloc( sizeof( tr_shader::vertex_t ) * MD3_MAX_VERTS * MD3_MAX_FRAMES, TAG_TEMP_WORKSPACE );
-	indexes = (trIndex_t *)R_Malloc( sizeof( trIndex_t ) * MD3_MAX_TRIANGLES * 3, TAG_TEMP_WORKSPACE );
-
 	// swap all the surfaces
 	surf = (md3Surface_t *)( (byte *)pinmodel + pinmodel->ofsSurfaces );
 	trsurf = mod->md3[lod]->surfaces;
@@ -1005,6 +1002,9 @@ static qboolean R_LoadMD3 (model_t *mod, int lod, void *buffer, const char *mod_
 		// allocate buffers
 		trsurf->vertexBuffer = R_CreateVertexBuffer( surf->numVerts * surf->numFrames, surf->numTriangles * 3 );
 
+		verts = (tr_shader::vertex_t *)VK_UploadBuffer( &trsurf->vertexBuffer->b, surf->numVerts * surf->numFrames * sizeof( *verts ), trsurf->vertexBuffer->vertexOffset );
+		indexes = (trIndex_t *)VK_UploadBuffer( &trsurf->vertexBuffer->b, surf->numTriangles * 3 * sizeof( *indexes ), trsurf->vertexBuffer->indexOffset );
+
 		// upload vertex data
 		tri = (md3Triangle_t *)( (byte *)surf + surf->ofsTriangles );
 		for( j = 0; j < surf->numTriangles; j++, tri++ ) {
@@ -1049,16 +1049,11 @@ static qboolean R_LoadMD3 (model_t *mod, int lod, void *buffer, const char *mod_
 			verts[j].normal.z = cos( lngRad );
 		}
 
-		VK_UploadBuffer( &trsurf->vertexBuffer->b, (byte *)indexes, surf->numTriangles * 3 * sizeof( *indexes ), trsurf->vertexBuffer->indexOffset );
-		VK_UploadBuffer( &trsurf->vertexBuffer->b, (byte *)verts, surf->numVerts * surf->numFrames * sizeof( *verts ), trsurf->vertexBuffer->vertexOffset );
-
 		// find the next surface
 		surf = (md3Surface_t *)( (byte *)surf + surf->ofsEnd );
 		trsurf++;
 	}
 
-	R_Free( verts );
-	R_Free( indexes );
 	return qtrue;
 }
 
