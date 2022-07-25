@@ -228,32 +228,28 @@ void RE_AddRefEntityToScene( const refEntity_t *ent ) {
 	entity->e = *ent;
 	entity->lightingCalculated = qfalse;
 
-	// create a model buffer for the entity
-	entity->modelBuffer = R_CreateBuffer( sizeof( entity->model ), VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, 0 );
-	memset( &entity->model, 0, sizeof( entity->model ) );
+	// descriptor set must be updated if either the buffer or descriptor set has changed
+	bool updateDescriptorSet = false;
 
-	entity->model.ori.modelMatrix[0][0] = ent->axis[0][0];
-	entity->model.ori.modelMatrix[0][1] = ent->axis[1][0];
-	entity->model.ori.modelMatrix[0][2] = ent->axis[2][0];
-	entity->model.ori.modelMatrix[1][0] = ent->axis[0][1];
-	entity->model.ori.modelMatrix[1][1] = ent->axis[1][1];
-	entity->model.ori.modelMatrix[1][2] = ent->axis[2][1];
-	entity->model.ori.modelMatrix[2][0] = ent->axis[0][2];
-	entity->model.ori.modelMatrix[2][1] = ent->axis[1][2];
-	entity->model.ori.modelMatrix[2][2] = ent->axis[2][2];
-	entity->model.ori.modelMatrix[3][3] = 1;
+	if( !entity->modelBuffer ) {
+		// create a model buffer for the entity
+		// todo: implement suballocated ring buffers
+		entity->modelBuffer = R_CreateBuffer( sizeof( entity->model ), VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, 0 );
+		updateDescriptorSet = true;
+	}
 
-	entity->model.ori.origin.x = ent->origin[0];
-	entity->model.ori.origin.y = ent->origin[1];
-	entity->model.ori.origin.z = ent->origin[2];
+	if( !entity->modelDescriptorSet ) {
+		// create a descriptor set for the entity
+		VK_AllocateDescriptorSet( tr.modelDescriptorSetLayout, &entity->modelDescriptorSet );
+		updateDescriptorSet = true;
+	}
 
-	VK_UploadBuffer( entity->modelBuffer, (byte *)&entity->model, sizeof( entity->model ), 0 );
-
-	// create a descriptor set for the entity
-	VK_AllocateDescriptorSet( tr.modelDescriptorSetLayout, &entity->modelDescriptorSet );
-	CDescriptorSetWriter writer( entity->modelDescriptorSet );
-	writer.writeBuffer( 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, entity->modelBuffer );
-	writer.flush();
+	if( updateDescriptorSet ) {
+		// update the descriptor set
+		CDescriptorSetWriter writer( entity->modelDescriptorSet );
+		writer.writeBuffer( 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, entity->modelBuffer );
+		writer.flush();
+	}
 
 	r_numentities++;
 }

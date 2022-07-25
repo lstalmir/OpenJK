@@ -168,8 +168,6 @@ void VK_EndFrame( void ) {
 
 	assert( vkState.imagenum != UINT32_MAX );
 
-	RB_EndSurface();
-
 	// get the current frame buffer
 	frameBuffer_t *frameBuffer = backEndData->frameBuffer;
 	R_BindFrameBuffer( NULL );
@@ -645,7 +643,8 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 
 	// draw everything
 	oldEntityNum = -1;
-	oldShader = tess.shader;
+	backEnd.currentEntity = &tr.worldEntity;
+	oldShader = NULL;
 	oldFogNum = -1;
 	oldDepthRange = qfalse;
 	oldDlighted = qfalse;
@@ -1188,6 +1187,9 @@ RB_DrawSurfs
 const void *RB_DrawSurfs( const void *data ) {
 	const drawSurfsCommand_t *cmd;
 
+	// finish any 2D drawing if needed
+	RB_EndSurface();
+
 	cmd = (const drawSurfsCommand_t *)data;
 
 	backEnd.refdef = cmd->refdef;
@@ -1417,9 +1419,7 @@ const void *RB_SwapBuffers( const void *data ) {
 	const swapBuffersCommand_t *cmd;
 
 	// finish any 2D drawing if needed
-	if( tess.numDraws ) {
-		RB_EndSurface();
-	}
+	RB_EndSurface();
 
 	// texture swapping test
 	if( r_showImages->integer ) {
