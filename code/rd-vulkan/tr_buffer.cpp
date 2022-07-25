@@ -195,8 +195,6 @@ void VK_UploadBuffer( buffer_t *buffer, const byte *data, int size, int offset )
 }
 
 void *VK_UploadBuffer( buffer_t *buffer, int size, int offset ) {
-	VkResult res;
-
 	if( !buffer->allocationInfo.pMappedData ) {
 		uploadBuffer_t *uploadBuffer = VK_GetUploadBuffer( size );
 
@@ -219,7 +217,6 @@ void *VK_UploadBuffer( buffer_t *buffer, int size, int offset ) {
 
 		return data;
 	}
-
 	else {
 		// buffer is host-visible and can be updated directly
 		assert( buffer->allocationInfo.pMappedData );
@@ -235,7 +232,7 @@ AllocatedBuffers_t::iterator itAllocatedBuffers;
 
 int R_Buffers_StartIteration( void ) {
 	itAllocatedBuffers = AllocatedBuffers.begin();
-	return AllocatedBuffers.size();
+	return (int)AllocatedBuffers.size();
 }
 
 buffer_t *R_Buffers_GetNextIteration( void ) {

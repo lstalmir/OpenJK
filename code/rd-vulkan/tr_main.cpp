@@ -656,8 +656,7 @@ R_PlaneForSurface
 =============
 */
 void R_PlaneForSurface (surfaceType_t *surfType, cplane_t *plane) {
-	srfTriangles_t	*tri;
-	srfGridMesh_t *grid;
+	srfGridMesh_t	*grid;
 	srfPoly_t		*poly;
 	drawVert_t		*v1, *v2, *v3;
 	vec4_t			plane4;
@@ -672,15 +671,7 @@ void R_PlaneForSurface (surfaceType_t *surfType, cplane_t *plane) {
 		*plane = ((srfSurfaceFace_t *)surfType)->plane;
 		return;
 	case SF_TRIANGLES:
-		#if 0
-		tri = (srfTriangles_t *)surfType;
-		v1 = tri->verts + tri->indexes[0];
-		v2 = tri->verts + tri->indexes[1];
-		v3 = tri->verts + tri->indexes[2];
-		PlaneFromPoints( plane4, v1->xyz, v2->xyz, v3->xyz );
-		VectorCopy( plane4, plane->normal );
-		plane->dist = plane4[3];
-		#endif
+		*plane = ((srfTriangles_t *)surfType)->plane;
 		return;
 	case SF_POLY:
 		poly = (srfPoly_t *)surfType;
@@ -964,11 +955,12 @@ static qboolean SurfIsOffscreen( const drawSurf_t *drawSurf, vec4_t clipDest[128
 			numTriangles--;
 		}
 	}
-#endif
+
 	if ( !numTriangles )
 	{
 		return qtrue;
 	}
+#endif
 
 	// mirrors can early out at this point, since we don't do a fade over distance
 	// with them (although we could)

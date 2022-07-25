@@ -942,7 +942,6 @@ const void *RB_StretchPic( const void *data ) {
 	tr_shader::vertex_t *vertex;
 	const stretchPicCommand_t *cmd;
 	shader_t *shader;
-	drawCommand_t *draw;
 
 	cmd = (const stretchPicCommand_t *)data;
 
@@ -1007,7 +1006,6 @@ const void *RB_RotatePic( const void *data ) {
 	tr_shader::vertex_t *vertex;
 	const rotatePicCommand_t *cmd;
 	shader_t *shader;
-	drawCommand_t *draw;
 
 	cmd = (const rotatePicCommand_t *)data;
 
@@ -1081,7 +1079,6 @@ const void *RB_RotatePic2( const void *data ) {
 	tr_shader::vertex_t *vertex;
 	const rotatePicCommand_t *cmd;
 	shader_t *shader;
-	drawCommand_t *draw;
 
 	cmd = (const rotatePicCommand_t *)data;
 	shader = cmd->shader;

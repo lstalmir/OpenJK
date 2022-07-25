@@ -515,9 +515,11 @@ ParseTriSurf
 ===============
 */
 static void ParseTriSurf( dsurface_t *ds, mapVert_t *verts, msurface_t *surf, int *indexes, world_t &worldData, int index ) {
-	srfTriangles_t *tri;
-	int i, j, k;
-	int numVerts, numIndexes;
+	srfTriangles_t	*tri;
+	mapVert_t		*v1, *v2, *v3;
+	vec4_t			plane4;
+	int				i, j, k;
+	int				numVerts, numIndexes;
 
 	// get fog volume
 	surf->fogIndex = LittleLong( ds->fogNum ) + 1;
@@ -541,7 +543,7 @@ static void ParseTriSurf( dsurface_t *ds, mapVert_t *verts, msurface_t *surf, in
 		Com_Error( ERR_DROP, "ParseTriSurf: indices > MAX (%d > %d) on misc_model %s", numIndexes, SHADER_MAX_INDEXES, surf->shader->name );
 	}
 
-	tri = (srfTriangles_t *)R_Malloc( sizeof( *tri ), TAG_HUNKMISCMODELS, qfalse );
+	tri = (srfTriangles_t *)R_Malloc( sizeof( *tri ), TAG_HUNKMISCMODELS, qtrue );
 	tri->dlightBits = 0; // JIC
 	tri->surfaceType = SF_TRIANGLES;
 
@@ -596,6 +598,14 @@ static void ParseTriSurf( dsurface_t *ds, mapVert_t *verts, msurface_t *surf, in
 #endif
 		tri_indexes[i] = (trIndex_t)index;
 	}
+
+	// compute surface plane
+	v1 = verts + indexes[0];
+	v2 = verts + indexes[1];
+	v3 = verts + indexes[2];
+	PlaneFromPoints( plane4, v1->xyz, v2->xyz, v3->xyz );
+	VectorCopy( plane4, tri->plane.normal );
+	tri->plane.dist = plane4[3];
 }
 
 /*

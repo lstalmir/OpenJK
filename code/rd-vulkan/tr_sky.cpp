@@ -698,11 +698,6 @@ void R_InitSkyTexCoords( float heightCloud )
 ** RB_DrawSun
 */
 void RB_DrawSun( void ) {
-	float		size;
-	float		dist;
-	vec3_t		origin, vec1, vec2;
-	vec3_t		temp;
-
 	if ( !backEnd.skyRenderedThisView ) {
 		return;
 	}

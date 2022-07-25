@@ -4,7 +4,7 @@
 #if defined( __cplusplus )
 #	include "qcommon/q_math.h"
 
-#	pragma( pack, push: 4 )
+#	pragma pack( push, 4 )
 
 struct image_s;
 
@@ -743,7 +743,7 @@ typedef bool qboolean32;
 #if defined( __cplusplus )
 } // namespace tr_shader
 
-#	pragma( pack, pop )
+#	pragma pack( pop )
 #endif
 
 #endif // TR_SHADER_H_

@@ -352,7 +352,6 @@ for each RE_EndFrame
 ====================
 */
 void RE_BeginFrame( stereoFrame_t stereoFrame ) {
-	VkResult res;
 	drawBufferCommand_t	*cmd;
 
 	if ( !tr.registered ) {

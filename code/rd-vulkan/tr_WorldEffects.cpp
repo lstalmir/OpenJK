@@ -1070,8 +1070,6 @@ public:
 	////////////////////////////////////////////////////////////////////////////////////
 	void		Compile()
 	{
-		VkResult res;
-
 		if( mDescriptorSet == VK_NULL_HANDLE ) {
 			VK_AllocateDescriptorSet( mDescriptorSetLayout, &mDescriptorSet );
 		}

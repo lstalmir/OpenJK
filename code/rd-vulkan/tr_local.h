@@ -649,6 +649,8 @@ typedef struct {
 	//	vec3_t			localOrigin;
 	//	float			radius;
 
+	cplane_t		plane;
+
 	vertexBuffer_t	*vertexBuffer;
 
 } srfTriangles_t;

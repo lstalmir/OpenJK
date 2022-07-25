@@ -64,7 +64,7 @@ textureMode_t modes[] = {
 	{ "GL_LINEAR_MIPMAP_LINEAR", VK_FILTER_LINEAR, VK_FILTER_LINEAR, VK_SAMPLER_MIPMAP_MODE_LINEAR }
 };
 
-static const size_t numTextureModes = ARRAY_LEN( modes );
+static const int numTextureModes = ARRAY_LEN( modes );
 
 /*
 ================
@@ -117,8 +117,7 @@ VK_TextureMode
 ===============
 */
 void VK_TextureMode( const char *string ) {
-	size_t i;
-	image_t *glt;
+	int i;
 	VkResult res;
 
 	for( i = 0; i < numTextureModes; i++ ) {
@@ -735,7 +734,6 @@ VK_UploadImage
 ===============
 */
 void VK_UploadImage( image_t *image, const byte *pic, int width, int height, int mip ) {
-	int i, c;
 	int requiredBufferSize = VK_GetRequiredImageUploadBufferSize( image->internalFormat, width, height );
 	uploadBuffer_t *uploadBuffer = VK_GetUploadBuffer( requiredBufferSize );
 
@@ -783,7 +781,7 @@ int giTextureBindNum = 1024; // will be set to this anyway at runtime, but wtf?
 
 int R_Images_StartIteration( void ) {
 	itAllocatedImages = AllocatedImages.begin();
-	return AllocatedImages.size();
+	return (int)AllocatedImages.size();
 }
 
 image_t *R_Images_GetNextIteration( void ) {
@@ -1163,8 +1161,6 @@ image_t *R_CreateTransientImage( const char *name, int width, int height, VkForm
 image_t *R_CreateReadbackImage( const char *name, int width, int height, VkFormat format ) {
 	image_t *image;
 
-	VkImageUsageFlags usage;
-
 	if( strlen( name ) >= MAX_QPATH ) {
 		Com_Error( ERR_DROP, "R_CreateReadbackImage: \"%s\" is too long\n", name );
 	}
@@ -1322,7 +1318,6 @@ static void R_CreateFogImage( void ) {
 	int x, y;
 	byte *data;
 	float d;
-	float borderColor[4];
 
 	data = (byte *)R_Malloc( FOG_S * FOG_T * 4, TAG_TEMP_WORKSPACE, qfalse );
 

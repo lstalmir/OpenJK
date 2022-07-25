@@ -46,7 +46,7 @@ void ShaderEntryPtrs_Clear(void)
 
 int ShaderEntryPtrs_Size(void)
 {
-	return ShaderEntryPtrs.size();
+	return (int)ShaderEntryPtrs.size();
 }
 
 void ShaderEntryPtrs_Insert(const char *token, const char *p)

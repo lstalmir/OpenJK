@@ -90,7 +90,7 @@ public:
 			Com_DPrintf(mess);
 		}
 
-		sprintf(mess,"****** %s Error Report End   %d errors of %ld kinds******\n",mName.c_str(),total,mErrors.size());
+		sprintf(mess,"****** %s Error Report End   %d errors of %zd kinds******\n",mName.c_str(),total,mErrors.size());
 		Com_DPrintf(mess);
 	}
 	int AnimTest(CGhoul2Info_v &ghoul2,const char *m,const char *, int line)
@@ -373,7 +373,7 @@ static size_t SerializeGhoul2Info ( char *buffer, const CGhoul2Info& g2Info )
 	buffer += blockSize;
 
 	// Surfaces vector + size
-	*(int *)buffer = g2Info.mSlist.size();
+	*(int *)buffer = (int)g2Info.mSlist.size();
 	buffer += sizeof (int);
 
 	blockSize = g2Info.mSlist.size() * sizeof (surfaceInfo_t);
@@ -381,7 +381,7 @@ static size_t SerializeGhoul2Info ( char *buffer, const CGhoul2Info& g2Info )
 	buffer += blockSize;
 
 	// Bones vector + size
-	*(int *)buffer = g2Info.mBlist.size();
+	*(int *)buffer = (int)g2Info.mBlist.size();
 	buffer += sizeof (int);
 
 	blockSize = g2Info.mBlist.size() * sizeof (boneInfo_t);
@@ -389,7 +389,7 @@ static size_t SerializeGhoul2Info ( char *buffer, const CGhoul2Info& g2Info )
 	buffer += blockSize;
 
 	// Bolts vector + size
-	*(int *)buffer = g2Info.mBltlist.size();
+	*(int *)buffer = (int)g2Info.mBltlist.size();
 	buffer += sizeof (int);
 
 	blockSize = g2Info.mBltlist.size() * sizeof (boltInfo_t);
@@ -463,7 +463,7 @@ class Ghoul2InfoArray : public IGhoul2InfoArray
 public:
 	Ghoul2InfoArray()
 	{
-		size_t i;
+		int i;
 		for (i=0;i<MAX_G2_MODELS;i++)
 		{
 			mIds[i]=MAX_G2_MODELS+i;
@@ -498,7 +498,7 @@ public:
 		char *base = buffer;
 
 		// Free indices
-		*(int *)buffer = mFreeIndecies.size();
+		*(int *)buffer = (int)mFreeIndecies.size();
 		buffer += sizeof (int);
 
 		std::copy (mFreeIndecies.begin(), mFreeIndecies.end(), (int *)buffer);
@@ -511,7 +511,7 @@ public:
 		// Ghoul2 infos
 		for ( size_t i = 0; i < MAX_G2_MODELS; i++ )
 		{
-			*(int *)buffer = mInfos[i].size();
+			*(int *)buffer = (int)mInfos[i].size();
 			buffer += sizeof (int);
 
 			for ( size_t j = 0; j < mInfos[i].size(); j++ )
@@ -564,7 +564,7 @@ public:
 		{
 #if G2API_DEBUG
 			char mess[1000];
-			sprintf(mess,"************************\nLeaked %ld ghoul2info slots\n", MAX_G2_MODELS - mFreeIndecies.size());
+			sprintf(mess,"************************\nLeaked %zd ghoul2info slots\n", MAX_G2_MODELS - mFreeIndecies.size());
 			Com_DPrintf(mess);
 #endif
 			int i;
@@ -579,7 +579,7 @@ public:
 				if (j==mFreeIndecies.end())
 				{
 #if G2API_DEBUG
-					sprintf(mess,"Leaked Info idx=%d id=%d sz=%ld\n", i, mIds[i], mInfos[i].size());
+					sprintf(mess,"Leaked Info idx=%d id=%d sz=%zd\n", i, mIds[i], mInfos[i].size());
 					Com_DPrintf(mess);
 					if (mInfos[i].size())
 					{
@@ -739,7 +739,7 @@ void RestoreGhoul2InfoArray()
 void SaveGhoul2InfoArray()
 {
 	size_t size = singleton->GetSerializedSize();
-	void *data = R_Malloc (size, TAG_GHOUL2, qfalse);
+	void *data = R_Malloc ((int)size, TAG_GHOUL2, qfalse);
 #ifdef _DEBUG
 	size_t written =
 #endif // _DEBUG
