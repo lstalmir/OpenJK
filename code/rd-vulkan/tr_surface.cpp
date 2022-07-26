@@ -986,6 +986,8 @@ void RB_SurfaceTriangles( srfTriangles_t *srf ) {
 
 	draw->indexCount = srf->vertexBuffer->numIndexes;
 	draw->indexOffset = srf->vertexBuffer->indexOffset;
+
+	draw->stateBits = GLS_DEFAULT;
 }
 
 #if 0 // moved to bsp
@@ -1131,6 +1133,8 @@ void RB_SurfaceMesh( trMD3Surface_t *surface ) {
 
 	draw->indexCount = surface->vertexBuffer->numIndexes;
 	draw->indexOffset = surface->vertexBuffer->indexOffset;
+
+	draw->stateBits = GLS_DEFAULT | GLS_INPUT_MD3;
 }
 
 
@@ -1817,6 +1821,8 @@ void RB_SurfaceEntity( surfaceType_t *surfType ) {
 
 	draw->indexCount = e->vertexBuffer->numIndexes;
 	draw->indexOffset = e->vertexBuffer->indexOffset;
+
+	draw->stateBits = GLS_DEFAULT;
 }
 
 void RB_SurfaceBad( surfaceType_t *surfType ) {

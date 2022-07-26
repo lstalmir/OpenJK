@@ -24,16 +24,6 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 
 #include "tr_local.h"
 
-#define TR_SHADERS_BEGIN                                                                      \
-	/* enforce member alignment to 4 bytes to safely cast from unsigned char* to uint32_t* */ \
-	__pragma( pack( push, 4 ) );                                                              \
-	static struct alignas( alignof( uint32_t ) ) {
-#define TR_SHADERS_END \
-	}                  \
-	g_scShaders;       \
-	__pragma( pack( pop ) )
-#define TR_INCLUDE_SHADER inline static
-
 #include "tr_blur_combine_VS.h"
 #include "tr_blur_combine_PS.h"
 #include "tr_wireframe_VS.h"
@@ -41,6 +31,13 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 #include "tr_shade_VS.h"
 #include "tr_shade_PS.h"
 #include "tr_shade_md3_VS.h"
+
+#include <unordered_map>
+
+/*
+** Pipeline cache
+*/
+std::unordered_map<int, VkPipeline> CompiledPipelines;
 
 /**
 ===============
@@ -94,35 +91,6 @@ VkShaderModule SPV_CreateShaderModule( const uint32_t *code, int codeSize ) {
 }
 
 /***********************************************************************************************************/
-
-void SPV_InitDescriptorSetLayouts( void ) {
-	CDescriptorSetLayoutBuilder descriptorSetLayoutBuilder;
-
-	// space 0
-	descriptorSetLayoutBuilder.addBinding( VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER ); // tr
-	descriptorSetLayoutBuilder.addBinding( VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER ); // tr_funcs
-	descriptorSetLayoutBuilder.addBinding( VK_DESCRIPTOR_TYPE_STORAGE_BUFFER ); // tr_lightGridData
-	descriptorSetLayoutBuilder.addBinding( VK_DESCRIPTOR_TYPE_STORAGE_BUFFER ); // tr_lightGridArray
-	descriptorSetLayoutBuilder.addBinding( VK_DESCRIPTOR_TYPE_STORAGE_BUFFER ); // tr_fogs
-	descriptorSetLayoutBuilder.addBinding( VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE );	// tr_noise
-	descriptorSetLayoutBuilder.build( &tr.commonDescriptorSetLayout );
-
-	// space 1
-	descriptorSetLayoutBuilder.reset();
-	descriptorSetLayoutBuilder.addBinding( tr.pointClampSampler );
-	descriptorSetLayoutBuilder.addBinding( tr.pointWrapSampler );
-	descriptorSetLayoutBuilder.addBinding( tr.linearClampSampler );
-	descriptorSetLayoutBuilder.addBinding( tr.linearWrapSampler );
-	descriptorSetLayoutBuilder.build( &tr.samplerDescriptorSetLayout );
-
-	// space 2
-	descriptorSetLayoutBuilder.reset();
-	descriptorSetLayoutBuilder.addBinding( VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER );
-	descriptorSetLayoutBuilder.build( &tr.shaderDescriptorSetLayout );
-
-	// space 3
-	descriptorSetLayoutBuilder.build( &tr.modelDescriptorSetLayout );
-}
 
 void SPV_InitGlowShaders( void ) {
 	CPipelineLayoutBuilder pipelineLayoutBuilder;
@@ -231,44 +199,10 @@ void SPV_InitWireframeShaders( void ) {
 	pipelineBuilder.build( &tr.wireframeXRayPipeline );
 }
 
-void SPV_InitShadeShaders( void ) {
-	CPipelineLayoutBuilder pipelineLayoutBuilder;
-	CPipelineBuilder pipelineBuilder;
-
-	// use the default pipeline layout
-	pipelineLayoutBuilder.build( &tr.shadePipelineLayout );
-
-	SPV_InitShadePipelineBuilder( &pipelineBuilder, 0 );
-
-	pipelineBuilder.pipelineCreateInfo.flags = VK_PIPELINE_CREATE_ALLOW_DERIVATIVES_BIT;
-
-	// setup the color blend state
-	VkPipelineColorBlendAttachmentState attachmentBlend = {};
-	pipelineBuilder.colorBlend.attachmentCount = 1;
-	pipelineBuilder.colorBlend.pAttachments = &attachmentBlend;
-	attachmentBlend.blendEnable = VK_TRUE;
-	attachmentBlend.colorWriteMask = 0xF;
-
-	attachmentBlend.colorBlendOp = VK_BLEND_OP_ADD;
-	attachmentBlend.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
-	attachmentBlend.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-
-	// create the shade pipeline
-	pipelineBuilder.build( &tr.shadePipeline );
-
-	// create the md3 shade pipeline
-	pipelineBuilder.reset( qfalse );
-	SPV_InitShadePipelineBuilder( &pipelineBuilder, TR_SHADER_SPEC_MD3 );
-
-	pipelineBuilder.build( &tr.md3ShadePipeline );
-}
-
-void SPV_InitShadePipelineBuilder( CPipelineBuilder *builder, int spec ) {
+static void InitShadePipelineBuilder( CPipelineBuilder *builder, int spec ) {
 	builder->pipelineCreateInfo.layout = tr.shadePipelineLayout;
 	builder->pipelineCreateInfo.renderPass = tr.sceneFrameBuffer->renderPass;
 	builder->pipelineCreateInfo.subpass = 0;
-	builder->pipelineCreateInfo.basePipelineIndex = -1;
-	builder->pipelineCreateInfo.basePipelineHandle = tr.shadePipeline;
 
 	// set specialization constants
 	builder->shaderSpec = spec;
@@ -277,8 +211,6 @@ void SPV_InitShadePipelineBuilder( CPipelineBuilder *builder, int spec ) {
 	builder->addVertexAttributesAndBinding<tr_shader::vertex_t>();
 
 	if( spec & TR_SHADER_SPEC_MD3 ) {
-		builder->pipelineCreateInfo.basePipelineHandle = tr.md3ShadePipeline;
-
 		// md3 shaders receive 2 vertex streams
 		builder->addVertexAttributesAndBinding<tr_shader::oldVertex_t>();
 
@@ -291,8 +223,112 @@ void SPV_InitShadePipelineBuilder( CPipelineBuilder *builder, int spec ) {
 	}
 
 	builder->setShader( VK_SHADER_STAGE_FRAGMENT_BIT, tr_shade_PS );
+}
 
-	if( builder->pipelineCreateInfo.basePipelineHandle ) {
-		builder->pipelineCreateInfo.flags |= VK_PIPELINE_CREATE_DERIVATIVE_BIT;
+static VkBlendFactor GetBlendFactor( int blendStateBits ) {
+	switch( blendStateBits ) {
+	default:
+	case GLS_SRCBLEND_ONE:
+	case GLS_DSTBLEND_ONE:
+		return VK_BLEND_FACTOR_ONE;
+	case GLS_SRCBLEND_ZERO:
+	case GLS_DSTBLEND_ZERO:
+		return VK_BLEND_FACTOR_ZERO;
+	case GLS_SRCBLEND_DST_COLOR:
+		return VK_BLEND_FACTOR_DST_COLOR;
+	case GLS_DSTBLEND_SRC_COLOR:
+		return VK_BLEND_FACTOR_SRC_COLOR;
+	case GLS_SRCBLEND_ONE_MINUS_DST_COLOR:
+		return VK_BLEND_FACTOR_ONE_MINUS_DST_COLOR;
+	case GLS_DSTBLEND_ONE_MINUS_SRC_COLOR:
+		return VK_BLEND_FACTOR_ONE_MINUS_SRC_COLOR;
+	case GLS_SRCBLEND_SRC_ALPHA:
+	case GLS_DSTBLEND_SRC_ALPHA:
+		return VK_BLEND_FACTOR_SRC_ALPHA;
+	case GLS_SRCBLEND_ONE_MINUS_SRC_ALPHA:
+	case GLS_DSTBLEND_ONE_MINUS_SRC_ALPHA:
+		return VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+	case GLS_SRCBLEND_DST_ALPHA:
+	case GLS_DSTBLEND_DST_ALPHA:
+		return VK_BLEND_FACTOR_DST_ALPHA;
+	case GLS_SRCBLEND_ONE_MINUS_DST_ALPHA:
+	case GLS_DSTBLEND_ONE_MINUS_DST_ALPHA:
+		return VK_BLEND_FACTOR_ONE_MINUS_DST_ALPHA;
+	case GLS_SRCBLEND_ALPHA_SATURATE:
+		return VK_BLEND_FACTOR_SRC_ALPHA_SATURATE;
 	}
+}
+
+VkPipeline SPV_GetShadePipeline( int stateBits ) {
+	VkPipeline &pipeline = CompiledPipelines[stateBits];
+
+	if( !pipeline ) {
+		CPipelineBuilder pipelineBuilder;
+
+		int spec = 0;
+		int input = stateBits & GLS_INPUT_BITS;
+		switch (input) {
+		case GLS_INPUT_MD3:
+			spec |= TR_SHADER_SPEC_MD3;
+			break;
+		case GLS_INPUT_GLM:
+			spec |= TR_SHADER_SPEC_GLM;
+			break;
+		case GLS_INPUT_GLA:
+			spec |= TR_SHADER_SPEC_GLA;
+			break;
+		}
+
+		InitShadePipelineBuilder( &pipelineBuilder, spec );
+
+		// depth test
+		if( stateBits & GLS_DEPTHTEST_DISABLE ) {
+			pipelineBuilder.depthStencil.depthTestEnable = VK_FALSE;
+			pipelineBuilder.depthStencil.depthWriteEnable = VK_FALSE;
+		}
+		else {
+			pipelineBuilder.depthStencil.depthTestEnable = VK_TRUE;
+			pipelineBuilder.depthStencil.depthWriteEnable = VK_TRUE;
+		}
+
+		if( stateBits & GLS_DEPTHFUNC_EQUAL ) {
+			pipelineBuilder.depthStencil.depthCompareOp = VK_COMPARE_OP_EQUAL;
+		}
+		else {
+			pipelineBuilder.depthStencil.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
+		}
+
+		// rasterization
+		if( stateBits & GLS_POLYMODE_LINE ) {
+			pipelineBuilder.rasterization.polygonMode = VK_POLYGON_MODE_LINE;
+		}
+		else {
+			pipelineBuilder.rasterization.polygonMode = VK_POLYGON_MODE_FILL;
+		}
+
+		// color blend
+		VkPipelineColorBlendAttachmentState colorBlend = {};
+		colorBlend.blendEnable = VK_FALSE;
+		colorBlend.colorWriteMask = 0xF;
+
+		int srcBlendState = ( stateBits & GLS_SRCBLEND_BITS );
+		int dstBlendState = ( stateBits & GLS_DSTBLEND_BITS );
+		if( srcBlendState || dstBlendState ) {
+			colorBlend.blendEnable = VK_TRUE;
+			colorBlend.colorBlendOp = VK_BLEND_OP_ADD;
+			colorBlend.srcColorBlendFactor = GetBlendFactor( srcBlendState );
+			colorBlend.dstColorBlendFactor = GetBlendFactor( dstBlendState );
+			colorBlend.alphaBlendOp = VK_BLEND_OP_ADD;
+			colorBlend.srcAlphaBlendFactor = colorBlend.srcColorBlendFactor;
+			colorBlend.dstAlphaBlendFactor = colorBlend.dstColorBlendFactor;
+		}
+
+		pipelineBuilder.colorBlend.attachmentCount = 1;
+		pipelineBuilder.colorBlend.pAttachments = &colorBlend;
+
+		// create the pipeline
+		pipelineBuilder.build( &pipeline );
+	}
+
+	return pipeline;
 }

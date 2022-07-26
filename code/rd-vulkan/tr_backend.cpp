@@ -370,6 +370,38 @@ void VK_SetDebugObjectName( uint64_t object, VkObjectType type, const char *name
 #endif
 }
 
+/*
+** RB_BeginDebugRegion
+*/
+void RB_BeginDebugRegion( const char *name, uint32_t color ) {
+#if defined( _DEBUG )
+	if( vkState.pfnBeginDebugUtilsLabel ) {
+		assert( vkState.pfnEndDebugUtilsLabel );
+
+		VkDebugUtilsLabelEXT labelInfo = {};
+		labelInfo.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT;
+		labelInfo.pLabelName = name;
+		labelInfo.color[0] = ( color & 0xFF ) / 255.f;
+		labelInfo.color[1] = ( ( color >> 8 ) & 0xFF ) / 255.f;
+		labelInfo.color[2] = ( ( color >> 16 ) & 0xFF ) / 255.f;
+		labelInfo.color[3] = ( color >> 24 ) / 255.f;
+
+		vkState.pfnBeginDebugUtilsLabel( backEndData->cmdbuf, &labelInfo );
+	}
+#endif
+}
+
+/*
+** RB_EndDebugRegion
+*/
+void RB_EndDebugRegion( void ) {
+#if defined( _DEBUG )
+	if( vkState.pfnEndDebugUtilsLabel ) {
+		vkState.pfnEndDebugUtilsLabel( backEndData->cmdbuf );
+	}
+#endif
+}
+
 
 /*
 ================
@@ -785,6 +817,7 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 
 			// update the uniform buffer
 			memcpy( &backEnd.currentEntity->model.ori.modelMatrix, backEnd.ori.modelMatrix, sizeof( backEnd.ori.modelMatrix ) );
+			memcpy( &backEnd.currentEntity->model.lightDir, backEnd.currentEntity->lightDir, sizeof( backEnd.currentEntity->lightDir ) );
 
 			backEnd.currentEntity->model.ori.origin.x = backEnd.ori.origin[0];
 			backEnd.currentEntity->model.ori.origin.y = backEnd.ori.origin[1];
@@ -953,6 +986,7 @@ const void *RB_StretchPic( const void *data ) {
 	}
 
 	backEndData->dynamicGeometryBuilder.checkOverflow( 4, 6 );
+	backEndData->dynamicGeometryBuilder.setDrawStateBits( GLS_DEPTHTEST_DISABLE );
 
 	int a = backEndData->dynamicGeometryBuilder.addVertex();
 	vertex = &backEndData->dynamicGeometryBuilder.vertexes[a];
@@ -1027,6 +1061,7 @@ const void *RB_RotatePic( const void *data ) {
 	};
 
 	backEndData->dynamicGeometryBuilder.checkOverflow( 4, 6 );
+	backEndData->dynamicGeometryBuilder.setDrawStateBits( GLS_DEPTHTEST_DISABLE );
 
 	int a = backEndData->dynamicGeometryBuilder.addVertex();
 	vertex = &backEndData->dynamicGeometryBuilder.vertexes[a];
@@ -1092,6 +1127,7 @@ const void *RB_RotatePic2( const void *data ) {
 		}
 
 		backEndData->dynamicGeometryBuilder.checkOverflow( 4, 6 );
+		backEndData->dynamicGeometryBuilder.setDrawStateBits( GLS_DEPTHTEST_DISABLE );
 
 		float angle = DEG2RAD( cmd->a );
 		float sina = sinf( angle );
@@ -1194,6 +1230,8 @@ const void *RB_DrawSurfs( const void *data ) {
 
 	// update the viewParms buffer
 	memcpy( &backEnd.viewParms.shaderData.projectionMatrix, backEnd.viewParms.projectionMatrix, sizeof( backEnd.viewParms.projectionMatrix ) );
+	memcpy( &backEnd.viewParms.shaderData.ori.viewOrigin, backEnd.viewParms.ori.viewOrigin, sizeof( backEnd.viewParms.ori.viewOrigin ) );
+
 	VK_UploadBuffer( backEnd.viewParms.buffer, (byte *)&backEnd.viewParms.shaderData, sizeof( backEnd.viewParms.shaderData ), 0 );
 
 	R_BindDescriptorSet( TR_VIEW_SPACE, backEnd.viewParms.descriptorSet );

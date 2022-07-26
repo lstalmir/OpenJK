@@ -696,27 +696,25 @@ float2 RB_CalcFogTexCoords( float3 v ) {
 	return st;
 }
 
-#if 0
 /*
 ** RB_CalcEnvironmentTexCoords
 */
-void RB_CalcEnvironmentTexCoords( float3 v, float3 normal, inout float2 st ) {
+float2 RB_CalcEnvironmentTexCoords( float3 v, float3 normal ) {
 	float3 viewer;
 	float d;
 
-	if( backEnd.currentEntity && backEnd.currentEntity->e.renderfx & RF_FIRST_PERSON ) // this is a view model so we must use world lights instead of vieworg
+	if( tr_model.e.renderfx & RF_FIRST_PERSON ) // this is a view model so we must use world lights instead of vieworg
 	{
-		d = dot( normal, backEnd.currentEntity->lightDir );
-		st = normal.xy * d - backEnd.currentEntity->lightDir.xy;
+		d = dot( normal, tr_model.lightDir );
+		return normal.xy * d - tr_model.lightDir.xy;
 	}
 	else { // the normal way
 		viewer = normalize( tr_view.ori.viewOrigin - v );
 
 		d = dot( normal, viewer );
-		st = normal.xy * d - 0.5 * viewer.xy;
+		return normal.xy * d - 0.5 * viewer.xy;
 	}
 }
-#endif
 
 /*
 ** RB_CalcTurbulentTexCoords
@@ -846,12 +844,7 @@ static void ComputeTexCoords( vertex_t vertex, out stageVars_t svars ) {
 			svars.texcoords[b] = RB_CalcFogTexCoords( vertex.position.xyz );
 			break;
 		case TCGEN_ENVIRONMENT_MAPPED:
-#if 0
-			if( r_environmentMapping->integer )
-				svars.texcoords[b] = RB_CalcEnvironmentTexCoords();
-			else
-#endif
-			svars.texcoords[b] = float2( 0, 0 );
+			svars.texcoords[b] = RB_CalcEnvironmentTexCoords( vertex.position.xyz, vertex.normal.xyz );
 			break;
 		case TCGEN_BAD:
 			return;
@@ -1350,20 +1343,19 @@ static void ForceAlpha( inout float4 color, float alpha ) {
 void VS_ApplyModelTransform( inout float4 position, inout float4 normal ) {
 	float4x4 modelMatrix = tr_model.ori.modelMatrix;
 
-	// RB_CalcDisintegrateVertDeform( position.xyz, normal.xyz );
+	RB_CalcDisintegrateVertDeform( position.xyz, normal.xyz );
 
 	position = mul( modelMatrix, position );
 	normal = mul( modelMatrix, normal );
 
-	//position.xyz += tr_model.ori.origin;
-
-	if( (r_spec & TR_SHADER_SPEC_MD3) != 0 ) {
-
-	}
+	// position.xyz += tr_model.ori.origin;
 }
 
 void VS_ApplyViewTransform( inout float4 position ) {
 	if( !tr_model.entity2D ) {
 		position = mul( tr_view.projectionMatrix, position );
+	}
+	else {
+		position.z = 1;
 	}
 }

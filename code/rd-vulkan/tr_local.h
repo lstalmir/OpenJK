@@ -383,8 +383,6 @@ typedef struct {
 
 	textureBundle_t				bundle[NUM_TEXTURE_BUNDLES];
 
-	VkPipeline					pipeline;					// precompiled pipeline state
-
 	VkDescriptorSet				descriptorSet;
 
 	tr_shader::shaderStage_t	shaderData;
@@ -996,7 +994,9 @@ typedef struct {
 	VkPhysicalDeviceProperties physicalDeviceProperties;
 	char					physicalDeviceDriverVersion[32];
 
-	PFN_vkSetDebugUtilsObjectNameEXT pfnSetDebugObjectName;
+	PFN_vkSetDebugUtilsObjectNameEXT	pfnSetDebugObjectName;
+	PFN_vkCmdBeginDebugUtilsLabelEXT	pfnBeginDebugUtilsLabel;
+	PFN_vkCmdEndDebugUtilsLabelEXT		pfnEndDebugUtilsLabel;
 
 } vkstate_t;
 
@@ -1103,15 +1103,7 @@ typedef struct {
 	// Image used to downsample and blur scene to.	- AReis
 	frameBuffer_t			*glowBlurFrameBuffer;
 
-	VkPipeline				shadePipeline;
-	VkPipeline				md3ShadePipeline;
 	VkPipelineLayout		shadePipelineLayout;
-
-	VkPipeline				shadeDisintegratePipeline;
-	VkPipeline				shadeAlphaFadePipeline;
-	VkPipeline				shadeForceEntAlphaPipeline;
-	VkPipeline				shadeStencilPipeline;
-	VkPipeline				shadeLightmapPipeline;
 
 	// Debug pipelines
 	VkPipeline				wireframePipeline;
@@ -1418,6 +1410,9 @@ inline void VK_SetDebugObjectName( T object, VkObjectType type, const char *name
 	VK_SetDebugObjectName( (uint64_t)object, type, name );
 }
 
+void RB_BeginDebugRegion( const char *name, uint32_t color = 0xFFFFFFFF );
+void RB_EndDebugRegion( void );
+
 #define GLS_SRCBLEND_ZERO						0x00000001
 #define GLS_SRCBLEND_ONE						0x00000002
 #define GLS_SRCBLEND_DST_COLOR					0x00000003
@@ -1446,6 +1441,11 @@ inline void VK_SetDebugObjectName( T object, VkObjectType type, const char *name
 #define GLS_DEPTHTEST_DISABLE					0x00010000
 #define GLS_DEPTHFUNC_EQUAL						0x00020000
 
+#define GLS_INPUT_MD3							0x00100000
+#define GLS_INPUT_GLM							0x00200000
+#define GLS_INPUT_GLA							0x00300000
+#define GLS_INPUT_BITS							0x00300000
+
 #define GLS_ATEST_GT_0							0x10000000
 #define GLS_ATEST_LT_80							0x20000000
 #define GLS_ATEST_GE_80							0x40000000
@@ -1454,6 +1454,8 @@ inline void VK_SetDebugObjectName( T object, VkObjectType type, const char *name
 
 #define GLS_DEFAULT			GLS_DEPTHMASK_TRUE
 #define GLS_ALPHA			(GLS_SRCBLEND_SRC_ALPHA | GLS_DSTBLEND_ONE_MINUS_SRC_ALPHA)
+
+#define GLS_CURRENT								0xFFFFFFFF
 
 void	RE_StretchRaw (int x, int y, int w, int h, int cols, int rows, const byte *data, int iClient, qboolean bDirty );
 void	RE_UploadCinematic (int cols, int rows, const byte *data, int client, qboolean dirty);
@@ -1538,13 +1540,11 @@ void		R_ShaderList_f( void );
 //
 // tr_spv.c
 //
-VkShaderModule SPV_FindShaderModuleFile( const char *name );
-VkShaderModule SPV_CreateShaderModule( const uint32_t *code, int size );
-void SPV_InitDescriptorSetLayouts( void );
-void SPV_InitGlowShaders( void );
-void SPV_InitWireframeShaders( void );
-void SPV_InitShadeShaders( void );
-void SPV_InitShadePipelineBuilder( class CPipelineBuilder *builder, int spec );
+VkShaderModule	SPV_FindShaderModuleFile( const char *name );
+VkShaderModule	SPV_CreateShaderModule( const uint32_t *code, int size );
+void			SPV_InitGlowShaders( void );
+void			SPV_InitWireframeShaders( void );
+VkPipeline		SPV_GetShadePipeline( int stateBits );
 
 
 #define TR_MAX_DESCRIPTOR_SET_BINDING_COUNT 16
@@ -1706,6 +1706,8 @@ class CDynamicGeometryBuilder {
 	int					indexCount;
 	int					indexOffset;
 
+	int					drawStateBits;
+
 public:
 	trIndex_t			indexes[SHADER_MAX_INDEXES];
 	tr_shader::vertex_t vertexes[SHADER_MAX_VERTEXES];
@@ -1718,6 +1720,7 @@ public:
 	int	 addVertex();
 	void addTriangle( int, int, int );
 	void endGeometry();
+	void setDrawStateBits( int stateBits );
 };
 
 
@@ -1757,6 +1760,8 @@ typedef struct drawCommand_s {
 
 	int				indexCount;
 	int				indexOffset;
+
+	int				stateBits;
 } drawCommand_t;
 
 struct shaderCommands_s
@@ -2143,6 +2148,7 @@ typedef struct {
 	image_t					*image;				// output texture
 	int						imageArraySlice;	// output array slice (for stereo rendering)
 
+	int						pipelineStateBits;
 	VkPipeline				pipeline;			// current pipeline
 	VkPipelineLayout		pipelineLayout;		// current pipeline layout
 

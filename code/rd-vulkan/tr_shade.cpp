@@ -52,7 +52,25 @@ void R_BindDescriptorSet( int space, VkDescriptorSet descriptorSet ) {
 	backEndData->descriptorSets[space] = descriptorSet;
 }
 
-static void R_DrawElements( shaderCommands_t *input, shaderStage_t *stage ) {
+static void R_SetShadePipeline( int stateBits ) {
+	VkPipeline pipeline;
+
+	if( stateBits == GLS_CURRENT )
+		return;
+
+	if( backEndData->pipelineStateBits != stateBits ) {
+		pipeline = SPV_GetShadePipeline( stateBits );
+
+		// bind the shader pipeline state
+		vkCmdBindPipeline( backEndData->cmdbuf, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline );
+
+		backEndData->pipeline = pipeline;
+		backEndData->pipelineLayout = tr.shadePipelineLayout;
+		backEndData->pipelineStateBits = stateBits;
+	}
+}
+
+static void R_DrawElements( shaderCommands_t *input, shaderStage_t *stage, int stateBits ) {
 	drawCommand_t *draw;
 	VkBuffer vertexBuffers[TR_MAX_VERTEX_INPUT_BINDING_COUNT];
 	VkDeviceSize vertexOffsets[TR_MAX_VERTEX_INPUT_BINDING_COUNT];
@@ -82,6 +100,7 @@ static void R_DrawElements( shaderCommands_t *input, shaderStage_t *stage ) {
 		indexOffset = (VkDeviceSize)draw->indexOffset;
 
 		R_BindDescriptorSet( TR_MODEL_SPACE, backEnd.currentEntity->modelDescriptorSet );
+		R_SetShadePipeline( stateBits | draw->stateBits );
 
 		// bind vertex buffers
 		vkCmdBindVertexBuffers( backEndData->cmdbuf, 0, draw->numVertexBuffers, vertexBuffers, vertexOffsets );
@@ -239,7 +258,7 @@ static void DrawTris (shaderCommands_t *input, shaderStage_t *stage) {
 	backEndData->pipeline = pipeline;
 	backEndData->pipelineLayout = tr.wireframePipelineLayout;
 
-	R_DrawElements( input, stage );
+	R_DrawElements( input, stage, GLS_CURRENT );
 }
 
 #if 0
@@ -1154,25 +1173,10 @@ static vec4_t	GLFogOverrideColors[GLFOGOVERRIDE_MAX] =
 static const float logtestExp2 = (sqrt( -log( 1.0 / 255.0 ) ));
 #endif
 
-static void R_SetShadePipeline( VkPipeline pipeline ) {
-	if( pipeline == VK_NULL_HANDLE ) {
-		// use the default pipeline
-		pipeline = tr.shadePipeline;
-	}
-	if( backEndData->pipeline != pipeline ) {
-
-		// bind the shader pipeline state
-		vkCmdBindPipeline( backEndData->cmdbuf, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline );
-
-		backEndData->pipeline = pipeline;
-		backEndData->pipelineLayout = tr.shadePipelineLayout;
-	}
-}
-
 extern bool tr_stencilled; //tr_backend.cpp
 static void RB_IterateStagesGeneric( shaderCommands_t *input ) {
-	VkPipeline pipeline;
 	int stage;
+	int stateBits;
 #ifndef JK2_MODE
 	bool	UseGLFog = false;
 	bool	FogColorChange = false;
@@ -1251,7 +1255,7 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input ) {
 			continue;
 		}
 
-		pipeline = pStage->pipeline;
+		stateBits = pStage->stateBits;
 
 		alphaGen_t	forceAlphaGen = (alphaGen_t)0;
 		colorGen_t	forceRGBGen = (colorGen_t)0;
@@ -1265,8 +1269,7 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input ) {
 			}
 			else
 			{
-				pipeline = tr.shadeLightmapPipeline; // we want to replace the prior stages with this LM, not blend
-				//stateBits = (GLS_DSTBLEND_ZERO | GLS_SRCBLEND_ONE);
+				stateBits = (GLS_DSTBLEND_ZERO | GLS_SRCBLEND_ONE); // we want to replace the prior stages with this LM, not blend
 			}
 		}
 
@@ -1276,16 +1279,14 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input ) {
 			{
 				// we want to be able to rip a hole in the thing being disintegrated, and by doing the depth-testing it avoids some kinds of artefacts, but will probably introduce others?
 				//	NOTE: adjusting the alphaFunc seems to help a bit
-				pipeline = tr.shadeDisintegratePipeline;
-				//stateBits = GLS_SRCBLEND_SRC_ALPHA | GLS_DSTBLEND_ONE_MINUS_SRC_ALPHA | GLS_DEPTHMASK_TRUE | GLS_ATEST_GE_C0;
+				stateBits = GLS_SRCBLEND_SRC_ALPHA | GLS_DSTBLEND_ONE_MINUS_SRC_ALPHA | GLS_DEPTHMASK_TRUE | GLS_ATEST_GE_C0;
 			}
 
 			if ( backEnd.currentEntity->e.renderfx & RF_ALPHA_FADE )
 			{
 				if ( backEnd.currentEntity->e.shaderRGBA[3] < 255 )
 				{
-					pipeline = tr.shadeAlphaFadePipeline;
-					//stateBits = GLS_SRCBLEND_SRC_ALPHA | GLS_DSTBLEND_ONE_MINUS_SRC_ALPHA;
+					stateBits = GLS_SRCBLEND_SRC_ALPHA | GLS_DSTBLEND_ONE_MINUS_SRC_ALPHA;
 					forceAlphaGen = alphaGen_t::AGEN_ENTITY;
 				}
 			}
@@ -1338,9 +1339,8 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input ) {
 			{
 				if (pStage->lightmapStyle == 0)
 				{
-					//GL_State( GLS_DSTBLEND_ZERO | GLS_SRCBLEND_ZERO );
-					R_SetShadePipeline( tr.shadeLightmapPipeline );
-					R_DrawElements( input, pStage );
+					stateBits = GLS_DSTBLEND_ZERO | GLS_SRCBLEND_ZERO;
+					R_DrawElements( input, pStage, stateBits );
 				}
 				continue;
 			}
@@ -1366,16 +1366,15 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input ) {
 				//don't depthmask, don't blend.. don't do anything
 				GL_State(0);
 #else
-				pipeline = tr.shadeStencilPipeline;
+				stateBits = 0;
 #endif
 			}
 			else if (backEnd.currentEntity && (backEnd.currentEntity->e.renderfx & RF_FORCE_ENT_ALPHA)) {
 				//ForceAlpha((unsigned char *) tess.svars.colors, backEnd.currentEntity->e.shaderRGBA[3]);
-				pipeline = tr.shadeForceEntAlphaPipeline;
-				//GL_State(GLS_SRCBLEND_SRC_ALPHA | GLS_DSTBLEND_ONE_MINUS_SRC_ALPHA);
+				stateBits = GLS_SRCBLEND_SRC_ALPHA | GLS_DSTBLEND_ONE_MINUS_SRC_ALPHA;
 			}
 
-			R_SetShadePipeline( pipeline );
+			backEndData->pipelineLayout = tr.shadePipelineLayout;
 
 			//
 			// bind images
@@ -1395,7 +1394,7 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input ) {
 			//
 			// draw
 			//
-			R_DrawElements( input, pStage );
+			R_DrawElements( input, pStage, stateBits );
 		}
 	}
 #ifndef JK2_MODE

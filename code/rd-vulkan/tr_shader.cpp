@@ -2963,14 +2963,9 @@ Returns a freshly allocated shader with all the needed info
 from the current global working shader
 =========================
 */
-VkBlendFactor GetBlendFactor( int blendStateBits );
 static shader_t *FinishShader( void ) {
 	int				stage, lmStage, stageIndex;
 	qboolean		hasLightmapStage;
-	CPipelineBuilder pipelineBuilder;
-
-	// initialize the pipeline builder with the default pipeline state
-	SPV_InitShadePipelineBuilder( &pipelineBuilder, shader.spec );
 
 	hasLightmapStage = qfalse;
 
@@ -3237,71 +3232,6 @@ static shader_t *FinishShader( void ) {
 		descriptorSetWriter.writeBuffer( 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, pStage->shaderBuffer );
 		descriptorSetWriter.flush();
 
-		//
-		// compile shade pipeline
-		//
-		{
-			bool useNonStandardShadePipeline = false;
-
-			// depth test
-			//if( pStage->stateBits & GLS_DEPTHTEST_DISABLE )
-			{
-				pipelineBuilder.depthStencil.depthTestEnable = VK_FALSE;
-				pipelineBuilder.depthStencil.depthWriteEnable = VK_FALSE;
-				useNonStandardShadePipeline = true;
-			}
-			//else {
-			//	pipelineBuilder.depthStencil.depthTestEnable = VK_TRUE;
-			//	pipelineBuilder.depthStencil.depthWriteEnable = VK_TRUE;
-			//}
-
-			if( pStage->stateBits & GLS_DEPTHFUNC_EQUAL ) {
-				pipelineBuilder.depthStencil.depthCompareOp = VK_COMPARE_OP_EQUAL;
-				useNonStandardShadePipeline = true;
-			}
-			else {
-				pipelineBuilder.depthStencil.depthCompareOp = VK_COMPARE_OP_LESS;
-			}
-
-			// rasterization
-			if( pStage->stateBits & GLS_POLYMODE_LINE ) {
-				pipelineBuilder.rasterization.polygonMode = VK_POLYGON_MODE_LINE;
-				useNonStandardShadePipeline = true;
-			}
-			else {
-				pipelineBuilder.rasterization.polygonMode = VK_POLYGON_MODE_FILL;
-			}
-
-			// color blend
-			VkPipelineColorBlendAttachmentState colorBlend = {};
-			colorBlend.blendEnable = VK_FALSE;
-			colorBlend.colorWriteMask = 0xF;
-
-			int srcBlendState = ( pStage->stateBits & GLS_SRCBLEND_BITS );
-			int dstBlendState = ( pStage->stateBits & GLS_DSTBLEND_BITS );
-			if( srcBlendState || dstBlendState ) {
-				colorBlend.blendEnable = VK_TRUE;
-				colorBlend.colorBlendOp = VK_BLEND_OP_ADD;
-				colorBlend.srcColorBlendFactor = GetBlendFactor( srcBlendState );
-				colorBlend.dstColorBlendFactor = GetBlendFactor( dstBlendState );
-				colorBlend.alphaBlendOp = VK_BLEND_OP_ADD;
-				colorBlend.srcAlphaBlendFactor = colorBlend.srcColorBlendFactor;
-				colorBlend.dstAlphaBlendFactor = colorBlend.dstColorBlendFactor;
-				useNonStandardShadePipeline = true;
-			}
-
-			pipelineBuilder.colorBlend.attachmentCount = 1;
-			pipelineBuilder.colorBlend.pAttachments = &colorBlend;
-
-			// create the pipeline
-			if( useNonStandardShadePipeline ) {
-				pipelineBuilder.build( &pStage->pipeline );
-			}
-			else {
-				pStage->pipeline = VK_NULL_HANDLE;
-			}
-		}
-
 		stageIndex++;
 		stage++;
 	}
@@ -3346,40 +3276,6 @@ static shader_t *FinishShader( void ) {
 	}
 
 	return GeneratePermanentShader();
-}
-
-VkBlendFactor GetBlendFactor(int blendStateBits) {
-	switch (blendStateBits) {
-	default:
-	case GLS_SRCBLEND_ONE:
-	case GLS_DSTBLEND_ONE:
-		return VK_BLEND_FACTOR_ONE;
-	case GLS_SRCBLEND_ZERO:
-	case GLS_DSTBLEND_ZERO:
-		return VK_BLEND_FACTOR_ZERO;
-	case GLS_SRCBLEND_DST_COLOR:
-		return VK_BLEND_FACTOR_DST_COLOR;
-	case GLS_DSTBLEND_SRC_COLOR:
-		return VK_BLEND_FACTOR_SRC_COLOR;
-	case GLS_SRCBLEND_ONE_MINUS_DST_COLOR:
-		return VK_BLEND_FACTOR_ONE_MINUS_DST_COLOR;
-	case GLS_DSTBLEND_ONE_MINUS_SRC_COLOR:
-		return VK_BLEND_FACTOR_ONE_MINUS_SRC_COLOR;
-	case GLS_SRCBLEND_SRC_ALPHA:
-	case GLS_DSTBLEND_SRC_ALPHA:
-		return VK_BLEND_FACTOR_SRC_ALPHA;
-	case GLS_SRCBLEND_ONE_MINUS_SRC_ALPHA:
-	case GLS_DSTBLEND_ONE_MINUS_SRC_ALPHA:
-		return VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
-	case GLS_SRCBLEND_DST_ALPHA:
-	case GLS_DSTBLEND_DST_ALPHA:
-		return VK_BLEND_FACTOR_DST_ALPHA;
-	case GLS_SRCBLEND_ONE_MINUS_DST_ALPHA:
-	case GLS_DSTBLEND_ONE_MINUS_DST_ALPHA:
-		return VK_BLEND_FACTOR_ONE_MINUS_DST_ALPHA;
-	case GLS_SRCBLEND_ALPHA_SATURATE:
-		return VK_BLEND_FACTOR_SRC_ALPHA_SATURATE;
-	}
 }
 
 //========================================================================================
@@ -3943,9 +3839,11 @@ CreateInternalShaders
 ====================
 */
 static void CreateInternalShaders( void ) {
+	// init the shade pipeline layout
+	CPipelineLayoutBuilder().build( &tr.shadePipelineLayout );
+
 	SPV_InitGlowShaders();
 	SPV_InitWireframeShaders();
-	SPV_InitShadeShaders();
 
 	tr.numShaders = 0;
 	tr.iNumDeniedShaders = 0;

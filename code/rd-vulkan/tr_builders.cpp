@@ -710,6 +710,7 @@ void CDynamicGeometryBuilder::reset() {
 	vertexCount = 0;
 	indexOffset = 0;
 	indexCount = 0;
+	drawStateBits = 0;
 }
 
 void CDynamicGeometryBuilder::checkOverflow( int numVertexes, int numIndexes ) {
@@ -769,10 +770,19 @@ void CDynamicGeometryBuilder::endGeometry() {
 		draw->indexOffset = idxoff;
 		draw->indexCount = indexCount;
 
+		draw->stateBits = drawStateBits;
+
 		vertexOffset += vertexCount;
 		indexOffset += indexCount;
 
 		// begin new geometry
 		beginGeometry();
 	}
+}
+
+void CDynamicGeometryBuilder::setDrawStateBits( int stateBits ) {
+	if( drawStateBits != stateBits ) {
+		endGeometry();
+	}
+	drawStateBits = stateBits;
 }

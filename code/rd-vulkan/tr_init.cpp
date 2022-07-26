@@ -504,6 +504,8 @@ static void InitVulkanInstance( void ) {
 
 	if( VK_ExtensionEnabled( initCtx, VK_EXT_DEBUG_UTILS_EXTENSION_NAME ) ) {
 		vkState.pfnSetDebugObjectName = VK_GetProcAddress<PFN_vkSetDebugUtilsObjectNameEXT>( "vkSetDebugUtilsObjectNameEXT", REQUIRED );
+		vkState.pfnBeginDebugUtilsLabel = VK_GetProcAddress<PFN_vkCmdBeginDebugUtilsLabelEXT>( "vkCmdBeginDebugUtilsLabelEXT", REQUIRED );
+		vkState.pfnEndDebugUtilsLabel = VK_GetProcAddress<PFN_vkCmdEndDebugUtilsLabelEXT>( "vkCmdEndDebugUtilsLabelEXT", REQUIRED );
 	}
 
 	R_Free( initCtx->supportedExtensions );
