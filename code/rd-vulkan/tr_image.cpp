@@ -119,6 +119,9 @@ VK_TextureMode
 void VK_TextureMode( const char *string ) {
 	int i;
 	VkResult res;
+	VkSampler wrapModeSampler, clampModeSampler;
+	image_t *image;
+	CDescriptorSetWriter writer( VK_NULL_HANDLE );
 
 	for( i = 0; i < numTextureModes; i++ ) {
 		if( !Q_stricmp( modes[i].name, string ) ) {
@@ -143,12 +146,6 @@ void VK_TextureMode( const char *string ) {
 
 	float anisotropy = r_ext_texture_filter_anisotropic->value;
 
-	// destroy the old samplers
-	if( tr.wrapModeSampler )
-		vkDestroySampler( vkState.device, tr.wrapModeSampler, NULL );
-	if( tr.clampModeSampler )
-		vkDestroySampler( vkState.device, tr.clampModeSampler, NULL );
-
 	// create the new sampler objects
 	VkSamplerCreateInfo samplerCreateInfo = {};
 	samplerCreateInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
@@ -163,7 +160,7 @@ void VK_TextureMode( const char *string ) {
 	samplerCreateInfo.borderColor = VK_BORDER_COLOR_FLOAT_OPAQUE_BLACK;
 	samplerCreateInfo.maxLod = FLT_MAX;
 
-	res = vkCreateSampler( vkState.device, &samplerCreateInfo, NULL, &tr.wrapModeSampler );
+	res = vkCreateSampler( vkState.device, &samplerCreateInfo, NULL, &wrapModeSampler );
 	if( res != VK_SUCCESS ) {
 		Com_Error( ERR_FATAL, "VK_TextureMode: failed to create a wrap mode sampler (%d)\n", res );
 	}
@@ -172,10 +169,33 @@ void VK_TextureMode( const char *string ) {
 	samplerCreateInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
 	samplerCreateInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
 
-	res = vkCreateSampler( vkState.device, &samplerCreateInfo, NULL, &tr.clampModeSampler );
+	res = vkCreateSampler( vkState.device, &samplerCreateInfo, NULL, &clampModeSampler );
 	if( res != VK_SUCCESS ) {
 		Com_Error( ERR_FATAL, "VK_TextureMode: failed to create a clamp mode sampler (%d)\n", res );
 	}
+
+	// wait for all submitted commands
+	res = vkQueueWaitIdle( vkState.queue );
+	if( res != VK_SUCCESS ) {
+		Com_Error( ERR_FATAL, "VK_TextureMode: failed to sync with command queue (%d)\n", res );
+	}
+
+	// update descriptor sets of all images
+	R_Images_StartIteration();
+	while( ( image = R_Images_GetNextIteration() ) != NULL ) {
+		if( image->descriptorSet ) {
+			writer.descriptorSet = image->descriptorSet;
+			writer.writeSampler( 1, ( image->wrapClampMode == VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE ) ? clampModeSampler : wrapModeSampler );
+		}
+	}
+	writer.flush();
+
+	// destroy the old samplers
+	if( tr.wrapModeSampler ) vkDestroySampler( vkState.device, tr.wrapModeSampler, NULL );
+	if( tr.clampModeSampler ) vkDestroySampler( vkState.device, tr.clampModeSampler, NULL );
+
+	tr.wrapModeSampler = wrapModeSampler;
+	tr.clampModeSampler = clampModeSampler;
 }
 
 
@@ -793,16 +813,29 @@ image_t *R_Images_GetNextIteration( void ) {
 	return pImage;
 }
 
-// since the ownership of image_t structures have been moved to vkresmgr_t, free only the allocation and Vulkan resource,
-// but keep the image_t object, so that it can be reused.
+template<bool FreeDescriptorSet>
+static void VK_DeleteImageContents( image_t *pImage ) {
+	if constexpr (FreeDescriptorSet) {
+		if( pImage->descriptorSet ) {
+			vkFreeDescriptorSets( vkState.device, vkState.descriptorPool, 1, &pImage->descriptorSet );
+			pImage->descriptorSet = VK_NULL_HANDLE;
+		}
+	}
+	if( pImage->texview ) {
+		vkDestroyImageView( vkState.device, pImage->texview, NULL );
+		pImage->texview = VK_NULL_HANDLE;
+	}
+	if( pImage->tex ) {
+		vmaDestroyImage( vkState.allocator, pImage->tex, pImage->allocation );
+		pImage->tex = VK_NULL_HANDLE;
+		pImage->allocation = NULL;
+	}
+}
+
 static void R_Images_DeleteImageContents( image_t *pImage ) {
 	assert( pImage ); // should never be called with NULL
 	if( pImage ) {
-		if( pImage->texview ) {
-			vkFreeDescriptorSets( vkState.device, vkState.descriptorPool, 1, &pImage->descriptorSet );
-			vkDestroyImageView( vkState.device, pImage->texview, NULL );
-		}
-		vmaDestroyImage( vkState.allocator, pImage->tex, pImage->allocation );
+		VK_DeleteImageContents<true /*FreeDescriptorSet*/>( pImage );
 		R_Free( pImage );
 	}
 }
@@ -950,43 +983,29 @@ static image_t *R_FindImageFile_NoLoad( const char *name, qboolean mipmap, qbool
 	return NULL;
 }
 
-
-// initializes the image object
-static void VK_InitImage( image_t *image, const char *name, int width, int height, VkFormat internalFormat, qboolean mipmap, qboolean allowPicmip,
-	VkSamplerAddressMode wrapClampMode, VkImageUsageFlags usage, VkImageTiling tiling ) {
+// allocates the image contents based on the image properties
+static void VK_AllocImageContents( image_t *image ) {
 	VkResult res;
 
-	// record which map it was used on...
-	//
-	image->iLastLevelUsedOn = RE_RegisterMedia_GetLevel();
-
-	image->mipmap = !!mipmap;
-	image->allowPicmip = !!allowPicmip;
-
-	Q_strncpyz( image->imgName, name, sizeof( image->imgName ) );
-
-	image->width = width;
-	image->height = height;
-	image->internalFormat = internalFormat;
-	image->wrapClampMode = wrapClampMode;
+	assert( image );
 
 	// create the Vulkan resource
 	VkImageCreateInfo imageCreateInfo = {};
 	imageCreateInfo.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
 	imageCreateInfo.imageType = VK_IMAGE_TYPE_2D;
-	imageCreateInfo.extent.width = width;
-	imageCreateInfo.extent.height = height;
+	imageCreateInfo.extent.width = image->width;
+	imageCreateInfo.extent.height = image->height;
 	imageCreateInfo.extent.depth = 1;
 	imageCreateInfo.arrayLayers = 1;
 	imageCreateInfo.mipLevels = 1;
 	imageCreateInfo.format = image->internalFormat;
 	imageCreateInfo.samples = VK_SAMPLE_COUNT_1_BIT;
-	imageCreateInfo.usage = usage;
-	imageCreateInfo.tiling = tiling;
+	imageCreateInfo.usage = image->usage;
+	imageCreateInfo.tiling = image->tiling;
 
-	if( mipmap ) {
-		int mipwidth = width;
-		int mipheight = height;
+	if( image->mipmap ) {
+		int mipwidth = image->width;
+		int mipheight = image->height;
 
 		// compute number of mipmaps to generate
 		while( mipwidth > 1 || mipheight > 1 ) {
@@ -1004,7 +1023,7 @@ static void VK_InitImage( image_t *image, const char *name, int width, int heigh
 	VmaAllocationCreateInfo allocationCreateInfo = {};
 	allocationCreateInfo.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
 
-	if( tiling == VK_IMAGE_TILING_LINEAR ) {
+	if( image->tiling == VK_IMAGE_TILING_LINEAR ) {
 		// readback images must be host-visible
 		allocationCreateInfo.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
 		allocationCreateInfo.usage = VMA_MEMORY_USAGE_AUTO_PREFER_HOST;
@@ -1018,20 +1037,7 @@ static void VK_InitImage( image_t *image, const char *name, int width, int heigh
 
 	VK_SetDebugObjectName( image->tex, VK_OBJECT_TYPE_IMAGE, image->imgName );
 
-	// set the aspect flags based on the format of the image
-	if( VK_IsDepthStencil( image->internalFormat ) ) {
-		if( VK_IsStencilOnly( image->internalFormat ) )
-			image->allAspectFlags = VK_IMAGE_ASPECT_STENCIL_BIT;
-		else if( VK_IsDepthOnly( image->internalFormat ) )
-			image->allAspectFlags = VK_IMAGE_ASPECT_DEPTH_BIT;
-		else
-			image->allAspectFlags = VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT;
-	}
-	else {
-		image->allAspectFlags = VK_IMAGE_ASPECT_COLOR_BIT;
-	}
-
-	if( usage & ( VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT ) ) {
+	if( image->usage & ( VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT ) ) {
 		VkImageViewCreateInfo imageViewCreateInfo = {};
 
 		// create an image view
@@ -1048,16 +1054,58 @@ static void VK_InitImage( image_t *image, const char *name, int width, int heigh
 			Com_Error( ERR_FATAL, "VK_InitImage: failed to create VkImageView object (%d)\n", res );
 		}
 
-		if( usage & ( VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT ) ) {
-			// allocate a descriptor set for the texture
-			VK_AllocateDescriptorSet( tr.textureDescriptorSetLayout, &image->descriptorSet );
+		VK_SetDebugObjectName( image->texview, VK_OBJECT_TYPE_IMAGE_VIEW, image->imgName );
+
+		if( image->usage & ( VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT ) ) {
+
+			if( !image->descriptorSet ) {
+				// allocate a descriptor set for the texture
+				VK_AllocateDescriptorSet( tr.textureDescriptorSetLayout, &image->descriptorSet );
+				VK_SetDebugObjectName( image->descriptorSet, VK_OBJECT_TYPE_DESCRIPTOR_SET, image->imgName );
+			}
 
 			CDescriptorSetWriter descriptorSetWriter( image->descriptorSet );
 			descriptorSetWriter.writeImage( 0, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, image );
-			descriptorSetWriter.writeSampler( 1, ( wrapClampMode == VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE ) ? tr.linearClampSampler : tr.linearWrapSampler );
+			descriptorSetWriter.writeSampler( 1, ( image->wrapClampMode == VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE ) ? tr.clampModeSampler : tr.wrapModeSampler );
 			descriptorSetWriter.flush();
 		}
 	}
+}
+
+// initializes the image object
+static void VK_InitImage( image_t *image, const char *name, int width, int height, VkFormat internalFormat, qboolean mipmap, qboolean allowPicmip,
+	VkSamplerAddressMode wrapClampMode, VkImageUsageFlags usage, VkImageTiling tiling ) {
+
+	// record which map it was used on...
+	//
+	image->iLastLevelUsedOn = RE_RegisterMedia_GetLevel();
+
+	image->mipmap = !!mipmap;
+	image->allowPicmip = !!allowPicmip;
+
+	Q_strncpyz( image->imgName, name, sizeof( image->imgName ) );
+
+	image->width = width;
+	image->height = height;
+	image->internalFormat = internalFormat;
+	image->tiling = tiling;
+	image->usage = usage;
+	image->wrapClampMode = wrapClampMode;
+
+	// set the aspect flags based on the format of the image
+	if( VK_IsDepthStencil( image->internalFormat ) ) {
+		if( VK_IsStencilOnly( image->internalFormat ) )
+			image->allAspectFlags = VK_IMAGE_ASPECT_STENCIL_BIT;
+		else if( VK_IsDepthOnly( image->internalFormat ) )
+			image->allAspectFlags = VK_IMAGE_ASPECT_DEPTH_BIT;
+		else
+			image->allAspectFlags = VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT;
+	}
+	else {
+		image->allAspectFlags = VK_IMAGE_ASPECT_COLOR_BIT;
+	}
+
+	VK_AllocImageContents( image );
 }
 
 
@@ -1132,6 +1180,12 @@ image_t *R_CreateImage( const char *name, const byte *pic, int width, int height
 		}
 	}
 
+	auto emplaced = AllocatedImages.emplace( image->imgName, image );
+	if( !emplaced.second ) {
+		// this should never happen, as existing images should be handled by R_FindImageFile_NoLoad
+		assert( 0 );
+	}
+
 	return image;
 }
 
@@ -1173,6 +1227,27 @@ image_t *R_CreateReadbackImage( const char *name, int width, int height, VkForma
 		VK_IMAGE_TILING_LINEAR );
 
 	return image;
+}
+
+/*
+================
+R_ResizeImage
+
+Changes dimensions of the image, but does not affect contents (it must be reuploaded afterwards)
+================
+*/
+void R_ResizeImage( image_t *image, int width, int height ) {
+	assert( image );
+
+	if( image->width == width && image->height == height ) {
+		return;
+	}
+
+	VK_DeleteImageContents<false /*FreeDescriptorSet*/>( image );
+
+	image->width = width;
+	image->height = height;
+	VK_AllocImageContents( image );
 }
 
 /*
@@ -1324,9 +1399,9 @@ static void R_CreateFogImage( void ) {
 	// S is distance, T is depth
 	for( x = 0; x < FOG_S; x++ ) {
 		for( y = 0; y < FOG_T; y++ ) {
-			#if 0
+#if 0
 			d = R_FogFactor( ( x + 0.5f ) / FOG_S, ( y + 0.5f ) / FOG_T );
-			#endif
+#endif
 			d = 0;
 			data[( y * FOG_S + x ) * 4 + 0] =
 				data[( y * FOG_S + x ) * 4 + 1] =

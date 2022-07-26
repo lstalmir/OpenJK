@@ -58,10 +58,7 @@ static void RB_UploadCinematic( int cols, int rows, const byte *data, int &clien
 			Com_Error( ERR_DROP, "RE_UploadCinematic: out of scratch images\n" );
 		}
 
-		// recreate the scratch image with the new size
-		image = tr.scratchImage[client] = R_CreateImage( image->imgName, data, cols, rows, VK_FORMAT_B8G8R8A8_UNORM, qfalse, qfalse, qfalse, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER );
-
-		dirty = qfalse;
+		R_ResizeImage( image, cols, rows );
 	}
 
 	if( dirty ) {
@@ -86,6 +83,7 @@ Used for cinematics.
 void RE_StretchRaw( int x, int y, int w, int h, int cols, int rows, const byte *data, int iClient, qboolean bDirty ) {
 	image_t *scratchImage;
 	frameBuffer_t *frameBuffer;
+	float xscale, yscale;
 
 	if( !tr.registered ) {
 		return;
@@ -123,6 +121,10 @@ void RE_StretchRaw( int x, int y, int w, int h, int cols, int rows, const byte *
 		vkCmdCopyImage( backEndData->cmdbuf, src->tex, src->layout, tr.screenImage->tex, tr.screenImage->layout, 1, &imageCopy );
 	}
 
+	// convert the screen coordinates. x,y,w,h are normalized to 640x480
+	xscale = ( tr.screenImage->width / 640.f );
+	yscale = ( tr.screenImage->height / 480.f );
+
 	// blit the the uploaded image on the screen
 	VkImageBlit imageBlit = {};
 	imageBlit.srcOffsets[1].x = cols;
@@ -130,10 +132,10 @@ void RE_StretchRaw( int x, int y, int w, int h, int cols, int rows, const byte *
 	imageBlit.srcOffsets[1].z = 1;
 	imageBlit.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
 	imageBlit.srcSubresource.layerCount = 1;
-	imageBlit.dstOffsets[0].x = x;
-	imageBlit.dstOffsets[0].y = y;
-	imageBlit.dstOffsets[1].x = x + w;
-	imageBlit.dstOffsets[1].y = y + h;
+	imageBlit.dstOffsets[0].x = (int)( x * xscale );
+	imageBlit.dstOffsets[0].y = (int)( y * yscale );
+	imageBlit.dstOffsets[1].x = (int)( (x + w) * xscale );
+	imageBlit.dstOffsets[1].y = (int)( (y + h) * yscale );
 	imageBlit.dstOffsets[1].z = 1;
 	imageBlit.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
 	imageBlit.dstSubresource.layerCount = 1;

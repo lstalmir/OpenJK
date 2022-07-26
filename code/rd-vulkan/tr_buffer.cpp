@@ -406,10 +406,6 @@ void R_CreateBuiltinBuffers( void ) {
 	// allocate a buffer for global parameters
 	tr.globalsBuffer = R_CreateBuffer( sizeof( tr.globals ), VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, 0 );
 
-	// allocate a buffer for identity model constants
-	tr.identityModelBuffer = R_CreateBuffer( sizeof( tr_shader::model_t ),
-		VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, 0 );
-
 	// allocate a buffer with an identity fog
 	tr.fogsBuffer = R_CreateBuffer( sizeof( fog ),
 		VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, 0 );

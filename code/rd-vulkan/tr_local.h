@@ -88,6 +88,8 @@ typedef struct image_s {
 
 	VkFormat			internalFormat;
 	VkImageAspectFlags	allAspectFlags;
+	VkImageTiling		tiling;
+	VkImageUsageFlags	usage;
 
 	VkSamplerAddressMode wrapClampMode;
 
@@ -1112,8 +1114,6 @@ typedef struct {
 	VkPipeline				wireframeXRayPipeline;
 	VkPipelineLayout		wireframePipelineLayout;
 
-	buffer_t				*identityModelBuffer;
-
 	// Handles to the Glow Effect resources.
 	VkPipeline				glowBlurPipeline;
 	VkPipelineLayout		glowBlurPipelineLayout;
@@ -1273,7 +1273,7 @@ extern cvar_t	*r_gamma;
 extern cvar_t	*r_displayRefresh;		// optional display refresh option
 extern cvar_t	*r_ignorehwgamma;		// overrides hardware gamma capabilities
 
-extern cvar_t	*r_allowExtensions;				// global enable/disable of OpenGL extensions
+extern cvar_t	*r_allowExtensions;				// global enable/disable of optional Vulkan extensions
 extern cvar_t	*r_ext_compressed_textures;		// these control use of specific extensions
 extern cvar_t	*r_ext_compressed_lightmaps;	// turns on compression of lightmaps, off by default
 extern cvar_t	*r_ext_preferred_tc_method;
@@ -1495,6 +1495,8 @@ image_t		*R_FindImageFile( const char *name, qboolean mipmap, qboolean allowPicm
 image_t		*R_CreateImage( const char *name, const byte *pic, int width, int height, VkFormat format, qboolean mipmap, qboolean allowPicmip, qboolean allowTC, VkSamplerAddressMode wrapClampMode );
 image_t		*R_CreateTransientImage( const char *name, int width, int height, VkFormat format, VkSamplerAddressMode wrapClampMode );
 image_t		*R_CreateReadbackImage( const char *name, int width, int height, VkFormat format );
+
+void		R_ResizeImage( image_t *image, int width, int height );
 
 buffer_t	*R_CreateBuffer( int size, VkBufferUsageFlags usage, VkMemoryPropertyFlags requiredFlags );
 vertexBuffer_t	*R_CreateVertexBuffer( int numVertexes, int numIndexes, int indexOffset = 0 );
