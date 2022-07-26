@@ -412,7 +412,7 @@ void CPipelineBuilder::build( VkPipeline *pipeline ) {
 	}
 
 	// create the pipeline
-	res = vkCreateGraphicsPipelines( vkState.device, NULL, 1, &pipelineCreateInfo, NULL, pipeline );
+	res = vkCreateGraphicsPipelines( vkState.device, vkState.pipelineCache, 1, &pipelineCreateInfo, NULL, pipeline );
 	if( res != VK_SUCCESS ) {
 		Com_Error( ERR_FATAL, "CPipelineBuilder: failed to create graphics pipeline (%d)\n", res );
 	}

@@ -974,6 +974,8 @@ typedef struct {
 
 	VkDescriptorPool		descriptorPool;
 
+	VkPipelineCache			pipelineCache;
+
 	uint32_t				imgcount;
 	image_t					images[MAX_OUTIMAGES];
 
@@ -1542,6 +1544,7 @@ void		R_ShaderList_f( void );
 //
 VkShaderModule	SPV_FindShaderModuleFile( const char *name );
 VkShaderModule	SPV_CreateShaderModule( const uint32_t *code, int size );
+void			SPV_InitPipelineCache( void );
 void			SPV_InitGlowShaders( void );
 void			SPV_InitWireframeShaders( void );
 VkPipeline		SPV_GetShadePipeline( int stateBits );

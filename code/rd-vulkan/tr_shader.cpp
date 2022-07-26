@@ -3839,9 +3839,6 @@ CreateInternalShaders
 ====================
 */
 static void CreateInternalShaders( void ) {
-	// init the shade pipeline layout
-	CPipelineLayoutBuilder().build( &tr.shadePipelineLayout );
-
 	SPV_InitGlowShaders();
 	SPV_InitWireframeShaders();
 
@@ -3901,6 +3898,11 @@ Ghoul2 Insert Start
 /*
 Ghoul2 Insert End
 */
+
+	// init the shade pipeline layout
+	CPipelineLayoutBuilder().build( &tr.shadePipelineLayout );
+
+	SPV_InitPipelineCache();
 
 	CreateInternalShaders();
 

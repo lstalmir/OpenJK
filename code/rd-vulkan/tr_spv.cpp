@@ -92,6 +92,36 @@ VkShaderModule SPV_CreateShaderModule( const uint32_t *code, int codeSize ) {
 
 /***********************************************************************************************************/
 
+#define SHADER_CACHE_NAME PRODUCT_NAME "_shaders.bin"
+
+void SPV_InitPipelineCache( void ) {
+	void *data;
+	long dataSize;
+	VkResult res;
+
+	VkPipelineCacheCreateInfo pipelineCacheCreateInfo = {};
+	pipelineCacheCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO;
+	pipelineCacheCreateInfo.flags = VK_PIPELINE_CACHE_CREATE_EXTERNALLY_SYNCHRONIZED_BIT;
+
+	// read the cache from disk
+	dataSize = ri.FS_ReadFile( SHADER_CACHE_NAME, &data );
+	if( dataSize == -1 ) {
+		dataSize = 0;
+	}
+
+	pipelineCacheCreateInfo.initialDataSize = (size_t)dataSize;
+	pipelineCacheCreateInfo.pInitialData = data;
+
+	res = vkCreatePipelineCache( vkState.device, &pipelineCacheCreateInfo, NULL, &vkState.pipelineCache );
+
+	if( data ) {
+		ri.FS_FreeFile( data );
+	}
+	if( res != VK_SUCCESS ) {
+		ri.Printf( PRINT_WARNING, "SPV_InitPipelineCache: failed to create pipeline cache object (%d)\n", res );
+	}
+}
+
 void SPV_InitGlowShaders( void ) {
 	CPipelineLayoutBuilder pipelineLayoutBuilder;
 	CPipelineBuilder pipelineBuilder;
@@ -267,7 +297,7 @@ VkPipeline SPV_GetShadePipeline( int stateBits ) {
 
 		int spec = 0;
 		int input = stateBits & GLS_INPUT_BITS;
-		switch (input) {
+		switch( input ) {
 		case GLS_INPUT_MD3:
 			spec |= TR_SHADER_SPEC_MD3;
 			break;
