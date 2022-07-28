@@ -903,33 +903,30 @@ void RB_SurfacePolychain( srfPoly_t *p ) {
 }
 */
 void RB_SurfacePolychain( srfPoly_t *p ) {
-#if 0
 	int		i;
 	int		numv;
+	tr_shader::vertex_t *v;
 
-	RB_CHECKOVERFLOW( p->numVerts, 3*(p->numVerts - 2) );
+	backEndData->dynamicGeometryBuilder.checkOverflow( p->numVerts, 3 * ( p->numVerts - 2 ) );
 
 	// fan triangles into the tess array
-	numv = tess.numVertexes;
-	for ( i = 0; i < p->numVerts; i++ ) {
-		VectorCopy( p->verts[i].xyz, tess.xyz[numv] );
-		tess.texCoords[numv][0][0] = p->verts[i].st[0];
-		tess.texCoords[numv][0][1] = p->verts[i].st[1];
-		byteAlias_t *baDest = (byteAlias_t *)&tess.vertexColors[numv++],
-			*baSource = (byteAlias_t *)&p->verts[ i ].modulate;
-		baDest->i = baSource->i;
+	numv = backEndData->dynamicGeometryBuilder.vertexCount;
+	for ( i = 0; i < p->numVerts; ++i ) {
+		int vi = backEndData->dynamicGeometryBuilder.addVertex();
+		v = &backEndData->dynamicGeometryBuilder.vertexes[vi];
+		VectorCopy( p->verts[i].xyz, v->position.m );
+		v->texCoord0.x = p->verts[i].st[0];
+		v->texCoord0.y = p->verts[i].st[1];
+		v->vertexColor[0] = p->verts[i].modulate[2];
+		v->vertexColor[1] = p->verts[i].modulate[1];
+		v->vertexColor[2] = p->verts[i].modulate[0];
+		v->vertexColor[3] = p->verts[i].modulate[3];
 	}
 
 	// generate fan indexes into the tess array
-	for ( i = 0; i < p->numVerts-2; i++ ) {
-		tess.indexes[tess.numIndexes + 0] = tess.numVertexes;
-		tess.indexes[tess.numIndexes + 1] = tess.numVertexes + i + 1;
-		tess.indexes[tess.numIndexes + 2] = tess.numVertexes + i + 2;
-		tess.numIndexes += 3;
+	for ( i = 0; i < p->numVerts-2; ++i ) {
+		backEndData->dynamicGeometryBuilder.addTriangle( numv, numv + i + 1, numv + i + 2 );
 	}
-
-	tess.numVertexes = numv;
-#endif
 }
 
 inline static uint32_t ComputeFinalVertexColor( const byte *colors ) {

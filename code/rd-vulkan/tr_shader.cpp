@@ -3226,7 +3226,7 @@ static shader_t *FinishShader( void ) {
 		//
 		// allocate and initialize the descriptor set
 		//
-		VK_AllocateDescriptorSet( tr.shaderDescriptorSetLayout, &pStage->descriptorSet );
+		VK_AllocateDescriptorSet( vkState.shaderDescriptorSetLayout, &pStage->descriptorSet );
 
 		CDescriptorSetWriter descriptorSetWriter( pStage->descriptorSet );
 		descriptorSetWriter.writeBuffer( 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, pStage->shaderBuffer );
@@ -3473,7 +3473,7 @@ shader_t *R_FindShader( const char *name, const int *lightmapIndex, const byte *
 		// with that same strippedName a new default shader is created.
 		if (IsShader(sh, strippedName, lightmapIndex, styles))
 		{	// match found
-			assert( sh->spec == spec );
+			//assert( sh->spec == spec );
 			return sh;
 		}
 	}
@@ -3901,6 +3901,7 @@ Ghoul2 Insert End
 
 	// init the shade pipeline layout
 	CPipelineLayoutBuilder().build( &tr.shadePipelineLayout );
+	VK_SetDebugObjectName( tr.shadePipelineLayout, VK_OBJECT_TYPE_PIPELINE_LAYOUT, "tr.shadePipelineLayout" );
 
 	SPV_InitPipelineCache();
 

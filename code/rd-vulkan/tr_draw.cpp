@@ -424,6 +424,7 @@ static void RE_KillDissolve( qboolean deleteResources ) {
 //
 qboolean RE_ProcessDissolve( void )
 {
+	#if 0
 	if (Dissolve.iStartTime)
 	{
 		if (Dissolve.bTouchNeeded)
@@ -473,6 +474,8 @@ qboolean RE_ProcessDissolve( void )
 			RE_KillDissolve( qfalse ); // resources can't be freed if the previous frames haven't been rendered yet
 		}
 	}
+	#endif
+	RE_KillDissolve( qfalse );
 
 	return qfalse;
 }
@@ -483,6 +486,7 @@ qboolean RE_InitDissolve( qboolean bForceCircularExtroWipe ) {
 //	ri.Printf( PRINT_ALL, "RE_InitDissolve()\n");
 	qboolean bReturn = qfalse;
 
+#if 0
 	if( tr.registered == qtrue ) { // ... stops it crashing during first cinematic before the menus... :-)
 
 		RE_KillDissolve( qfalse );	// kill any that are already running
@@ -682,6 +686,7 @@ qboolean RE_InitDissolve( qboolean bForceCircularExtroWipe ) {
 			writer.flush();
 		}
 	}
+#endif
 
 	return bReturn;
 }

@@ -371,9 +371,9 @@ void R_RotateForEntity( const trRefEntity_t *ent, const viewParms_t *viewParms,
 	preTransEntMatrix[9] = ori->axis[2][1];
 	preTransEntMatrix[13] = ori->origin[1];
 
-	preTransEntMatrix[2] = ori->axis[0][2];
-	preTransEntMatrix[6] = ori->axis[1][2];
-	preTransEntMatrix[10] = ori->axis[2][2];
+	preTransEntMatrix[2] = -ori->axis[0][2];
+	preTransEntMatrix[6] = -ori->axis[1][2];
+	preTransEntMatrix[10] = -ori->axis[2][2];
 	preTransEntMatrix[14] = ori->origin[2];
 
 	preTransEntMatrix[3] = 0;

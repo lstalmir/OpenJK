@@ -1,4 +1,3 @@
-
 #pragma once
 
 #if defined( __LINT__ )
@@ -17,3 +16,18 @@
 
 #define VMA_VULKAN_VERSION 1001000 // Vulkan 1.1
 #include "VulkanMemoryAllocator/vk_mem_alloc.h"
+
+#define VK_Delete( pfnDelete, object )					\
+	if( object != VK_NULL_HANDLE ) {					\
+		pfnDelete( vkState.device, object, NULL );		\
+	}
+
+#define VK_IDelete( pfnDelete, object )					\
+	if( object != VK_NULL_HANDLE ) {					\
+		pfnDelete( vkState.instance, object, NULL );	\
+	}
+
+#define VK_Free( pfnFree, pool, object )				\
+	if( object != VK_NULL_HANDLE ) {					\
+		pfnFree( vkState.device, pool, 1, &object );	\
+	}

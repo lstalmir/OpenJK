@@ -216,6 +216,24 @@ typedef struct {
 	const char					*enabledExtensions[MAX_EXTENSIONS];
 } vkdevice_initContext_t;
 
+/*
+** custom debug messenger function that breaks on errors
+*/
+VKAPI_ATTR VkBool32 VKAPI_CALL VK_DebugMessage(
+	VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
+	VkDebugUtilsMessageTypeFlagsEXT messageTypes,
+	const VkDebugUtilsMessengerCallbackDataEXT* pCallbackData,
+	void* pUserData) {
+	if( messageSeverity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT ) {
+		ri.Printf( PRINT_DEVELOPER, "VK_DebugMessage: %s\n", pCallbackData->pMessage );
+
+		if( Q_stricmp( pCallbackData->pMessageIdName, "VUID-VkWriteDescriptorSet-dstBinding-00315" ) == 0 ) {
+			__debugbreak();
+		}
+	}
+	return VK_FALSE;
+}
+
 
 void RE_SetLightStyle( int style, int color );
 
@@ -506,6 +524,21 @@ static void InitVulkanInstance( void ) {
 		vkState.pfnSetDebugObjectName = VK_GetProcAddress<PFN_vkSetDebugUtilsObjectNameEXT>( "vkSetDebugUtilsObjectNameEXT", REQUIRED );
 		vkState.pfnBeginDebugUtilsLabel = VK_GetProcAddress<PFN_vkCmdBeginDebugUtilsLabelEXT>( "vkCmdBeginDebugUtilsLabelEXT", REQUIRED );
 		vkState.pfnEndDebugUtilsLabel = VK_GetProcAddress<PFN_vkCmdEndDebugUtilsLabelEXT>( "vkCmdEndDebugUtilsLabelEXT", REQUIRED );
+
+		vkState.pfnCreateDebugMessenger = VK_GetProcAddress<PFN_vkCreateDebugUtilsMessengerEXT>( "vkCreateDebugUtilsMessengerEXT" );
+		vkState.pfnDestroyDebugMessenger = VK_GetProcAddress<PFN_vkDestroyDebugUtilsMessengerEXT>( "vkDestroyDebugUtilsMessengerEXT" );
+
+		if( vkState.pfnCreateDebugMessenger && vkState.pfnDestroyDebugMessenger ) {
+			VkDebugUtilsMessengerCreateInfoEXT messengerCreateInfo = {};
+
+			// create a debug messenger
+			messengerCreateInfo.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
+			messengerCreateInfo.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
+			messengerCreateInfo.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT | VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT;
+			messengerCreateInfo.pfnUserCallback = VK_DebugMessage;
+
+			vkState.pfnCreateDebugMessenger( vkState.instance, &messengerCreateInfo, NULL, &vkState.debugMessenger );
+		}
 	}
 
 	R_Free( initCtx->supportedExtensions );
@@ -663,8 +696,13 @@ static void InitVulkanObjects( void ) {
 	if( res != VK_SUCCESS ) {
 		Com_Error( ERR_FATAL, "InitVulkan: failed to create device memory allocator (%d)\n", res );
 	}
+}
 
-	// create the samplers
+void InitVulkanDescriptorSetLayouts( void ) {
+	CDescriptorSetLayoutBuilder builder;
+	VkResult res;
+
+	// create the immutable samplers
 	VkSamplerCreateInfo samplerCreateInfo = {};
 	samplerCreateInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
 	samplerCreateInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
@@ -677,7 +715,7 @@ static void InitVulkanObjects( void ) {
 	samplerCreateInfo.maxAnisotropy = ( glConfig.maxTextureFilterAnisotropy > 0 ) ? glConfig.maxTextureFilterAnisotropy : 1;
 	samplerCreateInfo.maxLod = FLT_MAX;
 
-	res = vkCreateSampler( vkState.device, &samplerCreateInfo, NULL, &tr.wrapModeSampler );
+	res = vkCreateSampler( vkState.device, &samplerCreateInfo, NULL, &vkState.wrapModeSampler );
 	if( res != VK_SUCCESS ) {
 		Com_Error( ERR_FATAL, "InitVulkan: failed to create wrap mode sampler (%d)\n", res );
 	}
@@ -686,7 +724,7 @@ static void InitVulkanObjects( void ) {
 	samplerCreateInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
 	samplerCreateInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
 
-	res = vkCreateSampler( vkState.device, &samplerCreateInfo, NULL, &tr.clampModeSampler );
+	res = vkCreateSampler( vkState.device, &samplerCreateInfo, NULL, &vkState.clampModeSampler );
 	if( res != VK_SUCCESS ) {
 		Com_Error( ERR_FATAL, "InitVulkan: failed to create clamp mode sampler (%d)\n", res );
 	}
@@ -694,41 +732,41 @@ static void InitVulkanObjects( void ) {
 	samplerCreateInfo.anisotropyEnable = VK_FALSE;
 	samplerCreateInfo.maxAnisotropy = 1;
 
-	res = vkCreateSampler( vkState.device, &samplerCreateInfo, NULL, &tr.linearClampSampler );
+	res = vkCreateSampler( vkState.device, &samplerCreateInfo, NULL, &vkState.linearClampSampler );
 	if( res != VK_SUCCESS ) {
 		Com_Error( ERR_FATAL, "InitVulkan: failed to create linear clamp sampler (%d)\n", res );
 	}
+	VK_SetDebugObjectName( vkState.linearClampSampler, VK_OBJECT_TYPE_SAMPLER, "linearClampSampler" );
 
 	samplerCreateInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
 	samplerCreateInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
 	samplerCreateInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_REPEAT;
 
-	res = vkCreateSampler( vkState.device, &samplerCreateInfo, NULL, &tr.linearWrapSampler );
+	res = vkCreateSampler( vkState.device, &samplerCreateInfo, NULL, &vkState.linearWrapSampler );
 	if( res != VK_SUCCESS ) {
 		Com_Error( ERR_FATAL, "InitVulkan: failed to create linear wrap sampler (%d)\n", res );
 	}
+	VK_SetDebugObjectName( vkState.linearWrapSampler, VK_OBJECT_TYPE_SAMPLER, "linearWrapSampler" );
 
 	samplerCreateInfo.minFilter = VK_FILTER_NEAREST;
 	samplerCreateInfo.magFilter = VK_FILTER_NEAREST;
 	samplerCreateInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
 
-	res = vkCreateSampler( vkState.device, &samplerCreateInfo, NULL, &tr.pointWrapSampler );
+	res = vkCreateSampler( vkState.device, &samplerCreateInfo, NULL, &vkState.pointWrapSampler );
 	if( res != VK_SUCCESS ) {
 		Com_Error( ERR_FATAL, "InitVulkan: failed to create point wrap sampler (%d)\n", res );
 	}
+	VK_SetDebugObjectName( vkState.pointWrapSampler, VK_OBJECT_TYPE_SAMPLER, "pointWrapSampler" );
 
 	samplerCreateInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
 	samplerCreateInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
 	samplerCreateInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
 
-	res = vkCreateSampler( vkState.device, &samplerCreateInfo, NULL, &tr.pointClampSampler );
+	res = vkCreateSampler( vkState.device, &samplerCreateInfo, NULL, &vkState.pointClampSampler );
 	if( res != VK_SUCCESS ) {
 		Com_Error( ERR_FATAL, "InitVulkan: failed to create point clamp sampler (%d)\n", res );
 	}
-}
-
-void InitVulkanDescriptorSetLayouts( void ) {
-	CDescriptorSetLayoutBuilder builder;
+	VK_SetDebugObjectName( vkState.pointClampSampler, VK_OBJECT_TYPE_SAMPLER, "pointClampSampler" );
 
 	// common descriptor set layout
 	builder.reset();
@@ -738,41 +776,47 @@ void InitVulkanDescriptorSetLayouts( void ) {
 	builder.addBinding( VK_DESCRIPTOR_TYPE_STORAGE_BUFFER ); // tr_lightGridArray
 	builder.addBinding( VK_DESCRIPTOR_TYPE_STORAGE_BUFFER ); // tr_fogs
 	builder.addBinding( VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE );	 // tr_noise
-	builder.build( &tr.commonDescriptorSetLayout );
+	builder.build( &vkState.commonDescriptorSetLayout );
+	VK_SetDebugObjectName( vkState.commonDescriptorSetLayout, VK_OBJECT_TYPE_DESCRIPTOR_SET_LAYOUT, "commonDescriptorSetLayout" );
 
 	// samplers descriptor set layout
 	builder.reset();
-	builder.addBinding( tr.pointClampSampler );
-	builder.addBinding( tr.pointWrapSampler );
-	builder.addBinding( tr.linearClampSampler );
-	builder.addBinding( tr.linearWrapSampler );
-	builder.build( &tr.samplerDescriptorSetLayout );
+	builder.addBinding( vkState.pointClampSampler );
+	builder.addBinding( vkState.pointWrapSampler );
+	builder.addBinding( vkState.linearClampSampler );
+	builder.addBinding( vkState.linearWrapSampler );
+	builder.build( &vkState.samplerDescriptorSetLayout );
+	VK_SetDebugObjectName( vkState.samplerDescriptorSetLayout, VK_OBJECT_TYPE_DESCRIPTOR_SET_LAYOUT, "samplerDescriptorSetLayout" );
 
 	// shader descriptor set layout
 	builder.reset();
 	builder.addBinding( VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER );
-	builder.build( &tr.shaderDescriptorSetLayout );
+	builder.build( &vkState.shaderDescriptorSetLayout );
+	VK_SetDebugObjectName( vkState.shaderDescriptorSetLayout, VK_OBJECT_TYPE_DESCRIPTOR_SET_LAYOUT, "shaderDescriptorSetLayout" );
 
 	// model descriptor set layout
-	builder.build( &tr.modelDescriptorSetLayout );
+	builder.build( &vkState.modelDescriptorSetLayout );
+	VK_SetDebugObjectName( vkState.modelDescriptorSetLayout, VK_OBJECT_TYPE_DESCRIPTOR_SET_LAYOUT, "modelDescriptorSetLayout" );
 
 	// texture descriptor set layout
 	builder.reset();
 	builder.addBinding( VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE );
 	builder.addBinding( VK_DESCRIPTOR_TYPE_SAMPLER );
-	builder.build( &tr.textureDescriptorSetLayout );
+	builder.build( &vkState.textureDescriptorSetLayout );
+	VK_SetDebugObjectName( vkState.textureDescriptorSetLayout, VK_OBJECT_TYPE_DESCRIPTOR_SET_LAYOUT, "textureDescriptorSetLayout" );
 
 	// view descriptor set layout
 	builder.reset();
 	builder.addBinding( VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER );
-	builder.build( &tr.viewDescriptorSetLayout );
+	builder.build( &vkState.viewDescriptorSetLayout );
+	VK_SetDebugObjectName( vkState.viewDescriptorSetLayout, VK_OBJECT_TYPE_DESCRIPTOR_SET_LAYOUT, "viewDescriptorSetLayout" );
 }
 
 void InitVulkanDescriptorSets( void ) {
 	CDescriptorSetWriter writer( VK_NULL_HANDLE );
 
 	// common descriptor set
-	VK_AllocateDescriptorSet( tr.commonDescriptorSetLayout, &tr.commonDescriptorSet );
+	VK_AllocateDescriptorSet( vkState.commonDescriptorSetLayout, &tr.commonDescriptorSet );
 
 	writer.reset( tr.commonDescriptorSet );
 	writer.writeBuffer( 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, tr.globalsBuffer );
@@ -782,17 +826,20 @@ void InitVulkanDescriptorSets( void ) {
 	writer.flush();
 
 	// samplers descriptor set
-	VK_AllocateDescriptorSet( tr.samplerDescriptorSetLayout, &tr.samplerDescriptorSet );
+	VK_AllocateDescriptorSet( vkState.samplerDescriptorSetLayout, &tr.samplerDescriptorSet );
+	VK_SetDebugObjectName( tr.samplerDescriptorSet, VK_OBJECT_TYPE_DESCRIPTOR_SET, "tr.samplerDescriptorSet" );
 
 	// 2D entity model descriptor set
-	VK_AllocateDescriptorSet( tr.modelDescriptorSetLayout, &backEnd.entity2D.modelDescriptorSet );
+	VK_AllocateDescriptorSet( vkState.modelDescriptorSetLayout, &backEnd.entity2D.modelDescriptorSet );
+	VK_SetDebugObjectName( backEnd.entity2D.modelDescriptorSet, VK_OBJECT_TYPE_DESCRIPTOR_SET, "backEnd.entity2D.modelDescriptorSet" );
 
 	writer.reset( backEnd.entity2D.modelDescriptorSet );
 	writer.writeBuffer( 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, backEnd.entity2D.modelBuffer );
 	writer.flush();
 
 	// view descriptor set
-	VK_AllocateDescriptorSet( tr.viewDescriptorSetLayout, &tr.viewParms.descriptorSet );
+	VK_AllocateDescriptorSet( vkState.viewDescriptorSetLayout, &tr.viewParms.descriptorSet );
+	VK_SetDebugObjectName( tr.viewParms.descriptorSet, VK_OBJECT_TYPE_DESCRIPTOR_SET, "tr.viewParms.descriptorSet" );
 
 	writer.reset( tr.viewParms.descriptorSet );
 	writer.writeBuffer( 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, tr.viewParms.buffer );
@@ -915,29 +962,13 @@ void VK_InitSwapchain( void ) {
 			commandBufferAllocateInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
 			commandBufferAllocateInfo.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
 			commandBufferAllocateInfo.commandPool = vkState.cmdpool;
-			commandBufferAllocateInfo.commandBufferCount = (imageCount - vkState.imgcount) * 2;
+			commandBufferAllocateInfo.commandBufferCount = (imageCount - vkState.imgcount) * 3;
 
-			res = vkAllocateCommandBuffers( vkState.device, &commandBufferAllocateInfo, vkState.cmdbuffers + (vkState.imgcount * 2) );
+			res = vkAllocateCommandBuffers( vkState.device, &commandBufferAllocateInfo, vkState.cmdbuffers + (vkState.imgcount * 3) );
 			if( res != VK_SUCCESS ) {
 				Com_Error( ERR_FATAL, "VK_InitSwapchain: failed to allocate %d command buffers for new swapchain images (%d)\n",
 						commandBufferAllocateInfo.commandBufferCount, res );
 			}
-		}
-
-		// create a buffer for screen shots
-		if( !tr.screenshotImage ||
-			tr.screenshotImage->width != swapchainCreateInfo.imageExtent.width ||
-			tr.screenshotImage->height != swapchainCreateInfo.imageExtent.height ) {
-
-			if( tr.screenshotImage ) {
-				R_Images_DeleteImage( tr.screenshotImage );
-			}
-
-			tr.screenshotImage = R_CreateReadbackImage(
-				"*screenshotImage",
-				swapchainCreateInfo.imageExtent.width,
-				swapchainCreateInfo.imageExtent.height,
-				swapchainCreateInfo.imageFormat );
 		}
 
 		// update the image count
@@ -1010,16 +1041,9 @@ static void VK_Init( void ) {
 		VK_BeginFrame();
 		R_Splash(); // get something on screen asap
 	}
-}
-
-static void DeinitVulkan( void ) {
-	vmaDestroyAllocator( vkState.allocator );
-	vkDestroyDescriptorPool( vkState.device, vkState.descriptorPool, NULL );
-	vkDestroyCommandPool( vkState.device, vkState.cmdpool, NULL );
-	vkDestroySwapchainKHR( vkState.device, vkState.swapchain, NULL );
-	vkDestroyDevice( vkState.device, NULL );
-	vkDestroySurfaceKHR( vkState.instance, vkState.surface, NULL );
-	vkDestroyInstance( vkState.instance, NULL );
+	else {
+		VK_BeginFrame();
+	}
 }
 
 /*
@@ -1868,6 +1892,7 @@ void R_Register( void ) {
 // need to do this hackery so ghoul2 doesn't crash the game because of ITS hackery...
 //
 void R_ClearStuffToStopGhoul2CrashingThings( void ) {
+	backEndData = NULL;
 	memset( &tr, 0, sizeof( tr ) );
 }
 
@@ -1936,14 +1961,6 @@ void R_Init( void ) {
 	memset( &backEnd, 0, sizeof( backEnd ) );
 	memset( &tess, 0, sizeof( tess ) );
 
-#ifndef FINAL_BUILD
-#	if 0
-	if( ( intptr_t )tess.xyz & 15 ) {
-		Com_Printf( "WARNING: tess.xyz not 16 byte aligned\n" );
-	}
-#endif
-#endif
-
 	// register cvars before initializing the vulkan context
 	R_Register();
 	R_ImageLoader_Init();
@@ -1994,38 +2011,70 @@ void RE_Shutdown( qboolean destroyWindow, qboolean restarting ) {
 	for( size_t i = 0; i < numCommands; i++ )
 		ri.Cmd_RemoveCommand( commands[i].cmd );
 
-	// free the dynamic glow resources
-	if( r_DynamicGlow && r_DynamicGlow->integer ) {
-		vkDestroyPipeline( vkState.device, tr.glowBlurPipeline, NULL );
-		vkDestroyPipelineLayout( vkState.device, tr.glowBlurPipelineLayout, NULL );
-
-		vkDestroyPipeline( vkState.device, tr.glowCombinePipeline, NULL );
-		vkDestroyPipelineLayout( vkState.device, tr.glowCombinePipelineLayout, NULL );
-
-		R_DeleteFrameBuffer( tr.glowBlurFrameBuffer );
-		R_DeleteFrameBuffer( tr.glowFrameBuffer );
-	}
-
-	// free the common descriptor sets
-	vkFreeDescriptorSets( vkState.device, vkState.descriptorPool, 1, &tr.commonDescriptorSet );
-
-	vkDestroyDescriptorSetLayout( vkState.device, tr.commonDescriptorSetLayout, NULL );
-	vkDestroyDescriptorSetLayout( vkState.device, tr.samplerDescriptorSetLayout, NULL );
-	vkDestroyDescriptorSetLayout( vkState.device, tr.shaderDescriptorSetLayout, NULL );
-	vkDestroyDescriptorSetLayout( vkState.device, tr.modelDescriptorSetLayout, NULL );
-	vkDestroyDescriptorSetLayout( vkState.device, tr.textureDescriptorSetLayout, NULL );
-
 	R_ShutdownWorldEffects();
 	R_ShutdownFonts();
+
 	if( tr.registered ) {
 		R_IssuePendingRenderCommands();
+		vkDeviceWaitIdle( vkState.device );
+
+		// free the dynamic glow resources
+		if( r_DynamicGlow && r_DynamicGlow->integer ) {
+			VK_Delete( vkDestroyPipeline, tr.glowBlurPipeline );
+			VK_Delete( vkDestroyPipelineLayout, tr.glowBlurPipelineLayout );
+			VK_Delete( vkDestroyPipeline, tr.glowCombinePipeline );
+			VK_Delete( vkDestroyPipelineLayout, tr.glowCombinePipelineLayout );
+			R_DeleteFrameBuffer( tr.glowBlurFrameBuffer );
+			R_DeleteFrameBuffer( tr.glowFrameBuffer );
+		}
+
+		VK_Free( vkFreeDescriptorSets, vkState.descriptorPool, tr.commonDescriptorSet );
+		VK_Free( vkFreeDescriptorSets, vkState.descriptorPool, tr.samplerDescriptorSet );
+
+		R_DeleteBuffers();
+
 		if( destroyWindow ) {
+			int i;
+
 			R_DeleteTextures(); // only do this for vid_restart now, not during things like map load
-			R_DeleteBuffers();
 
 			if( restarting ) {
 				SaveGhoul2InfoArray();
 			}
+
+			VK_Delete( vkDestroyDescriptorSetLayout, vkState.commonDescriptorSetLayout );
+			VK_Delete( vkDestroyDescriptorSetLayout, vkState.samplerDescriptorSetLayout );
+			VK_Delete( vkDestroyDescriptorSetLayout, vkState.shaderDescriptorSetLayout );
+			VK_Delete( vkDestroyDescriptorSetLayout, vkState.modelDescriptorSetLayout );
+			VK_Delete( vkDestroyDescriptorSetLayout, vkState.textureDescriptorSetLayout );
+			VK_Delete( vkDestroyDescriptorSetLayout, vkState.viewDescriptorSetLayout );
+
+			VK_Delete( vkDestroySampler, vkState.wrapModeSampler );
+			VK_Delete( vkDestroySampler, vkState.clampModeSampler );
+			VK_Delete( vkDestroySampler, vkState.pointClampSampler );
+			VK_Delete( vkDestroySampler, vkState.pointWrapSampler );
+			VK_Delete( vkDestroySampler, vkState.linearClampSampler );
+			VK_Delete( vkDestroySampler, vkState.linearWrapSampler );
+
+			R_DeleteFrameBuffer( tr.sceneFrameBuffer );
+			R_DeleteFrameBuffer( tr.postProcessFrameBuffer );
+
+			for( i = 0; i < vkState.imgcount; ++i ) {
+				VK_Delete( vkDestroyFence, vkState.fences[i] );
+				VK_Delete( vkDestroySemaphore, vkState.semaphores[i] );
+			}
+
+			VK_Delete( vkDestroyCommandPool, vkState.cmdpool );
+			VK_Delete( vkDestroyDescriptorPool, vkState.descriptorPool );
+			VK_Delete( vkDestroySwapchainKHR, vkState.swapchain );
+			vmaDestroyAllocator( vkState.allocator );
+			vkDestroyDevice( vkState.device, NULL );
+
+			VK_IDelete( vkDestroySurfaceKHR, vkState.surface );
+			VK_IDelete( vkState.pfnDestroyDebugMessenger, vkState.debugMessenger );
+			vkDestroyInstance( vkState.instance, NULL );
+
+			memset( &vkState, 0, sizeof( vkState ) );
 		}
 	}
 
@@ -2116,6 +2165,9 @@ void RE_SVModelInit( void ) {
 	tr.numModels = 0;
 	tr.numShaders = 0;
 	tr.numSkins = 0;
+
+	InitVulkanDescriptorSetLayouts();
+
 	R_InitImages();
 	// inServer = true;
 	R_InitShaders();

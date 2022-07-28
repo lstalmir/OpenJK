@@ -240,7 +240,7 @@ void RE_AddRefEntityToScene( const refEntity_t *ent ) {
 
 	if( !entity->modelDescriptorSet ) {
 		// create a descriptor set for the entity
-		VK_AllocateDescriptorSet( tr.modelDescriptorSetLayout, &entity->modelDescriptorSet );
+		VK_AllocateDescriptorSet( vkState.modelDescriptorSetLayout, &entity->modelDescriptorSet );
 		updateDescriptorSet = true;
 	}
 

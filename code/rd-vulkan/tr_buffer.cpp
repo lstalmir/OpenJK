@@ -149,6 +149,9 @@ VK_UploadBuffer
 void VK_UploadBuffer( buffer_t *buffer, const byte *data, int size, int offset ) {
 	VkResult res;
 
+	if( !backEndData )
+		return;
+
 	if( !buffer->allocationInfo.pMappedData ) {
 		uploadBuffer_t *uploadBuffer = VK_GetUploadBuffer( size );
 
@@ -195,6 +198,10 @@ void VK_UploadBuffer( buffer_t *buffer, const byte *data, int size, int offset )
 }
 
 void *VK_UploadBuffer( buffer_t *buffer, int size, int offset ) {
+
+	if( !backEndData )
+		return NULL;
+
 	if( !buffer->allocationInfo.pMappedData ) {
 		uploadBuffer_t *uploadBuffer = VK_GetUploadBuffer( size );
 
@@ -246,10 +253,18 @@ buffer_t *R_Buffers_GetNextIteration( void ) {
 	return pBuffer;
 }
 
+static void VK_DeleteBufferContents( buffer_t* buffer ) {
+	assert( buffer );
+	if( buffer && buffer->buf ) {
+		vmaDestroyBuffer( vkState.allocator, buffer->buf, buffer->allocation );
+		buffer->buf = VK_NULL_HANDLE;
+	}
+}
+
 static void R_Buffers_DeleteBufferContents( buffer_t *buffer ) {
 	assert( buffer ); // should never be called with NULL
 	if( buffer ) {
-		vmaDestroyBuffer( vkState.allocator, buffer->buf, buffer->allocation );
+		VK_DeleteBufferContents( buffer );
 		R_Free( buffer );
 	}
 }
@@ -307,12 +322,13 @@ R_CreateBuffer
 This is the only way any buffer_t are created
 ================
 */
-buffer_t *R_CreateBuffer( int size, VkBufferUsageFlags usage, VkMemoryPropertyFlags requiredFlags ) {
+buffer_t *R_CreateBuffer( int size, VkBufferUsageFlags usage, VkMemoryPropertyFlags requiredFlags, memtag_t tag ) {
 	VkResult res;
 	buffer_t *buffer;
 
-	buffer = ( buffer_t * )R_Malloc( sizeof( buffer_t ), TAG_ALL, qtrue );
+	buffer = ( buffer_t * )R_Malloc( sizeof( buffer_t ), tag, qtrue );
 	buffer->size = size;
+	buffer->memtag = tag;
 
 	VkBufferCreateInfo bufferCreateInfo = {};
 	bufferCreateInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
@@ -343,6 +359,8 @@ buffer_t *R_CreateBuffer( int size, VkBufferUsageFlags usage, VkMemoryPropertyFl
 	// get memory property flags of the allocation
 	vmaGetMemoryTypeProperties( vkState.allocator, buffer->allocationInfo.memoryType, &buffer->memoryPropertyFlags );
 
+	AllocatedBuffers.insert( buffer );
+
 	return buffer;
 }
 
@@ -350,17 +368,18 @@ buffer_t *R_CreateBuffer( int size, VkBufferUsageFlags usage, VkMemoryPropertyFl
 ================
 R_CreateBuffer
 
-This is the only way any buffer_t are created
+This is the only way any vertexBuffer_t are created
 ================
 */
-vertexBuffer_t *R_CreateVertexBuffer( int numVertexes, int numIndexes, int indexOffset ) {
+vertexBuffer_t *R_CreateVertexBuffer( int numVertexes, int numIndexes, int indexOffset, memtag_t tag ) {
 	VkResult res;
 	vertexBuffer_t *buffer;
 
-	buffer = (vertexBuffer_t *)R_Malloc( sizeof( vertexBuffer_t ), TAG_ALL, qtrue );
+	buffer = (vertexBuffer_t *)R_Malloc( sizeof( vertexBuffer_t ), tag, qtrue );
 	buffer->b.size = indexOffset +
 		sizeof( tr_shader::vertex_t ) * numVertexes +
 		sizeof( trIndex_t ) * numIndexes;
+	buffer->b.memtag = tag;
 
 	VkBufferCreateInfo bufferCreateInfo = {};
 	bufferCreateInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
@@ -391,6 +410,9 @@ vertexBuffer_t *R_CreateVertexBuffer( int numVertexes, int numIndexes, int index
 	buffer->numIndexes = numIndexes;
 	buffer->indexOffset = indexOffset;
 	buffer->vertexOffset = indexOffset + sizeof( trIndex_t ) * numIndexes;
+
+	static_assert( offsetof( vertexBuffer_t, b ) == 0 );
+	AllocatedBuffers.insert( &buffer->b );
 
 	return buffer;
 }
@@ -454,5 +476,13 @@ R_DeleteBuffers
 // (only gets called during vid_restart now (and app exit), not during map load)
 //
 void R_DeleteBuffers( void ) {
+	int i;
+
 	R_Buffers_Clear();
+
+	// destroy all upload buffers
+	vkState.uploadBuffers = {};
+	for( i = 0; i < ARRAY_LEN( vkState.frameUploadBuffers ); ++i ) {
+		vkState.frameUploadBuffers[i].clear();
+	}
 }

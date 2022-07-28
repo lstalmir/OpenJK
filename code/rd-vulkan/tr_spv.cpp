@@ -101,7 +101,6 @@ void SPV_InitPipelineCache( void ) {
 
 	VkPipelineCacheCreateInfo pipelineCacheCreateInfo = {};
 	pipelineCacheCreateInfo.sType = VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO;
-	pipelineCacheCreateInfo.flags = VK_PIPELINE_CACHE_CREATE_EXTERNALLY_SYNCHRONIZED_BIT;
 
 	// read the cache from disk
 	dataSize = ri.FS_ReadFile( SHADER_CACHE_NAME, &data );
@@ -192,6 +191,7 @@ void SPV_InitWireframeShaders( void ) {
 	// create the pipeline layout
 	pipelineLayoutBuilder.addPushConstantRange( VK_SHADER_STAGE_VERTEX_BIT, 12 );
 	pipelineLayoutBuilder.build( &tr.wireframePipelineLayout );
+	VK_SetDebugObjectName( tr.wireframePipelineLayout, VK_OBJECT_TYPE_PIPELINE_LAYOUT, "tr.wireframePipelineLayout" );
 
 	// create the wireframe pipeline
 	pipelineBuilder.pipelineCreateInfo.layout = tr.wireframePipelineLayout;
@@ -336,6 +336,13 @@ VkPipeline SPV_GetShadePipeline( int stateBits ) {
 			pipelineBuilder.rasterization.polygonMode = VK_POLYGON_MODE_FILL;
 		}
 
+		if( stateBits & GLS_CULL_NONE ) {
+			pipelineBuilder.rasterization.cullMode = VK_CULL_MODE_NONE;
+		}
+		else {
+			pipelineBuilder.rasterization.cullMode = VK_CULL_MODE_BACK_BIT;
+		}
+
 		// color blend
 		VkPipelineColorBlendAttachmentState colorBlend = {};
 		colorBlend.blendEnable = VK_FALSE;
@@ -358,6 +365,10 @@ VkPipeline SPV_GetShadePipeline( int stateBits ) {
 
 		// create the pipeline
 		pipelineBuilder.build( &pipeline );
+
+		char pipelineName[MAX_QPATH];
+		sprintf( pipelineName, "shadePipeline (%08x)", stateBits );
+		VK_SetDebugObjectName( pipeline, VK_OBJECT_TYPE_PIPELINE, pipelineName );
 	}
 
 	return pipeline;

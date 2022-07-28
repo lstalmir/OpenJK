@@ -99,10 +99,28 @@ void VK_BeginFrame( void ) {
 	VkResult res;
 
 	if( vkState.imagenum == UINT32_MAX ) {
+		if( backEndData->cmdbuf ) {
+			VkSubmitInfo submitInfo = {};
+
+			// end the command buffer
+			vkEndCommandBuffer( backEndData->cmdbuf );
+
+			// submit commands recorded between frames
+			submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+			submitInfo.commandBufferCount = 1;
+			submitInfo.pCommandBuffers = &backEndData->cmdbuf;
+
+			res = vkQueueSubmit( vkState.queue, 1, &submitInfo, NULL );
+			if( res != VK_SUCCESS ) {
+				Com_Error( ERR_FATAL, "VK_BeginFrame: failed to submit inter-frame command buffer (%d)\n", res );
+			}
+		}
+
 		// move to the next resource
 		vkState.resnum = ( vkState.resnum + 1 ) % vkState.imgcount;
-		backEndData->cmdbuf = vkState.cmdbuffers[2 * vkState.resnum];
-		backEndData->uploadCmdbuf = vkState.cmdbuffers[2 * vkState.resnum + 1];
+
+		backEndData->cmdbuf = vkState.cmdbuffers[3 * vkState.resnum];
+		backEndData->uploadCmdbuf = vkState.cmdbuffers[3 * vkState.resnum + 1];
 		backEndData->semaphore = vkState.semaphores[vkState.resnum];
 
 		res = vkAcquireNextImageKHR(
@@ -118,6 +136,7 @@ void VK_BeginFrame( void ) {
 		backEndData->frameBuffer = NULL;
 		backEndData->pipeline = VK_NULL_HANDLE;
 		backEndData->pipelineLayout = VK_NULL_HANDLE;
+		backEndData->pipelineStateBits = -1;
 		memset( backEndData->descriptorSets, 0, sizeof( backEndData->descriptorSets ) );
 
 		// wait until the resources are available
@@ -206,7 +225,7 @@ void VK_EndFrame( void ) {
 
 	res = vkQueueSubmit( vkState.queue, 1, &submitInfo, vkState.fences[vkState.resnum] );
 	if( res != VK_SUCCESS ) {
-		Com_Error( ERR_FATAL, "RB_SwapBuffers: failed to submit command buffer for execution (%d)\n", res );
+		Com_Error( ERR_FATAL, "VK_EndFrame: failed to submit command buffer for execution (%d)\n", res );
 	}
 
 	// in Vulkan the buffers are managed by the swap chain
@@ -224,7 +243,7 @@ void VK_EndFrame( void ) {
 		// before we do that, we have to sync with gpu on all pending frames
 		res = vkWaitForFences( vkState.device, vkState.imgcount, vkState.fences, VK_TRUE, UINT64_MAX );
 		if( res != VK_SUCCESS ) {
-			Com_Error( ERR_FATAL, "RB_SwapBuffers: failed to synchronize with the command queue (%d)\n", res );
+			Com_Error( ERR_FATAL, "VK_EndFrame: failed to synchronize with the command queue (%d)\n", res );
 		}
 
 		// reinitialize the swapchain
@@ -232,6 +251,22 @@ void VK_EndFrame( void ) {
 	}
 
 	vkState.imagenum = UINT32_MAX;
+
+	vkDeviceWaitIdle( vkState.device );
+
+	// since we can receive commands between frames, there must be at least one command buffer we can record to
+	// it will be submitted on VK_BeginFrame
+	backEndData->cmdbuf = vkState.cmdbuffers[vkState.resnum + 2];
+	backEndData->uploadCmdbuf = backEndData->cmdbuf;
+
+	VkCommandBufferBeginInfo beginInfo = {};
+	beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+	beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+
+	res = vkBeginCommandBuffer( backEndData->cmdbuf, &beginInfo );
+	if( res != VK_SUCCESS ) {
+		Com_Error( ERR_FATAL, "VK_EndFrame: failed to begin inter-frame command buffer (%d)\n", res );
+	}
 }
 
 /*
@@ -350,7 +385,9 @@ void VK_AllocateDescriptorSet( VkDescriptorSetLayout layout, VkDescriptorSet *se
 ** VK_DeleteDescriptorSet
 */
 void VK_DeleteDescriptorSet( VkDescriptorSet set ) {
-	vkFreeDescriptorSets( vkState.device, vkState.descriptorPool, 1, &set );
+	if( set ) {
+		vkFreeDescriptorSets( vkState.device, vkState.descriptorPool, 1, &set );
+	}
 }
 
 /*
@@ -986,7 +1023,7 @@ const void *RB_StretchPic( const void *data ) {
 	}
 
 	backEndData->dynamicGeometryBuilder.checkOverflow( 4, 6 );
-	backEndData->dynamicGeometryBuilder.setDrawStateBits( GLS_DEPTHTEST_DISABLE );
+	backEndData->dynamicGeometryBuilder.setDrawStateBits( GLS_DEPTHTEST_DISABLE | GLS_CULL_NONE );
 
 	int a = backEndData->dynamicGeometryBuilder.addVertex();
 	vertex = &backEndData->dynamicGeometryBuilder.vertexes[a];
@@ -1061,7 +1098,7 @@ const void *RB_RotatePic( const void *data ) {
 	};
 
 	backEndData->dynamicGeometryBuilder.checkOverflow( 4, 6 );
-	backEndData->dynamicGeometryBuilder.setDrawStateBits( GLS_DEPTHTEST_DISABLE );
+	backEndData->dynamicGeometryBuilder.setDrawStateBits( GLS_DEPTHTEST_DISABLE | GLS_CULL_NONE );
 
 	int a = backEndData->dynamicGeometryBuilder.addVertex();
 	vertex = &backEndData->dynamicGeometryBuilder.vertexes[a];
@@ -1127,7 +1164,7 @@ const void *RB_RotatePic2( const void *data ) {
 		}
 
 		backEndData->dynamicGeometryBuilder.checkOverflow( 4, 6 );
-		backEndData->dynamicGeometryBuilder.setDrawStateBits( GLS_DEPTHTEST_DISABLE );
+		backEndData->dynamicGeometryBuilder.setDrawStateBits( GLS_DEPTHTEST_DISABLE | GLS_CULL_NONE );
 
 		float angle = DEG2RAD( cmd->a );
 		float sina = sinf( angle );
@@ -1234,6 +1271,7 @@ const void *RB_DrawSurfs( const void *data ) {
 
 	VK_UploadBuffer( backEnd.viewParms.buffer, (byte *)&backEnd.viewParms.shaderData, sizeof( backEnd.viewParms.shaderData ), 0 );
 
+	backEndData->pipelineLayout = tr.shadePipelineLayout;
 	R_BindDescriptorSet( TR_VIEW_SPACE, backEnd.viewParms.descriptorSet );
 
 	RB_RenderDrawSurfList( cmd->drawSurfs, cmd->numDrawSurfs );

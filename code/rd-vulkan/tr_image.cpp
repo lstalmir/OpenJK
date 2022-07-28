@@ -191,11 +191,11 @@ void VK_TextureMode( const char *string ) {
 	writer.flush();
 
 	// destroy the old samplers
-	if( tr.wrapModeSampler ) vkDestroySampler( vkState.device, tr.wrapModeSampler, NULL );
-	if( tr.clampModeSampler ) vkDestroySampler( vkState.device, tr.clampModeSampler, NULL );
+	VK_Delete( vkDestroySampler, vkState.wrapModeSampler );
+	VK_Delete( vkDestroySampler, vkState.clampModeSampler );
 
-	tr.wrapModeSampler = wrapModeSampler;
-	tr.clampModeSampler = clampModeSampler;
+	vkState.wrapModeSampler = wrapModeSampler;
+	vkState.clampModeSampler = clampModeSampler;
 }
 
 
@@ -754,6 +754,9 @@ VK_UploadImage
 ===============
 */
 void VK_UploadImage( image_t *image, const byte *pic, int width, int height, int mip ) {
+	if( !backEndData )
+		return;
+
 	int requiredBufferSize = VK_GetRequiredImageUploadBufferSize( image->internalFormat, width, height );
 	uploadBuffer_t *uploadBuffer = VK_GetUploadBuffer( requiredBufferSize );
 
@@ -867,9 +870,6 @@ void R_Images_DeleteImage( image_t *pImage ) {
 	if( itImage != AllocatedImages.end() ) {
 		R_Images_DeleteImageContents( pImage );
 		AllocatedImages.erase( itImage );
-	}
-	else {
-		assert( 0 );
 	}
 }
 
@@ -1060,13 +1060,13 @@ static void VK_AllocImageContents( image_t *image ) {
 
 			if( !image->descriptorSet ) {
 				// allocate a descriptor set for the texture
-				VK_AllocateDescriptorSet( tr.textureDescriptorSetLayout, &image->descriptorSet );
+				VK_AllocateDescriptorSet( vkState.textureDescriptorSetLayout, &image->descriptorSet );
 				VK_SetDebugObjectName( image->descriptorSet, VK_OBJECT_TYPE_DESCRIPTOR_SET, image->imgName );
 			}
 
 			CDescriptorSetWriter descriptorSetWriter( image->descriptorSet );
 			descriptorSetWriter.writeImage( 0, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, image );
-			descriptorSetWriter.writeSampler( 1, ( image->wrapClampMode == VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE ) ? tr.clampModeSampler : tr.wrapModeSampler );
+			descriptorSetWriter.writeSampler( 1, ( image->wrapClampMode == VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE ) ? vkState.clampModeSampler : vkState.wrapModeSampler );
 			descriptorSetWriter.flush();
 		}
 	}
@@ -1183,7 +1183,7 @@ image_t *R_CreateImage( const char *name, const byte *pic, int width, int height
 	auto emplaced = AllocatedImages.emplace( image->imgName, image );
 	if( !emplaced.second ) {
 		// this should never happen, as existing images should be handled by R_FindImageFile_NoLoad
-		assert( 0 );
+		//assert( 0 );
 	}
 
 	return image;
@@ -1198,7 +1198,8 @@ image_t *R_CreateTransientImage( const char *name, int width, int height, VkForm
 		Com_Error( ERR_DROP, "R_CreateTransientImage: \"%s\" is too long\n", name );
 	}
 
-	image = (image_t *)R_Malloc( sizeof( image_t ), TAG_IMAGE_T, qtrue );
+	// transient images are not cached and should be allocated from hunk
+	image = (image_t *)R_Hunk_Alloc( sizeof( image_t ), qtrue );
 
 	// set the usage flags based on the format of the image
 	usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
@@ -1219,7 +1220,8 @@ image_t *R_CreateReadbackImage( const char *name, int width, int height, VkForma
 		Com_Error( ERR_DROP, "R_CreateReadbackImage: \"%s\" is too long\n", name );
 	}
 
-	image = (image_t *)R_Malloc( sizeof( image_t ), TAG_IMAGE_T, qtrue );
+	// readback images are not cached and should be allocated from hunk
+	image = (image_t *)R_Hunk_Alloc( sizeof( image_t ), qtrue );
 
 	VK_InitImage( image, name, width, height, format, qfalse, qfalse,
 		VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
@@ -1530,6 +1532,22 @@ void R_CreateBuiltinImages( void ) {
 	for( x = 0; x < NUM_SCRATCH_IMAGES; x++ ) {
 		// scratchimage is usually used for cinematic drawing
 		tr.scratchImage[x] = R_CreateImage( va( "*scratch%d", x ), (byte *)data, DEFAULT_SIZE, DEFAULT_SIZE, VK_FORMAT_B8G8R8A8_UNORM, qfalse, qfalse, qfalse, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE );
+	}
+
+	// create a buffer for screen shots
+	if( !tr.screenshotImage ||
+		tr.screenshotImage->width != glConfig.vidWidth ||
+		tr.screenshotImage->height != glConfig.vidHeight ) {
+
+		if( tr.screenshotImage ) {
+			R_Images_DeleteImage( tr.screenshotImage );
+		}
+
+		tr.screenshotImage = R_CreateReadbackImage(
+			"*screenshotImage",
+			glConfig.vidWidth,
+			glConfig.vidHeight,
+			VK_FORMAT_B8G8R8A8_UNORM );
 	}
 
 	R_CreateDlightImage();

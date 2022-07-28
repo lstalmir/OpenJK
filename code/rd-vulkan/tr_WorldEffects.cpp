@@ -1076,7 +1076,7 @@ public:
 
 		CDescriptorSetWriter writer( mDescriptorSet );
 		writer.writeImage( 0, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, mImage );
-		writer.writeSampler( 1, ( mFilterMode == 1 ) ? tr.pointClampSampler : tr.linearClampSampler );
+		writer.writeSampler( 1, ( mFilterMode == 1 ) ? vkState.pointClampSampler : vkState.linearClampSampler );
 		writer.flush();
 	}
 

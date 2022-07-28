@@ -67,6 +67,8 @@ typedef struct dlight_s {
 typedef struct buffer_s {
 	int					size;
 
+	memtag_t			memtag;
+
 	VkBuffer			buf;
 
 	VmaAllocation		allocation;
@@ -80,6 +82,8 @@ typedef struct image_s {
 	char				imgName[MAX_QPATH];		// game path, including extension
 	int					frameUsed;				// for texture usage in frame statistics
 	word				width, height;			// source image
+	
+	memtag_t			memtag;
 
 	VkImage				tex;
 	VkImageView			texview;
@@ -906,7 +910,11 @@ typedef struct {
 
 
 #define MAX_OUTIMAGES 4
-#define MIN_UPLOADBUFFER_SIZE (65536*32) // 2MB
+#define MIN_UPLOADBUFFER_SIZE (65536*64*16) // 4MB
+
+#define MAX_FRAME_CMDBUFFERS 3	//	0 - buffer upload cmd buffer
+								//	1 - render commands
+								//	2 - inter-frame commands - in case we have to submit anything between RE_BeginFrame and RE_EndFrame
 
 typedef struct {
 	buffer_t				*buffer;
@@ -982,13 +990,13 @@ typedef struct {
 	image_t					images[MAX_OUTIMAGES];
 
 	VkCommandPool			cmdpool;
-	VkCommandBuffer			cmdbuffers[MAX_OUTIMAGES * 2];
+	VkCommandBuffer			cmdbuffers[MAX_OUTIMAGES * 3];
 
 	VkFence					fences[MAX_OUTIMAGES];
 	VkSemaphore				semaphores[MAX_OUTIMAGES];
 
-	uploadBufferPool_t<16>	uploadBuffers;
-	ratl::vector_vs<int, 8>	frameUploadBuffers[MAX_OUTIMAGES]; // upload buffers used in each frame
+	uploadBufferPool_t<32>	uploadBuffers;
+	ratl::vector_vs<int, 16>	frameUploadBuffers[MAX_OUTIMAGES]; // upload buffers used in each frame
 
 	int						resnum;
 	uint32_t				imagenum;
@@ -1001,6 +1009,26 @@ typedef struct {
 	PFN_vkSetDebugUtilsObjectNameEXT	pfnSetDebugObjectName;
 	PFN_vkCmdBeginDebugUtilsLabelEXT	pfnBeginDebugUtilsLabel;
 	PFN_vkCmdEndDebugUtilsLabelEXT		pfnEndDebugUtilsLabel;
+	PFN_vkCreateDebugUtilsMessengerEXT	pfnCreateDebugMessenger;
+	PFN_vkDestroyDebugUtilsMessengerEXT	pfnDestroyDebugMessenger;
+
+	VkDebugUtilsMessengerEXT			debugMessenger;
+
+	// samplers
+	VkSampler				wrapModeSampler;
+	VkSampler				clampModeSampler;
+
+	VkSampler				pointClampSampler;
+	VkSampler				pointWrapSampler;
+	VkSampler				linearClampSampler;
+	VkSampler				linearWrapSampler;
+
+	VkDescriptorSetLayout	commonDescriptorSetLayout;
+	VkDescriptorSetLayout	samplerDescriptorSetLayout;
+	VkDescriptorSetLayout	shaderDescriptorSetLayout;
+	VkDescriptorSetLayout	modelDescriptorSetLayout;
+	VkDescriptorSetLayout	textureDescriptorSetLayout;
+	VkDescriptorSetLayout	viewDescriptorSetLayout;
 
 } vkstate_t;
 
@@ -1076,22 +1104,6 @@ typedef struct {
 	image_t					*screenshotImage;
 
 	buffer_t				*fogsBuffer;
-
-	// samplers
-	VkSampler				wrapModeSampler;
-	VkSampler				clampModeSampler;
-
-	VkSampler				pointClampSampler;
-	VkSampler				pointWrapSampler;
-	VkSampler				linearClampSampler;
-	VkSampler				linearWrapSampler;
-
-	VkDescriptorSetLayout	commonDescriptorSetLayout;
-	VkDescriptorSetLayout	samplerDescriptorSetLayout;
-	VkDescriptorSetLayout	shaderDescriptorSetLayout;
-	VkDescriptorSetLayout	modelDescriptorSetLayout;
-	VkDescriptorSetLayout	textureDescriptorSetLayout;
-	VkDescriptorSetLayout	viewDescriptorSetLayout;
 
 	VkDescriptorSet			commonDescriptorSet;
 	VkDescriptorSet			samplerDescriptorSet;
@@ -1443,6 +1455,8 @@ void RB_EndDebugRegion( void );
 #define GLS_DEPTHTEST_DISABLE					0x00010000
 #define GLS_DEPTHFUNC_EQUAL						0x00020000
 
+#define GLS_CULL_NONE							0x00040000
+
 #define GLS_INPUT_MD3							0x00100000
 #define GLS_INPUT_GLM							0x00200000
 #define GLS_INPUT_GLA							0x00300000
@@ -1498,8 +1512,8 @@ image_t		*R_CreateReadbackImage( const char *name, int width, int height, VkForm
 
 void		R_ResizeImage( image_t *image, int width, int height );
 
-buffer_t	*R_CreateBuffer( int size, VkBufferUsageFlags usage, VkMemoryPropertyFlags requiredFlags );
-vertexBuffer_t	*R_CreateVertexBuffer( int numVertexes, int numIndexes, int indexOffset = 0 );
+buffer_t	*R_CreateBuffer( int size, VkBufferUsageFlags usage, VkMemoryPropertyFlags requiredFlags, memtag_t tag = TAG_HUNKALLOC );
+vertexBuffer_t	*R_CreateVertexBuffer( int numVertexes, int numIndexes, int indexOffset = 0, memtag_t tag = TAG_HUNKALLOC );
 
 qboolean	R_GetModeInfo( int *width, int *height, int mode );
 
@@ -1705,6 +1719,7 @@ class CDynamicGeometryBuilder {
 	vertexBufferList_t	*root;
 	vertexBufferList_t	*curr;
 
+public:
 	int					vertexCount;
 	int					vertexOffset;
 
@@ -1713,7 +1728,6 @@ class CDynamicGeometryBuilder {
 
 	int					drawStateBits;
 
-public:
 	trIndex_t			indexes[SHADER_MAX_INDEXES];
 	tr_shader::vertex_t vertexes[SHADER_MAX_VERTEXES];
 

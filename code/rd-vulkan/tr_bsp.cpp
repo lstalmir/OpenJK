@@ -1425,6 +1425,17 @@ void RE_LoadWorldMap_Actual( const char *name, world_t &worldData, int index ) {
 		// only set tr.world now that we know the entire level has loaded properly
 		tr.world = &worldData;
 
+		// create a world model buffer
+		tr.worldEntity.modelBuffer = R_CreateBuffer( sizeof( tr_shader::model_t ),
+			VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, 0 );
+
+		VK_AllocateDescriptorSet( vkState.modelDescriptorSetLayout, &tr.worldEntity.modelDescriptorSet );
+		CDescriptorSetWriter writer( tr.worldEntity.modelDescriptorSet );
+		writer.writeBuffer( 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, tr.worldEntity.modelBuffer );
+		writer.flush();
+	}
+
+	if( worldData.fogsBuffer ) {
 		// update the fogs buffer
 		CDescriptorSetWriter writer( tr.commonDescriptorSet );
 		writer.writeBuffer( 4, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, worldData.fogsBuffer );

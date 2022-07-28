@@ -89,13 +89,13 @@ void CPipelineLayoutBuilder::reset() {
 	pushConstantRangeCount = 0;
 
 	// add common descriptor set layouts
-	addDescriptorSetLayout( tr.commonDescriptorSetLayout );
-	addDescriptorSetLayout( tr.samplerDescriptorSetLayout );
-	addDescriptorSetLayout( tr.shaderDescriptorSetLayout );
-	addDescriptorSetLayout( tr.modelDescriptorSetLayout );
-	addDescriptorSetLayout( tr.textureDescriptorSetLayout );
-	addDescriptorSetLayout( tr.textureDescriptorSetLayout );
-	addDescriptorSetLayout( tr.viewDescriptorSetLayout );
+	addDescriptorSetLayout( vkState.commonDescriptorSetLayout );
+	addDescriptorSetLayout( vkState.samplerDescriptorSetLayout );
+	addDescriptorSetLayout( vkState.shaderDescriptorSetLayout );
+	addDescriptorSetLayout( vkState.modelDescriptorSetLayout );
+	addDescriptorSetLayout( vkState.textureDescriptorSetLayout );
+	addDescriptorSetLayout( vkState.textureDescriptorSetLayout );
+	addDescriptorSetLayout( vkState.viewDescriptorSetLayout );
 }
 
 void CPipelineLayoutBuilder::addDescriptorSetLayout( VkDescriptorSetLayout layout ) {
@@ -258,6 +258,7 @@ void CPipelineBuilder::reset( bool setDefaults ) {
 		pipelineCreateInfo.flags = 0;
 		pipelineCreateInfo.basePipelineHandle = VK_NULL_HANDLE;
 		pipelineCreateInfo.basePipelineIndex = 0;
+		pipelineCreateInfo.subpass = 0;
 	}
 }
 
@@ -702,6 +703,7 @@ void CDynamicGeometryBuilder::init() {
 	root = (vertexBufferList_t *)R_Malloc( sizeof( vertexBufferList_t ), TAG_HUNKALLOC );
 	root->vertexBuffer = R_CreateVertexBuffer( ARRAY_LEN( vertexes ), ARRAY_LEN( indexes ) );
 	root->next = NULL;
+	reset();
 }
 
 void CDynamicGeometryBuilder::reset() {
