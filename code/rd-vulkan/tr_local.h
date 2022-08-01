@@ -1682,8 +1682,8 @@ public:
 	void reset();
 	void addColorAttachment( VkFormat format, bool clear = false, const VkClearColorValue &clearValue = { 0.f, 0.f, 0.f, 1.f } );
 	void addColorAttachment( image_t *image, bool clear = false, const VkClearColorValue &clearValue = { 0.f, 0.f, 0.f, 1.f } );
-	void addDepthStencilAttachment( VkFormat format, bool clear = false, const VkClearDepthStencilValue &clearValue = { 1.f, 0 } );
-	void addDepthStencilAttachment( image_t *image, bool clear = false, const VkClearDepthStencilValue &clearValue = { 1.f, 0 } );
+	void addDepthStencilAttachment( VkFormat format, bool clear = false, const VkClearDepthStencilValue &clearValue = { 0.f, 0 } );
+	void addDepthStencilAttachment( image_t *image, bool clear = false, const VkClearDepthStencilValue &clearValue = { 0.f, 0 } );
 	void build( frameBuffer_t **frameBuffer );
 };
 
@@ -1719,6 +1719,10 @@ class CDynamicGeometryBuilder {
 	vertexBufferList_t	*root;
 	vertexBufferList_t	*curr;
 
+	int					triangleStripVertexes[2];
+	int					triangleStripVertexCount;
+	bool				triangleStrip;
+
 public:
 	int					vertexCount;
 	int					vertexOffset;
@@ -1736,6 +1740,8 @@ public:
 	void reset();
 	void checkOverflow( int numVertexes, int numIndexes );
 	void beginGeometry();
+	void beginTriangleStrip();
+	void endTriangleStrip();
 	int	 addVertex();
 	void addTriangle( int, int, int );
 	void endGeometry();

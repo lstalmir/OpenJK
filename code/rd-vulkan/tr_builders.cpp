@@ -708,6 +708,7 @@ void CDynamicGeometryBuilder::init() {
 
 void CDynamicGeometryBuilder::reset() {
 	curr = root;
+	triangleStrip = false;
 	vertexOffset = 0;
 	vertexCount = 0;
 	indexOffset = 0;
@@ -736,7 +737,26 @@ void CDynamicGeometryBuilder::beginGeometry() {
 	indexCount = 0;
 }
 
+void CDynamicGeometryBuilder::beginTriangleStrip() {
+	triangleStripVertexCount = 0;
+	triangleStrip = true;
+}
+
+void CDynamicGeometryBuilder::endTriangleStrip() {
+	triangleStrip = false;
+}
+
 int CDynamicGeometryBuilder::addVertex() {
+	int vertex = vertexCount++;
+	if( triangleStrip ) {
+		if( triangleStripVertexCount == 2 ) {
+			// next vertex will form a triangle
+			addTriangle( triangleStripVertexes[0], triangleStripVertexes[1], vertex );
+			triangleStripVertexCount = 0;
+		}
+		triangleStripVertexes[triangleStripVertexCount] = vertex;
+		triangleStripVertexCount++;
+	}
 	return vertexCount++;
 }
 

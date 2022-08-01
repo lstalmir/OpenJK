@@ -325,7 +325,7 @@ VkPipeline SPV_GetShadePipeline( int stateBits ) {
 			pipelineBuilder.depthStencil.depthCompareOp = VK_COMPARE_OP_EQUAL;
 		}
 		else {
-			pipelineBuilder.depthStencil.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL;
+			pipelineBuilder.depthStencil.depthCompareOp = VK_COMPARE_OP_GREATER_OR_EQUAL;
 		}
 
 		// rasterization
@@ -340,7 +340,7 @@ VkPipeline SPV_GetShadePipeline( int stateBits ) {
 			pipelineBuilder.rasterization.cullMode = VK_CULL_MODE_NONE;
 		}
 		else {
-			pipelineBuilder.rasterization.cullMode = VK_CULL_MODE_BACK_BIT;
+			pipelineBuilder.rasterization.cullMode = VK_CULL_MODE_NONE; // todo
 		}
 
 		// color blend

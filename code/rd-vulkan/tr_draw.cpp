@@ -83,6 +83,7 @@ Used for cinematics.
 void RE_StretchRaw( int x, int y, int w, int h, int cols, int rows, const byte *data, int iClient, qboolean bDirty ) {
 	image_t *scratchImage;
 	frameBuffer_t *frameBuffer;
+	image_t *frameBufferImage;
 	float xscale, yscale;
 
 	if( !tr.registered ) {
@@ -90,6 +91,11 @@ void RE_StretchRaw( int x, int y, int w, int h, int cols, int rows, const byte *
 	}
 
 	frameBuffer = backEndData->frameBuffer;
+	if( !frameBuffer ) {
+		frameBuffer = tr.sceneFrameBuffer;
+	}
+
+	frameBufferImage = frameBuffer->images[0].i;
 
 	R_IssuePendingRenderCommands();
 	R_BindFrameBuffer( NULL );
@@ -103,27 +109,11 @@ void RE_StretchRaw( int x, int y, int w, int h, int cols, int rows, const byte *
 	scratchImage = tr.scratchImage[iClient];
 
 	VK_SetImageLayout( scratchImage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_ACCESS_TRANSFER_READ_BIT );
-	VK_SetImageLayout( tr.screenImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_ACCESS_TRANSFER_WRITE_BIT );
-
-	if( frameBuffer ) {
-		image_t *src = frameBuffer->images[0].i;
-		VK_SetImageLayout( src, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_ACCESS_TRANSFER_READ_BIT );
-
-		VkImageCopy imageCopy = {};
-		imageCopy.extent.width = tr.screenImage->width;
-		imageCopy.extent.height = tr.screenImage->height;
-		imageCopy.extent.depth = 1;
-		imageCopy.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-		imageCopy.srcSubresource.layerCount = 1;
-		imageCopy.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-		imageCopy.dstSubresource.layerCount = 1;
-
-		vkCmdCopyImage( backEndData->cmdbuf, src->tex, src->layout, tr.screenImage->tex, tr.screenImage->layout, 1, &imageCopy );
-	}
+	VK_SetImageLayout( frameBufferImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_ACCESS_TRANSFER_WRITE_BIT );
 
 	// convert the screen coordinates. x,y,w,h are normalized to 640x480
-	xscale = ( tr.screenImage->width / 640.f );
-	yscale = ( tr.screenImage->height / 480.f );
+	xscale = ( frameBufferImage->width / 640.f );
+	yscale = ( frameBufferImage->height / 480.f );
 
 	// blit the the uploaded image on the screen
 	VkImageBlit imageBlit = {};
@@ -140,7 +130,7 @@ void RE_StretchRaw( int x, int y, int w, int h, int cols, int rows, const byte *
 	imageBlit.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
 	imageBlit.dstSubresource.layerCount = 1;
 
-	vkCmdBlitImage( backEndData->cmdbuf, scratchImage->tex, scratchImage->layout, tr.screenImage->tex, tr.screenImage->layout, 1, &imageBlit, VK_FILTER_LINEAR );
+	vkCmdBlitImage( backEndData->cmdbuf, scratchImage->tex, scratchImage->layout, frameBufferImage->tex, frameBufferImage->layout, 1, &imageBlit, VK_FILTER_LINEAR );
 }
 
 extern byte *RB_ReadPixels(int x, int y, int width, int height, size_t *offset, int *padlen);

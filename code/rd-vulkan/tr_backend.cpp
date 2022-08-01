@@ -191,7 +191,7 @@ void VK_EndFrame( void ) {
 	frameBuffer_t *frameBuffer = backEndData->frameBuffer;
 	R_BindFrameBuffer( NULL );
 
-	image_t *renderedImage = tr.screenImage;
+	image_t *renderedImage = tr.sceneFrameBuffer->images[0].i;
 	if( frameBuffer ) {
 		renderedImage = frameBuffer->images[0].i;
 	}
@@ -468,6 +468,7 @@ void SetViewportAndScissor( int depthRange ) {
 	VkViewport viewport;
 	VkRect2D scissor;
 	float minDepth, maxDepth;
+	int x, y;
 
 	switch( depthRange ) {
 	default:
@@ -487,9 +488,12 @@ void SetViewportAndScissor( int depthRange ) {
 		break;
 	}
 
+	x = Q_max( 0, backEnd.viewParms.viewportX );
+	y = Q_max( 0, backEnd.viewParms.viewportY );
+
 	// set the window clipping
-	viewport.x = backEnd.viewParms.viewportX;
-	viewport.y = backEnd.viewParms.viewportY;
+	viewport.x = x;
+	viewport.y = y;
 	viewport.width = backEnd.viewParms.viewportWidth;
 	viewport.height = backEnd.viewParms.viewportHeight;
 	viewport.minDepth = minDepth;
@@ -497,8 +501,8 @@ void SetViewportAndScissor( int depthRange ) {
 	vkCmdSetViewport( backEndData->cmdbuf, 0, 1, &viewport );
 
 	// set the scissor rect
-	scissor.offset.x = Q_max( 0, backEnd.viewParms.viewportX );
-	scissor.offset.y = Q_max( 0, backEnd.viewParms.viewportY );
+	scissor.offset.x = x;
+	scissor.offset.y = y;
 	scissor.extent.width = backEnd.viewParms.viewportWidth;
 	scissor.extent.height = backEnd.viewParms.viewportHeight;
 	vkCmdSetScissor( backEndData->cmdbuf, 0, 1, &scissor );
@@ -514,7 +518,7 @@ to actually render the visible surfaces for this view
 */
 static void RB_BeginDrawingView( void ) {
 	frameBuffer_t *frameBuffer = tr.sceneFrameBuffer;
-	frameBuffer->clearValues[1].depthStencil.depth = 1.f;
+	frameBuffer->clearValues[1].depthStencil.depth = 0.f;
 	frameBuffer->clearValues[1].depthStencil.stencil = 0;
 
 	if( g_bRenderGlowingObjects ) {
@@ -855,7 +859,9 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 			// update the uniform buffer
 			memcpy( &backEnd.currentEntity->model.ori.modelMatrix, backEnd.ori.modelMatrix, sizeof( backEnd.ori.modelMatrix ) );
 			memcpy( &backEnd.currentEntity->model.lightDir, backEnd.currentEntity->lightDir, sizeof( backEnd.currentEntity->lightDir ) );
-
+			memcpy( &backEnd.currentEntity->model.ambientLight, backEnd.currentEntity->ambientLight, sizeof( backEnd.currentEntity->ambientLight ) );
+			memcpy( &backEnd.currentEntity->model.directedLight, backEnd.currentEntity->directedLight, sizeof( backEnd.currentEntity->directedLight) );
+			backEnd.currentEntity->model.ambientLightInt = backEnd.currentEntity->ambientLightInt;
 			backEnd.currentEntity->model.ori.origin.x = backEnd.ori.origin[0];
 			backEnd.currentEntity->model.ori.origin.y = backEnd.ori.origin[1];
 			backEnd.currentEntity->model.ori.origin.z = backEnd.ori.origin[2];

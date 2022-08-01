@@ -226,10 +226,6 @@ VKAPI_ATTR VkBool32 VKAPI_CALL VK_DebugMessage(
 	void* pUserData) {
 	if( messageSeverity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT ) {
 		ri.Printf( PRINT_DEVELOPER, "VK_DebugMessage: %s\n", pCallbackData->pMessage );
-
-		if( Q_stricmp( pCallbackData->pMessageIdName, "VUID-VkWriteDescriptorSet-dstBinding-00315" ) == 0 ) {
-			__debugbreak();
-		}
 	}
 	return VK_FALSE;
 }
@@ -528,6 +524,7 @@ static void InitVulkanInstance( void ) {
 		vkState.pfnCreateDebugMessenger = VK_GetProcAddress<PFN_vkCreateDebugUtilsMessengerEXT>( "vkCreateDebugUtilsMessengerEXT" );
 		vkState.pfnDestroyDebugMessenger = VK_GetProcAddress<PFN_vkDestroyDebugUtilsMessengerEXT>( "vkDestroyDebugUtilsMessengerEXT" );
 
+		#if 0
 		if( vkState.pfnCreateDebugMessenger && vkState.pfnDestroyDebugMessenger ) {
 			VkDebugUtilsMessengerCreateInfoEXT messengerCreateInfo = {};
 
@@ -539,6 +536,7 @@ static void InitVulkanInstance( void ) {
 
 			vkState.pfnCreateDebugMessenger( vkState.instance, &messengerCreateInfo, NULL, &vkState.debugMessenger );
 		}
+		#endif
 	}
 
 	R_Free( initCtx->supportedExtensions );

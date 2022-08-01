@@ -1302,8 +1302,8 @@ static qboolean ParseStage( shaderStage_t *stage, const char **text )
 				ri.Printf( PRINT_WARNING, "WARNING: missing parameter for '%s' keyword in shader '%s'\n", (bClamp ? "animMap":"clampanimMap"), shader.name );
 				return qfalse;
 			}
-			stage->shaderData.bundle[0].imageAnimationSpeed = atof( token );
-			stage->shaderData.bundle[0].oneShotAnimMap = oneShot;
+			stage->bundle[0].imageAnimationSpeed = atof( token );
+			stage->bundle[0].oneShotAnimMap = oneShot;
 
 			// parse up to MAX_IMAGE_ANIMATIONS animations
 			while ( 1 ) {
@@ -1313,7 +1313,7 @@ static qboolean ParseStage( shaderStage_t *stage, const char **text )
 				if ( !token[0] ) {
 					break;
 				}
-				num = stage->shaderData.bundle[0].numImageAnimations;
+				num = stage->bundle[0].numImageAnimations;
 				if ( num < MAX_IMAGE_ANIMATIONS ) {
 					images[num] = R_FindImageFile(
 						token,
@@ -1326,12 +1326,12 @@ static qboolean ParseStage( shaderStage_t *stage, const char **text )
 						ri.Printf( PRINT_WARNING, "WARNING: R_FindImageFile could not find '%s' in shader '%s'\n", token, shader.name );
 						return qfalse;
 					}
-					stage->shaderData.bundle[0].numImageAnimations++;
+					stage->bundle[0].numImageAnimations++;
 				}
 			}
 			// Copy image ptrs into an array of ptrs
-			stage->bundle[0].image = (image_t *)R_Hunk_Alloc( stage->shaderData.bundle[0].numImageAnimations * sizeof( image_t * ), qfalse );
-			memcpy( stage->bundle[0].image, images, stage->shaderData.bundle[0].numImageAnimations * sizeof( image_t * ) );
+			stage->bundle[0].image = (image_t *)R_Hunk_Alloc( stage->bundle[0].numImageAnimations * sizeof( image_t * ), qfalse );
+			memcpy( stage->bundle[0].image, images, stage->bundle[0].numImageAnimations * sizeof( image_t * ) );
 		}
 		else if ( !Q_stricmp( token, "videoMap" ) )
 		{
@@ -1343,7 +1343,7 @@ static qboolean ParseStage( shaderStage_t *stage, const char **text )
 			}
 			stage->bundle[0].videoMapHandle = ri.CIN_PlayCinematic( token, 0, 0, 256, 256, ( CIN_loop | CIN_silent | CIN_shader ), NULL );
 			if( stage->bundle[0].videoMapHandle != -1 ) {
-				stage->shaderData.bundle[0].isVideoMap = true;
+				stage->bundle[0].isVideoMap = true;
 				stage->bundle[0].image = tr.scratchImage[stage->bundle[0].videoMapHandle];
 			}
 		}
