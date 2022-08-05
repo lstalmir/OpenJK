@@ -709,6 +709,8 @@ void CDynamicGeometryBuilder::init() {
 void CDynamicGeometryBuilder::reset() {
 	curr = root;
 	triangleStrip = false;
+	uploadIndexCount = 0;
+	uploadVertexCount = 0;
 	vertexOffset = 0;
 	vertexCount = 0;
 	indexOffset = 0;
@@ -720,6 +722,7 @@ void CDynamicGeometryBuilder::checkOverflow( int numVertexes, int numIndexes ) {
 	if( ( vertexOffset + vertexCount + numVertexes > ARRAY_LEN( vertexes ) ) ||
 		( indexOffset + indexCount + numIndexes > ARRAY_LEN( indexes ) ) ) {
 		endGeometry();
+		uploadGeometry();
 		// move to the next vertex buffer
 		if( !curr->next ) {
 			curr->next = (vertexBufferList_t *)R_Malloc( sizeof( vertexBufferList_t ), TAG_HUNKALLOC );
@@ -747,7 +750,7 @@ void CDynamicGeometryBuilder::endTriangleStrip() {
 }
 
 int CDynamicGeometryBuilder::addVertex() {
-	int vertex = vertexCount++;
+	int vertex = vertexOffset + vertexCount++;
 	if( triangleStrip ) {
 		if( triangleStripVertexCount == 2 ) {
 			// next vertex will form a triangle
@@ -757,13 +760,15 @@ int CDynamicGeometryBuilder::addVertex() {
 		triangleStripVertexes[triangleStripVertexCount] = vertex;
 		triangleStripVertexCount++;
 	}
-	return vertexCount++;
+	uploadVertexCount++;
+	return vertex;
 }
 
 void CDynamicGeometryBuilder::addTriangle( int a, int b, int c ) {
-	indexes[indexCount++] = a;
-	indexes[indexCount++] = b;
-	indexes[indexCount++] = c;
+	indexes[indexOffset + indexCount++] = a - vertexOffset;
+	indexes[indexOffset + indexCount++] = b - vertexOffset;
+	indexes[indexOffset + indexCount++] = c - vertexOffset;
+	uploadIndexCount += 3;
 }
 
 void CDynamicGeometryBuilder::endGeometry() {
@@ -772,10 +777,6 @@ void CDynamicGeometryBuilder::endGeometry() {
 	if( indexCount > 0 ) {
 		int idxoff = indexOffset * sizeof( *indexes );
 		int vertoff = vertexOffset * sizeof( *vertexes ) + curr->vertexBuffer->vertexOffset;
-
-		// update the vertex buffer
-		VK_UploadBuffer( &curr->vertexBuffer->b, (const byte *)indexes, indexCount * sizeof( *indexes ), idxoff );
-		VK_UploadBuffer( &curr->vertexBuffer->b, (const byte *)vertexes, vertexCount * sizeof( *vertexes ), vertoff );
 
 		// send the draw command
 		RB_CHECKOVERFLOW();
@@ -799,6 +800,17 @@ void CDynamicGeometryBuilder::endGeometry() {
 
 		// begin new geometry
 		beginGeometry();
+	}
+}
+
+void CDynamicGeometryBuilder::uploadGeometry() {
+	if( uploadIndexCount > 0 ) {
+		VK_UploadBuffer( &curr->vertexBuffer->b, (const byte *)indexes, indexOffset * sizeof( *indexes ), 0 );
+		uploadIndexCount = 0;
+	}
+	if( uploadVertexCount > 0 ) {
+		VK_UploadBuffer( &curr->vertexBuffer->b, (const byte *)vertexes, uploadVertexCount * sizeof( *vertexes ), curr->vertexBuffer->vertexOffset );
+		uploadVertexCount = 0;
 	}
 }
 

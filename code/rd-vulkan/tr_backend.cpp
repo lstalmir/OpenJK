@@ -187,6 +187,9 @@ void VK_EndFrame( void ) {
 
 	assert( vkState.imagenum != UINT32_MAX );
 
+	// upload any pending dynamic geometry data
+	backEndData->dynamicGeometryBuilder.uploadGeometry();
+
 	// get the current frame buffer
 	frameBuffer_t *frameBuffer = backEndData->frameBuffer;
 	R_BindFrameBuffer( NULL );
@@ -412,7 +415,7 @@ void VK_SetDebugObjectName( uint64_t object, VkObjectType type, const char *name
 */
 void RB_BeginDebugRegion( const char *name, uint32_t color ) {
 #if defined( _DEBUG )
-	if( vkState.pfnBeginDebugUtilsLabel ) {
+	if( vkState.pfnBeginDebugUtilsLabel && backEndData ) {
 		assert( vkState.pfnEndDebugUtilsLabel );
 
 		VkDebugUtilsLabelEXT labelInfo = {};
@@ -433,7 +436,7 @@ void RB_BeginDebugRegion( const char *name, uint32_t color ) {
 */
 void RB_EndDebugRegion( void ) {
 #if defined( _DEBUG )
-	if( vkState.pfnEndDebugUtilsLabel ) {
+	if( vkState.pfnEndDebugUtilsLabel && backEndData ) {
 		vkState.pfnEndDebugUtilsLabel( backEndData->cmdbuf );
 	}
 #endif
@@ -1274,11 +1277,7 @@ const void *RB_DrawSurfs( const void *data ) {
 	// update the viewParms buffer
 	memcpy( &backEnd.viewParms.shaderData.projectionMatrix, backEnd.viewParms.projectionMatrix, sizeof( backEnd.viewParms.projectionMatrix ) );
 	memcpy( &backEnd.viewParms.shaderData.ori.viewOrigin, backEnd.viewParms.ori.viewOrigin, sizeof( backEnd.viewParms.ori.viewOrigin ) );
-
 	VK_UploadBuffer( backEnd.viewParms.buffer, (byte *)&backEnd.viewParms.shaderData, sizeof( backEnd.viewParms.shaderData ), 0 );
-
-	backEndData->pipelineLayout = tr.shadePipelineLayout;
-	R_BindDescriptorSet( TR_VIEW_SPACE, backEnd.viewParms.descriptorSet );
 
 	RB_RenderDrawSurfList( cmd->drawSurfs, cmd->numDrawSurfs );
 
@@ -1633,6 +1632,7 @@ static inline void RB_BlurGlowTexture() {
 	vkCmdBindPipeline( backEndData->cmdbuf, VK_PIPELINE_BIND_POINT_GRAPHICS, tr.glowBlurPipeline );
 	backEndData->pipeline = tr.glowBlurPipeline;
 	backEndData->pipelineLayout = tr.glowBlurPipelineLayout;
+	backEndData->pipelineStateBits = -1;
 
 	VK_BindImage( glow );
 
@@ -1718,6 +1718,7 @@ static inline void RB_DrawGlowOverlay() {
 	vkCmdBindPipeline( backEndData->cmdbuf, VK_PIPELINE_BIND_POINT_GRAPHICS, tr.glowCombinePipeline );
 	backEndData->pipeline = tr.glowCombinePipeline;
 	backEndData->pipelineLayout = tr.glowCombinePipelineLayout;
+	backEndData->pipelineStateBits = -1;
 
 	VK_BindImage( glow );
 

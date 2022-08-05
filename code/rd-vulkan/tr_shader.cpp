@@ -3886,6 +3886,7 @@ R_InitShaders
 ==================
 */
 void R_InitShaders( void ) {
+	CPipelineLayoutBuilder pipelineLayoutBuilder;
 	CFrameBufferBuilder frameBufferBuilder;
 	//ri.Printf( PRINT_ALL, "Initializing Shaders\n" );
 
@@ -3900,8 +3901,12 @@ Ghoul2 Insert End
 */
 
 	// init the shade pipeline layout
-	CPipelineLayoutBuilder().build( &tr.shadePipelineLayout );
+	pipelineLayoutBuilder.build( &tr.shadePipelineLayout );
 	VK_SetDebugObjectName( tr.shadePipelineLayout, VK_OBJECT_TYPE_PIPELINE_LAYOUT, "tr.shadePipelineLayout" );
+
+	pipelineLayoutBuilder.addDescriptorSetLayout( vkState.ghoul2BonesDescriptorSetLayout );
+	pipelineLayoutBuilder.build( &tr.ghoul2ShadePipelineLayout );
+	VK_SetDebugObjectName( tr.ghoul2ShadePipelineLayout, VK_OBJECT_TYPE_PIPELINE_LAYOUT, "tr.ghoul2ShadePipelineLayout" );
 
 	SPV_InitPipelineCache();
 

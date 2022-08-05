@@ -677,6 +677,12 @@ typedef struct {
 } trMD3Surface_t;
 
 
+typedef struct {
+	mdxmSurface_t	*header;
+	vertexBuffer_t	*vertexBuffer;
+} trMdxmSurface_t;
+
+
 extern	void (*rb_surfaceTable[SF_NUM_SURFACE_TYPES])(void *);
 
 /*
@@ -819,6 +825,11 @@ typedef struct trMD3Model_s {
 	
 } trMD3Model_t;
 
+typedef struct trMdxmModel_s {
+	mdxmHeader_t	*header;
+	trMdxmSurface_t *surfaces;
+} trMdxmModel_t;
+
 typedef struct model_s {
 	char			name[MAX_QPATH];
 	modtype_t		type;
@@ -830,7 +841,7 @@ typedef struct model_s {
 					/*
 					Ghoul2 Insert Start
 					*/
-	mdxmHeader_t	*mdxm;				// only if type == MOD_GL2M which is a GHOUL II Mesh file NOT a GHOUL II animation file
+	trMdxmModel_t	*mdxm; // only if type == MOD_GL2M which is a GHOUL II Mesh file NOT a GHOUL II animation file
 	mdxaHeader_t	*mdxa;				// only if type == MOD_GL2A which is a GHOUL II Animation file
 					/*
 					Ghoul2 Insert End
@@ -1014,6 +1025,8 @@ typedef struct {
 
 	VkDebugUtilsMessengerEXT			debugMessenger;
 
+	PFN_vkCmdPushDescriptorSetKHR		pfnPushDescriptorSet;
+
 	// samplers
 	VkSampler				wrapModeSampler;
 	VkSampler				clampModeSampler;
@@ -1029,6 +1042,7 @@ typedef struct {
 	VkDescriptorSetLayout	modelDescriptorSetLayout;
 	VkDescriptorSetLayout	textureDescriptorSetLayout;
 	VkDescriptorSetLayout	viewDescriptorSetLayout;
+	VkDescriptorSetLayout	ghoul2BonesDescriptorSetLayout;
 
 } vkstate_t;
 
@@ -1120,6 +1134,7 @@ typedef struct {
 	frameBuffer_t			*glowBlurFrameBuffer;
 
 	VkPipelineLayout		shadePipelineLayout;
+	VkPipelineLayout		ghoul2ShadePipelineLayout;
 
 	// Debug pipelines
 	VkPipeline				wireframePipeline;
@@ -1402,7 +1417,8 @@ uploadBuffer_t *VK_GetUploadBuffer( int uploadSize );
 void VK_PrepareUploadBuffers( void );
 void VK_UploadImage( image_t *im, const byte *pic, int width, int height, int mip );
 void VK_UploadBuffer( buffer_t *buffer, const byte *data, int size, int offset );
-void *VK_UploadBuffer( buffer_t *buffer, int size, int offset );
+void *VK_BeginUploadBuffer( buffer_t *buffer, int size, int offset );
+void VK_EndUploadBuffer();
 void VK_SetImageLayout( image_t *im, VkImageLayout dstLayout, VkAccessFlags dstAccess );
 void VK_CopyImage( image_t *dst, image_t *src );
 void VK_BindImage( image_t *image, int loc = 0 );
@@ -1723,6 +1739,9 @@ class CDynamicGeometryBuilder {
 	int					triangleStripVertexCount;
 	bool				triangleStrip;
 
+	int					uploadIndexCount;
+	int					uploadVertexCount;
+
 public:
 	int					vertexCount;
 	int					vertexOffset;
@@ -1745,6 +1764,7 @@ public:
 	int	 addVertex();
 	void addTriangle( int, int, int );
 	void endGeometry();
+	void uploadGeometry();
 	void setDrawStateBits( int stateBits );
 };
 
@@ -1787,6 +1807,8 @@ typedef struct drawCommand_s {
 	int				indexOffset;
 
 	int				stateBits;
+
+	VkDescriptorSet ghoul2BonesDescriptorSet;
 } drawCommand_t;
 
 struct shaderCommands_s
@@ -1962,7 +1984,7 @@ public:
 	const int		ident;			// ident of this surface - required so the materials renderer knows what sort of surface this refers to
 #endif
  	CBoneCache 		*boneCache;		// pointer to transformed bone list for this surf
-	mdxmSurface_t	*surfaceData;	// pointer to surface data loaded into file - only used by client renderer DO NOT USE IN GAME SIDE - if there is a vid restart this will be out of wack on the game
+	trMdxmSurface_t	*surfaceData;	// pointer to surface data loaded into file - only used by client renderer DO NOT USE IN GAME SIDE - if there is a vid restart this will be out of wack on the game
 #ifdef _G2_GORE
 	float			*alternateTex;		// alternate texture coordinates.
 	void			*goreChain;

@@ -808,6 +808,12 @@ void InitVulkanDescriptorSetLayouts( void ) {
 	builder.addBinding( VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER );
 	builder.build( &vkState.viewDescriptorSetLayout );
 	VK_SetDebugObjectName( vkState.viewDescriptorSetLayout, VK_OBJECT_TYPE_DESCRIPTOR_SET_LAYOUT, "viewDescriptorSetLayout" );
+
+	// ghoul2 bones descriptor set layout
+	builder.reset();
+	builder.addBinding( VK_DESCRIPTOR_TYPE_STORAGE_BUFFER );
+	builder.build( &vkState.ghoul2BonesDescriptorSetLayout );
+	VK_SetDebugObjectName( vkState.ghoul2BonesDescriptorSetLayout, VK_OBJECT_TYPE_DESCRIPTOR_SET_LAYOUT, "ghoul2BonesDescriptorSetLayout" );
 }
 
 void InitVulkanDescriptorSets( void ) {

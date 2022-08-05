@@ -65,8 +65,17 @@ static void R_SetShadePipeline( int stateBits ) {
 		vkCmdBindPipeline( backEndData->cmdbuf, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline );
 
 		backEndData->pipeline = pipeline;
-		backEndData->pipelineLayout = tr.shadePipelineLayout;
 		backEndData->pipelineStateBits = stateBits;
+
+		int input = stateBits & GLS_INPUT_BITS;
+		switch( input ) {
+		case GLS_INPUT_GLM:
+		case GLS_INPUT_GLA:
+			backEndData->pipelineLayout = tr.ghoul2ShadePipelineLayout;
+			break;
+		default:
+			backEndData->pipelineLayout = tr.shadePipelineLayout;
+		}
 	}
 }
 
@@ -76,6 +85,7 @@ static void R_DrawElements( shaderCommands_t *input, shaderStage_t *stage, int s
 	VkDeviceSize vertexOffsets[TR_MAX_VERTEX_INPUT_BINDING_COUNT];
 	VkDeviceSize indexOffset;
 	int i, j;
+	int state;
 
 	// make sure there is a framebuffer bound
 	if( !backEndData->frameBuffer ) {
@@ -85,13 +95,18 @@ static void R_DrawElements( shaderCommands_t *input, shaderStage_t *stage, int s
 	R_BindDescriptorSet( TR_GLOBALS_SPACE, tr.commonDescriptorSet );
 	R_BindDescriptorSet( TR_SAMPLERS_SPACE, tr.samplerDescriptorSet );
 	R_BindDescriptorSet( TR_SHADER_SPACE, stage->descriptorSet );
+	R_BindDescriptorSet( TR_MODEL_SPACE, backEnd.currentEntity->modelDescriptorSet );
 
-	if( !backEndData->descriptorSets[TR_VIEW_SPACE] ) {
+	if( backEnd.viewParms.descriptorSet ) {
+		R_BindDescriptorSet( TR_VIEW_SPACE, backEnd.viewParms.descriptorSet );
+	}
+	else {
 		R_BindDescriptorSet( TR_VIEW_SPACE, tr.viewParms.descriptorSet );
 	}
 
 	for( i = 0; i < input->numDraws; ++i ) {
 		draw = &input->draws[i];
+		state = stateBits | draw->stateBits;
 
 		for( j = 0; j < draw->numVertexBuffers; ++j ) {
 			vertexBuffers[j] = draw->vertexBuffers[j]->b.buf;
@@ -99,8 +114,13 @@ static void R_DrawElements( shaderCommands_t *input, shaderStage_t *stage, int s
 		}
 		indexOffset = (VkDeviceSize)draw->indexOffset;
 
-		R_BindDescriptorSet( TR_MODEL_SPACE, backEnd.currentEntity->modelDescriptorSet );
-		R_SetShadePipeline( stateBits | draw->stateBits );
+		R_SetShadePipeline( state );
+
+		int input = state & GLS_INPUT_BITS;
+		if( ( input == GLS_INPUT_GLM ) || ( input == GLS_INPUT_GLA ) ) {
+			assert( draw->ghoul2BonesDescriptorSet );
+			R_BindDescriptorSet( TR_G2_BONES_SPACE, draw->ghoul2BonesDescriptorSet );
+		}
 
 		// bind vertex buffers
 		vkCmdBindVertexBuffers( backEndData->cmdbuf, 0, draw->numVertexBuffers, vertexBuffers, vertexOffsets );
@@ -257,6 +277,7 @@ static void DrawTris (shaderCommands_t *input, shaderStage_t *stage) {
 
 	backEndData->pipeline = pipeline;
 	backEndData->pipelineLayout = tr.wireframePipelineLayout;
+	backEndData->pipelineStateBits = -1;
 
 	R_DrawElements( input, stage, GLS_CURRENT );
 }
@@ -1374,7 +1395,9 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input ) {
 				stateBits = GLS_SRCBLEND_SRC_ALPHA | GLS_DSTBLEND_ONE_MINUS_SRC_ALPHA;
 			}
 
-			backEndData->pipelineLayout = tr.shadePipelineLayout;
+			if( !backEndData->pipeline ) {
+				backEndData->pipelineLayout = tr.shadePipelineLayout;
+			}
 
 			//
 			// bind images

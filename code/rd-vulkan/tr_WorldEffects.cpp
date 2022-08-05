@@ -1457,6 +1457,7 @@ public:
 
 			backEndData->pipeline = mPipeline;
 			backEndData->pipelineLayout = mPipelineLayout;
+			backEndData->pipelineStateBits = -1;
 		}
 
 		vkCmdBindDescriptorSets( backEndData->cmdbuf, VK_PIPELINE_BIND_POINT_GRAPHICS, backEndData->pipelineLayout,

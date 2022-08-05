@@ -31,6 +31,7 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 #include "tr_shade_VS.h"
 #include "tr_shade_PS.h"
 #include "tr_shade_md3_VS.h"
+#include "tr_shade_ghoul2_VS.h"
 
 #include <unordered_map>
 
@@ -246,6 +247,12 @@ static void InitShadePipelineBuilder( CPipelineBuilder *builder, int spec ) {
 
 		// use md3 pipeline shaders
 		builder->setShader( VK_SHADER_STAGE_VERTEX_BIT, tr_shade_md3_VS );
+	}
+	else if( ( spec & TR_SHADER_SPEC_GLA ) || ( spec & TR_SHADER_SPEC_GLM ) ) {
+		builder->pipelineCreateInfo.layout = tr.ghoul2ShadePipelineLayout;
+
+		// use vertex shader with bones
+		builder->setShader( VK_SHADER_STAGE_VERTEX_BIT, tr_shade_ghoul2_VS );
 	}
 	else {
 		// use default shade shader

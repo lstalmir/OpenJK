@@ -249,6 +249,12 @@ void *RE_RegisterModels_Malloc(int iSize, void *pvDiskBufferIfJustLoaded, const 
 
 		pModel = ModelBin.pModel;
 	}
+	if( eTag == TAG_MODEL_GLM ) {
+		if( ModelBin.pModel == NULL ) {
+			ModelBin.pModel = R_Malloc( iSize, eTag );
+		}
+		pModel = ModelBin.pModel;
+	}
 
 	return pModel;
 }
@@ -1002,56 +1008,55 @@ static qboolean R_LoadMD3 (model_t *mod, int lod, void *buffer, const char *mod_
 		// allocate buffers
 		trsurf->vertexBuffer = R_CreateVertexBuffer( surf->numVerts * surf->numFrames, surf->numTriangles * 3, 0, TAG_MODEL_MD3 );
 
-		verts = (tr_shader::vertex_t *)VK_UploadBuffer( &trsurf->vertexBuffer->b, surf->numVerts * surf->numFrames * sizeof( *verts ), trsurf->vertexBuffer->vertexOffset );
-		indexes = (trIndex_t *)VK_UploadBuffer( &trsurf->vertexBuffer->b, surf->numTriangles * 3 * sizeof( *indexes ), trsurf->vertexBuffer->indexOffset );
+		byte *uploadData = (byte *)VK_BeginUploadBuffer( &trsurf->vertexBuffer->b, trsurf->vertexBuffer->b.size, 0 );
+		verts	= (tr_shader::vertex_t *)( uploadData + trsurf->vertexBuffer->vertexOffset );
+		indexes = (trIndex_t *)( uploadData + trsurf->vertexBuffer->indexOffset );
 
-		if( indexes ) {
-			// upload vertex data
-			tri = (md3Triangle_t *)( (byte *)surf + surf->ofsTriangles );
-			for( j = 0; j < surf->numTriangles; j++, tri++ ) {
-				indexes[3 * j + 0] = LittleLong( tri->indexes[0] );
-				indexes[3 * j + 1] = LittleLong( tri->indexes[1] );
-				indexes[3 * j + 2] = LittleLong( tri->indexes[2] );
-			}
+		// upload vertex data
+		tri = (md3Triangle_t *)( (byte *)surf + surf->ofsTriangles );
+		for( j = 0; j < surf->numTriangles; j++, tri++ ) {
+			indexes[3 * j + 0] = LittleLong( tri->indexes[0] );
+			indexes[3 * j + 1] = LittleLong( tri->indexes[1] );
+			indexes[3 * j + 2] = LittleLong( tri->indexes[2] );
 		}
 
-		if( verts ) {
-			// swap all the ST
-			st = (md3St_t *)( (byte *)surf + surf->ofsSt );
-			for( j = 0; j < surf->numVerts; j++, st++ ) {
-				verts[j].texCoord0.x = LittleFloat( st->st[0] );
-				verts[j].texCoord0.y = LittleFloat( st->st[1] );
-			}
-
-			// swap all the XyzNormals
-			xyz = (md3XyzNormal_t *)( (byte *)surf + surf->ofsXyzNormals );
-			for( j = 0; j < surf->numVerts * surf->numFrames; j++, xyz++ ) {
-				LS( xyz->xyz[0] );
-				LS( xyz->xyz[1] );
-				LS( xyz->xyz[2] );
-
-				LS( xyz->normal );
-
-				verts[j].position.x = xyz->xyz[0] * MD3_XYZ_SCALE;
-				verts[j].position.y = xyz->xyz[1] * MD3_XYZ_SCALE;
-				verts[j].position.z = xyz->xyz[2] * MD3_XYZ_SCALE;
-
-				lat = ( xyz->normal >> 8 ) & 0xff;
-				lng = ( xyz->normal & 0xff );
-				lat *= ( TR_FUNCTABLE_SIZE / 256 );
-				lng *= ( TR_FUNCTABLE_SIZE / 256 );
-
-				latRad = ( lat / (float)TR_FUNCTABLE_SIZE ) * 2.f * M_PI;
-				lngRad = ( lng / (float)TR_FUNCTABLE_SIZE ) * 2.f * M_PI;
-
-				// decode X as cos( lat ) * sin( long )
-				// decode Y as sin( lat ) * sin( long )
-				// decode Z as cos( long )
-				verts[j].normal.x = cos( latRad ) * sin( lngRad );
-				verts[j].normal.y = sin( latRad ) * sin( lngRad );
-				verts[j].normal.z = cos( lngRad );
-			}
+		// swap all the ST
+		st = (md3St_t *)( (byte *)surf + surf->ofsSt );
+		for( j = 0; j < surf->numVerts; j++, st++ ) {
+			verts[j].texCoord0.x = LittleFloat( st->st[0] );
+			verts[j].texCoord0.y = LittleFloat( st->st[1] );
 		}
+
+		// swap all the XyzNormals
+		xyz = (md3XyzNormal_t *)( (byte *)surf + surf->ofsXyzNormals );
+		for( j = 0; j < surf->numVerts * surf->numFrames; j++, xyz++ ) {
+			LS( xyz->xyz[0] );
+			LS( xyz->xyz[1] );
+			LS( xyz->xyz[2] );
+
+			LS( xyz->normal );
+
+			verts[j].position.x = xyz->xyz[0] * MD3_XYZ_SCALE;
+			verts[j].position.y = xyz->xyz[1] * MD3_XYZ_SCALE;
+			verts[j].position.z = xyz->xyz[2] * MD3_XYZ_SCALE;
+
+			lat = ( xyz->normal >> 8 ) & 0xff;
+			lng = ( xyz->normal & 0xff );
+			lat *= ( TR_FUNCTABLE_SIZE / 256 );
+			lng *= ( TR_FUNCTABLE_SIZE / 256 );
+
+			latRad = ( lat / (float)TR_FUNCTABLE_SIZE ) * 2.f * M_PI;
+			lngRad = ( lng / (float)TR_FUNCTABLE_SIZE ) * 2.f * M_PI;
+
+			// decode X as cos( lat ) * sin( long )
+			// decode Y as sin( lat ) * sin( long )
+			// decode Z as cos( long )
+			verts[j].normal.x = cos( latRad ) * sin( lngRad );
+			verts[j].normal.y = sin( latRad ) * sin( lngRad );
+			verts[j].normal.z = cos( lngRad );
+		}
+
+		VK_EndUploadBuffer();
 
 		// find the next surface
 		surf = (md3Surface_t *)( (byte *)surf + surf->ofsEnd );

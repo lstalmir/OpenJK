@@ -255,6 +255,7 @@ typedef bool qboolean32;
 #define TR_TEXTURE_SPACE_0 TR_DescriptorSpace( 4 )
 #define TR_TEXTURE_SPACE_1 TR_DescriptorSpace( 5 )
 #define TR_VIEW_SPACE TR_DescriptorSpace( 6 )
+#define TR_G2_BONES_SPACE TR_DescriptorSpace( 7 )
 #define TR_CUSTOM_SPACE_0 TR_DescriptorSpace( 8 )
 #define TR_CUSTOM_SPACE_1 TR_DescriptorSpace( 9 )
 #define TR_NUM_SPACES 10
@@ -438,6 +439,10 @@ typedef bool qboolean32;
 #endif
 	} oldVertex_t;
 
+	
+	typedef struct {
+		float4x3 mat;
+	} mdxaBone_t;
 
 	typedef struct {
 		float3 origin;	   // in world coordinates

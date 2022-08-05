@@ -558,10 +558,13 @@ static void ParseTriSurf( dsurface_t *ds, mapVert_t *verts, msurface_t *surf, in
 	// copy vertexes
 	verts += LittleLong( ds->firstVert );
 
-	tr_shader::vertex_t *tri_verts = (tr_shader::vertex_t *)VK_UploadBuffer(
-		(buffer_t *)tri->vertexBuffer,
-		sizeof( tr_shader::vertex_t ) * numVerts,
-		tri->vertexBuffer->vertexOffset );
+	byte *uploadData = (byte *)VK_BeginUploadBuffer(
+		&tri->vertexBuffer->b,
+		tri->vertexBuffer->b.size,
+		0 );
+	
+	trIndex_t			*tri_indexes = (trIndex_t *)( uploadData + tri->vertexBuffer->indexOffset );
+	tr_shader::vertex_t *tri_verts = (tr_shader::vertex_t *)( uploadData + tri->vertexBuffer->vertexOffset );
 
 	ClearBounds( tri->bounds[0], tri->bounds[1] );
 	for( i = 0; i < numVerts; i++ ) {
@@ -586,11 +589,6 @@ static void ParseTriSurf( dsurface_t *ds, mapVert_t *verts, msurface_t *surf, in
 	// copy indexes
 	indexes += LittleLong( ds->firstIndex );
 
-	trIndex_t *tri_indexes = (trIndex_t *)VK_UploadBuffer(
-		(buffer_t *)tri->vertexBuffer,
-		sizeof( trIndex_t ) * numIndexes,
-		0 );
-
 	for( i = 0; i < numIndexes; ++i ) {
 		int index = LittleLong( indexes[i] );
 #if TR_COMPACT_INDICES
@@ -598,6 +596,8 @@ static void ParseTriSurf( dsurface_t *ds, mapVert_t *verts, msurface_t *surf, in
 #endif
 		tri_indexes[i] = (trIndex_t)index;
 	}
+
+	VK_EndUploadBuffer();
 
 	// compute surface plane
 	v1 = verts + indexes[0];

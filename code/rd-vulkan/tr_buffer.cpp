@@ -89,7 +89,8 @@ uploadBuffer_t *VK_GetUploadBuffer( int size ) {
 			uploadBuffer->buffer = R_CreateBuffer(
 				Q_max( MIN_UPLOADBUFFER_SIZE, size ),
 				VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-				VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT );
+				VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT,
+				TAG_TEMP_WORKSPACE );
 		}
 
 		uploadBuffer->offset = 0;
@@ -146,13 +147,60 @@ VK_UploadBuffer
 
 ===============
 */
+static VkCommandBuffer uploadCmdbuf;
+static void VK_BeginUpload() {
+	VkResult res;
+	assert( !uploadCmdbuf );
+
+	if( backEndData ) {
+		uploadCmdbuf = backEndData->uploadCmdbuf;
+	}
+	else {
+		uploadCmdbuf = vkState.cmdbuffers[0];
+
+		VkCommandBufferBeginInfo beginInfo = {};
+		beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+		beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+
+		res = vkBeginCommandBuffer( uploadCmdbuf, &beginInfo );
+		if( res != VK_SUCCESS ) {
+			Com_Error( ERR_DROP, "VK_GetUploadCommandBuffer: failed to begin the upload command buffer (%d)\n", res );
+		}
+	}
+}
+
+static void VK_EndUpload() {
+	VkResult res;
+	assert( uploadCmdbuf );
+
+	if( !backEndData ) {
+		res = vkEndCommandBuffer( uploadCmdbuf );
+		if( res != VK_SUCCESS ) {
+			Com_Error( ERR_DROP, "VK_UploadBuffer: failed to end the upload command buffer (%d)\n", res );
+		}
+
+		VkSubmitInfo submitInfo = {};
+		submitInfo.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+		submitInfo.commandBufferCount = 1;
+		submitInfo.pCommandBuffers = &uploadCmdbuf;
+
+		res = vkQueueSubmit( vkState.queue, 1, &submitInfo, VK_NULL_HANDLE );
+		if( res != VK_SUCCESS ) {
+			Com_Error( ERR_DROP, "VK_UploadBuffer: failed to submit the upload command buffer (%d)\n", res );
+		}
+
+		vkQueueWaitIdle( vkState.queue );
+	}
+
+	uploadCmdbuf = VK_NULL_HANDLE;
+}
+
 void VK_UploadBuffer( buffer_t *buffer, const byte *data, int size, int offset ) {
 	VkResult res;
 
-	if( !backEndData )
-		return;
-
 	if( !buffer->allocationInfo.pMappedData ) {
+		VK_BeginUpload();
+
 		uploadBuffer_t *uploadBuffer = VK_GetUploadBuffer( size );
 
 		assert( uploadBuffer );
@@ -167,12 +215,16 @@ void VK_UploadBuffer( buffer_t *buffer, const byte *data, int size, int offset )
 		uploadRegion.dstOffset = offset;
 		uploadRegion.size = size;
 
-		vkCmdCopyBuffer( backEndData->uploadCmdbuf,
+		vkCmdCopyBuffer( uploadCmdbuf,
 				 uploadBuffer->buffer->buf,
 				 buffer->buf,
 				 1, &uploadRegion );
 
-		uploadBuffer->offset += size;
+		if( backEndData ) {
+			uploadBuffer->offset += size;
+		}
+
+		VK_EndUpload();
 	}
 
 	else {
@@ -197,19 +249,17 @@ void VK_UploadBuffer( buffer_t *buffer, const byte *data, int size, int offset )
 	}
 }
 
-void *VK_UploadBuffer( buffer_t *buffer, int size, int offset ) {
-
-	if( !backEndData )
-		return NULL;
-
+void *VK_BeginUploadBuffer( buffer_t *buffer, int size, int offset ) {
 	if( !buffer->allocationInfo.pMappedData ) {
+		VK_BeginUpload();
+
 		uploadBuffer_t *uploadBuffer = VK_GetUploadBuffer( size );
 
 		assert( uploadBuffer );
 		assert( ( uploadBuffer->buffer->size - uploadBuffer->offset ) >= size );
 
 		// update the upload buffer
-		void* data = VK_UploadBuffer( uploadBuffer->buffer, size, uploadBuffer->offset );
+		void* data = VK_BeginUploadBuffer( uploadBuffer->buffer, size, uploadBuffer->offset );
 
 		// copy the data from the upload buffer to the final resource
 		VkBufferCopy uploadRegion = {};
@@ -217,7 +267,7 @@ void *VK_UploadBuffer( buffer_t *buffer, int size, int offset ) {
 		uploadRegion.dstOffset = offset;
 		uploadRegion.size = size;
 
-		vkCmdCopyBuffer( backEndData->uploadCmdbuf,
+		vkCmdCopyBuffer( uploadCmdbuf,
 			uploadBuffer->buffer->buf,
 			buffer->buf,
 			1, &uploadRegion );
@@ -232,6 +282,12 @@ void *VK_UploadBuffer( buffer_t *buffer, int size, int offset ) {
 		assert( buffer->memoryPropertyFlags & VK_MEMORY_PROPERTY_HOST_COHERENT_BIT );
 
 		return (byte *)buffer->allocationInfo.pMappedData + offset;
+	}
+}
+
+void VK_EndUploadBuffer() {
+	if( uploadCmdbuf ) {
+		VK_EndUpload();
 	}
 }
 
