@@ -1133,71 +1133,21 @@ RB_SurfaceFace
 ==============
 */
 void RB_SurfaceFace( srfSurfaceFace_t *surf ) {
-#if 0
-	int			i, j, k;
-	unsigned int *indices;
-	glIndex_t	*tessIndexes;
-	float		*v;
-	float		*normal;
-	int			ndx;
-	int			Bob;
-	int			numPoints;
-	int			dlightBits;
-	byteAlias_t	ba;
+	drawCommand_t *draw;
 
-	RB_CHECKOVERFLOW( surf->numPoints, surf->numIndices );
+	RB_CHECKOVERFLOW();
+	draw = RB_DrawSurface();
 
-	dlightBits = surf->dlightBits;
-	tess.dlightBits |= dlightBits;
+	draw->numVertexBuffers = 1;
+	draw->vertexBuffers[0] = surf->vertexBuffer;
 
-	indices = ( unsigned * ) ( ( ( char  * ) surf ) + surf->ofsIndices );
+	draw->vertexCount = surf->vertexBuffer->numVertexes;
+	draw->vertexOffsets[0] = surf->vertexBuffer->vertexOffset;
 
-	Bob = tess.numVertexes;
-	tessIndexes = tess.indexes + tess.numIndexes;
-	for ( i = surf->numIndices-1 ; i >= 0  ; i-- ) {
-		tessIndexes[i] = indices[i] + Bob;
-	}
+	draw->indexCount = surf->vertexBuffer->numIndexes;
+	draw->indexOffset = surf->vertexBuffer->indexOffset;
 
-	tess.numIndexes += surf->numIndices;
-
-	v = surf->points[0];
-
-	ndx = tess.numVertexes;
-
-	numPoints = surf->numPoints;
-
-	//if ( tess.shader->needsNormal )
-	{
-		normal = surf->plane.normal;
-		for ( i = 0, ndx = tess.numVertexes; i < numPoints; i++, ndx++ ) {
-			VectorCopy( normal, tess.normal[ndx] );
-		}
-	}
-
-	for ( i = 0, v = surf->points[0], ndx = tess.numVertexes; i < numPoints; i++, v += VERTEXSIZE, ndx++ ) {
-		VectorCopy( v, tess.xyz[ndx]);
-		tess.texCoords[ndx][0][0] = v[3];
-		tess.texCoords[ndx][0][1] = v[4];
-		for(k=0;k<MAXLIGHTMAPS;k++)
-		{
-			if (tess.shader->lightmapIndex[k] >= 0)
-			{
-				tess.texCoords[ndx][k+1][0] = v[VERTEX_LM+(k*2)];
-				tess.texCoords[ndx][k+1][1] = v[VERTEX_LM+(k*2)+1];
-			}
-			else
-			{
-				break;
-			}
-		}
-		ba.ui = ComputeFinalVertexColor( (byte *)&v[VERTEX_COLOR] );
-		for ( j=0; j<4; j++ )
-			tess.vertexColors[ndx][j] = ba.b[j];
-		tess.vertexDlightBits[ndx] = dlightBits;
-	}
-
-	tess.numVertexes += surf->numPoints;
-#endif
+	draw->stateBits = GLS_DEFAULT;
 }
 
 

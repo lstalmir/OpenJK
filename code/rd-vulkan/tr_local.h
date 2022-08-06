@@ -629,9 +629,11 @@ typedef struct {
 	surfaceType_t	surfaceType;
 	cplane_t	plane;
 
+	vertexBuffer_t	*vertexBuffer;
+
 	// dynamic lighting information
 	int			dlightBits;
-
+	
 	// triangle definitions (no normals at points)
 	int			numPoints;
 	int			numIndices;

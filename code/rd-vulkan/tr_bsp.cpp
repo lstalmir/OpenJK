@@ -397,31 +397,52 @@ static void ParseFace( dsurface_t *ds, mapVert_t *verts, msurface_t *surf, int *
 	cv->numIndices = numIndexes;
 	cv->ofsIndices = ofsIndexes;
 
+	// allocate vertex buffer
+	cv->vertexBuffer = R_CreateVertexBuffer( numPoints, numIndexes );
+
+	byte				*uploadData = (byte *)VK_BeginUploadBuffer( &cv->vertexBuffer->b, cv->vertexBuffer->b.size, 0 );
+	trIndex_t			*cvIndexes = (trIndex_t *)(uploadData + cv->vertexBuffer->indexOffset);
+	tr_shader::vertex_t *cvVertexes = (tr_shader::vertex_t *)( uploadData + cv->vertexBuffer->vertexOffset );
+
+	// take the normal from the lightmap vector
+	for( i = 0; i < 3; i++ ) {
+		cv->plane.normal[i] = LittleFloat( ds->lightmapVecs[2][i] );
+	}
+
 	verts += LittleLong( ds->firstVert );
 	for( i = 0; i < numPoints; i++ ) {
 		for( j = 0; j < 3; j++ ) {
 			cv->points[i][j] = LittleFloat( verts[i].xyz[j] );
+			cvVertexes[i].position[j] = LittleFloat( verts[i].xyz[j] );
+		}
+		for( j = 0; j < 3; j++ ) {
+			cvVertexes[i].normal[j] = cv->plane.normal[j];
 		}
 		for( j = 0; j < 2; j++ ) {
 			cv->points[i][3 + j] = LittleFloat( verts[i].st[j] );
+			cvVertexes[i].texCoord0[j] = LittleFloat( verts[i].st[j] );
 			for( k = 0; k < MAXLIGHTMAPS; k++ ) {
 				cv->points[i][VERTEX_LM + j + ( k * 2 )] = LittleFloat( verts[i].lightmap[k][j] );
+				cvVertexes[i].lightmaps[k][j] = LittleFloat( verts[i].lightmap[k][j] );
 			}
 		}
 		for( k = 0; k < MAXLIGHTMAPS; k++ ) {
 			R_ColorShiftLightingBytes( verts[i].color[k], (byte *)&cv->points[i][VERTEX_COLOR + k] );
 		}
+		//for( k = 0; k < MAXLIGHTMAPS; k++ ) {
+			R_ColorShiftLightingBytes( verts[i].color[k], cvVertexes[i].vertexColor.m );
+		//}
 	}
 
 	indexes += LittleLong( ds->firstIndex );
 	for( i = 0; i < numIndexes; i++ ) {
 		( (int *)( (byte *)cv + cv->ofsIndices ) )[i] = LittleLong( indexes[i] );
+		cvIndexes[i] = LittleLong( indexes[i] );
 	}
 
+	VK_EndUploadBuffer();
+
 	// take the plane information from the lightmap vector
-	for( i = 0; i < 3; i++ ) {
-		cv->plane.normal[i] = LittleFloat( ds->lightmapVecs[2][i] );
-	}
 	cv->plane.dist = DotProduct( cv->points[0], cv->plane.normal );
 	SetPlaneSignbits( &cv->plane );
 	cv->plane.type = PlaneTypeForNormal( cv->plane.normal );
