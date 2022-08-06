@@ -148,9 +148,12 @@ VK_UploadBuffer
 ===============
 */
 static VkCommandBuffer uploadCmdbuf;
-static void VK_BeginUpload() {
+VkCommandBuffer VK_GetUploadCommandBuffer() {
+	return uploadCmdbuf;
+}
+
+void VK_BeginUpload() {
 	VkResult res;
-	assert( !uploadCmdbuf );
 
 	if( backEndData ) {
 		uploadCmdbuf = backEndData->uploadCmdbuf;
@@ -169,9 +172,8 @@ static void VK_BeginUpload() {
 	}
 }
 
-static void VK_EndUpload() {
+void VK_EndUpload() {
 	VkResult res;
-	assert( uploadCmdbuf );
 
 	if( !backEndData ) {
 		res = vkEndCommandBuffer( uploadCmdbuf );
@@ -191,8 +193,6 @@ static void VK_EndUpload() {
 
 		vkQueueWaitIdle( vkState.queue );
 	}
-
-	uploadCmdbuf = VK_NULL_HANDLE;
 }
 
 void VK_UploadBuffer( buffer_t *buffer, const byte *data, int size, int offset ) {
@@ -215,7 +215,7 @@ void VK_UploadBuffer( buffer_t *buffer, const byte *data, int size, int offset )
 		uploadRegion.dstOffset = offset;
 		uploadRegion.size = size;
 
-		vkCmdCopyBuffer( uploadCmdbuf,
+		vkCmdCopyBuffer( VK_GetUploadCommandBuffer(),
 				 uploadBuffer->buffer->buf,
 				 buffer->buf,
 				 1, &uploadRegion );
@@ -267,7 +267,7 @@ void *VK_BeginUploadBuffer( buffer_t *buffer, int size, int offset ) {
 		uploadRegion.dstOffset = offset;
 		uploadRegion.size = size;
 
-		vkCmdCopyBuffer( uploadCmdbuf,
+		vkCmdCopyBuffer( VK_GetUploadCommandBuffer(),
 			uploadBuffer->buffer->buf,
 			buffer->buf,
 			1, &uploadRegion );
@@ -286,9 +286,7 @@ void *VK_BeginUploadBuffer( buffer_t *buffer, int size, int offset ) {
 }
 
 void VK_EndUploadBuffer() {
-	if( uploadCmdbuf ) {
-		VK_EndUpload();
-	}
+	VK_EndUpload();
 }
 
 typedef std::set<buffer_t *> AllocatedBuffers_t;

@@ -148,6 +148,24 @@ typedef struct {
 } vertexBuffer_t;
 
 
+// a Vulkan pipeline layout handlw with additional info
+typedef struct {
+	VkPipelineLayout	handle;
+
+	int					numDescriptorSets;
+
+} pipelineLayout_t;
+
+// a Vulkan pipeline handle with additional info
+typedef struct {
+	VkPipeline			handle;
+
+	pipelineLayout_t	*layout;
+	int					stateBits;
+
+} pipelineState_t;
+
+
 // a trRefEntity_t has all the information passed in by
 // the client game, as well as some locally derived info
 typedef struct {
@@ -1045,6 +1063,21 @@ typedef struct {
 	VkDescriptorSetLayout	textureDescriptorSetLayout;
 	VkDescriptorSetLayout	viewDescriptorSetLayout;
 	VkDescriptorSetLayout	ghoul2BonesDescriptorSetLayout;
+	
+	pipelineLayout_t		shadePipelineLayout;
+	pipelineLayout_t		ghoul2ShadePipelineLayout;
+
+	// Debug pipelines
+	pipelineState_t			wireframePipeline;
+	pipelineState_t			wireframeXRayPipeline;
+	pipelineLayout_t		wireframePipelineLayout;
+
+	// Handles to the Glow Effect resources.
+	pipelineState_t			glowBlurPipeline;
+	pipelineLayout_t		glowBlurPipelineLayout;
+
+	pipelineState_t			glowCombinePipeline;
+	pipelineLayout_t		glowCombinePipelineLayout;
 
 } vkstate_t;
 
@@ -1134,21 +1167,6 @@ typedef struct {
 
 	// Image used to downsample and blur scene to.	- AReis
 	frameBuffer_t			*glowBlurFrameBuffer;
-
-	VkPipelineLayout		shadePipelineLayout;
-	VkPipelineLayout		ghoul2ShadePipelineLayout;
-
-	// Debug pipelines
-	VkPipeline				wireframePipeline;
-	VkPipeline				wireframeXRayPipeline;
-	VkPipelineLayout		wireframePipelineLayout;
-
-	// Handles to the Glow Effect resources.
-	VkPipeline				glowBlurPipeline;
-	VkPipelineLayout		glowBlurPipelineLayout;
-
-	VkPipeline				glowCombinePipeline;
-	VkPipelineLayout		glowCombinePipelineLayout;
 
 	shader_t				*defaultShader;
 	shader_t				*shadowShader;
@@ -1421,7 +1439,11 @@ void VK_UploadImage( image_t *im, const byte *pic, int width, int height, int mi
 void VK_UploadBuffer( buffer_t *buffer, const byte *data, int size, int offset );
 void *VK_BeginUploadBuffer( buffer_t *buffer, int size, int offset );
 void VK_EndUploadBuffer();
+void VK_BeginUpload();
+void VK_EndUpload();
+VkCommandBuffer VK_GetUploadCommandBuffer();
 void VK_SetImageLayout( image_t *im, VkImageLayout dstLayout, VkAccessFlags dstAccess );
+void VK_SetImageLayout2( VkCommandBuffer cmdbuf, image_t *im, VkImageLayout dstLayout, VkAccessFlags dstAccess );
 void VK_CopyImage( image_t *dst, image_t *src );
 void VK_BindImage( image_t *image, int loc = 0 );
 void VK_ClearColorImage( image_t *image, const VkClearColorValue *value );
@@ -1581,7 +1603,9 @@ VkShaderModule	SPV_CreateShaderModule( const uint32_t *code, int size );
 void			SPV_InitPipelineCache( void );
 void			SPV_InitGlowShaders( void );
 void			SPV_InitWireframeShaders( void );
-VkPipeline		SPV_GetShadePipeline( int stateBits );
+pipelineState_t *SPV_GetShadePipeline( int stateBits );
+
+void			R_SetPipelineState( pipelineState_t *pipeline );
 
 
 #define TR_MAX_DESCRIPTOR_SET_BINDING_COUNT 16
@@ -1616,7 +1640,7 @@ public:
 	void reset();
 	void addDescriptorSetLayout( VkDescriptorSetLayout layout );
 	void addPushConstantRange( VkShaderStageFlags stages, int size, int offset = 0 );
-	void build( VkPipelineLayout *layout );
+	void build( pipelineLayout_t *layout );
 };
 
 #define TR_MAX_SHADER_STAGE_COUNT 5
@@ -1626,6 +1650,7 @@ public:
 
 class CPipelineBuilder {
 public:
+	pipelineLayout_t						*layout;
 	int										shaderStageCount;
 	VkPipelineShaderStageCreateInfo			shaderStages[TR_MAX_SHADER_STAGE_COUNT];
 	int32_t									shaderSpec;
@@ -1653,7 +1678,7 @@ public:
 	void setDynamicState( VkDynamicState state );
 	void addVertexAttribute( VkFormat format, int offset, int binding = 0 );
 	void addVertexBinding( int stride, VkVertexInputRate rate );
-	void build( VkPipeline *pipeline );
+	void build( pipelineState_t *pipeline );
 
 	template<typename T, int codeSize>
 	void setShader( VkShaderStageFlagBits stage, const T ( &code )[codeSize] ) {
@@ -2197,9 +2222,7 @@ typedef struct {
 	image_t					*image;				// output texture
 	int						imageArraySlice;	// output array slice (for stereo rendering)
 
-	int						pipelineStateBits;
-	VkPipeline				pipeline;			// current pipeline
-	VkPipelineLayout		pipelineLayout;		// current pipeline layout
+	pipelineState_t			*pipelineState;
 
 	VkDescriptorSet			descriptorSets[TR_NUM_SPACES];
 

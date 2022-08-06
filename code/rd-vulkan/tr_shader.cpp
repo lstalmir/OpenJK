@@ -3900,13 +3900,16 @@ Ghoul2 Insert Start
 Ghoul2 Insert End
 */
 
-	// init the shade pipeline layout
-	pipelineLayoutBuilder.build( &tr.shadePipelineLayout );
-	VK_SetDebugObjectName( tr.shadePipelineLayout, VK_OBJECT_TYPE_PIPELINE_LAYOUT, "tr.shadePipelineLayout" );
-
-	pipelineLayoutBuilder.addDescriptorSetLayout( vkState.ghoul2BonesDescriptorSetLayout );
-	pipelineLayoutBuilder.build( &tr.ghoul2ShadePipelineLayout );
-	VK_SetDebugObjectName( tr.ghoul2ShadePipelineLayout, VK_OBJECT_TYPE_PIPELINE_LAYOUT, "tr.ghoul2ShadePipelineLayout" );
+	if( !vkState.shadePipelineLayout.handle ) {
+		// init the shade pipeline layout
+		pipelineLayoutBuilder.build( &vkState.shadePipelineLayout );
+		VK_SetDebugObjectName( vkState.shadePipelineLayout.handle, VK_OBJECT_TYPE_PIPELINE_LAYOUT, "tr.shadePipelineLayout" );
+	}
+	if( !vkState.ghoul2ShadePipelineLayout.handle ) {
+		pipelineLayoutBuilder.addDescriptorSetLayout( vkState.ghoul2BonesDescriptorSetLayout );
+		pipelineLayoutBuilder.build( &vkState.ghoul2ShadePipelineLayout );
+		VK_SetDebugObjectName( vkState.ghoul2ShadePipelineLayout.handle, VK_OBJECT_TYPE_PIPELINE_LAYOUT, "tr.ghoul2ShadePipelineLayout" );
+	}
 
 	SPV_InitPipelineCache();
 

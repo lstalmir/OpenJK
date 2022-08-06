@@ -134,9 +134,7 @@ void VK_BeginFrame( void ) {
 		backEndData->imageArraySlice = 0; // todo: stereo
 
 		backEndData->frameBuffer = NULL;
-		backEndData->pipeline = VK_NULL_HANDLE;
-		backEndData->pipelineLayout = VK_NULL_HANDLE;
-		backEndData->pipelineStateBits = -1;
+		backEndData->pipelineState = NULL;
 		memset( backEndData->descriptorSets, 0, sizeof( backEndData->descriptorSets ) );
 
 		// wait until the resources are available
@@ -276,7 +274,10 @@ void VK_EndFrame( void ) {
 ** VK_SetImageLayout
 */
 void VK_SetImageLayout( image_t *im, VkImageLayout dstLayout, VkAccessFlags dstAccess ) {
+	VK_SetImageLayout2( backEndData->cmdbuf, im, dstLayout, dstAccess );
+}
 
+void VK_SetImageLayout2( VkCommandBuffer cmdbuf, image_t *im, VkImageLayout dstLayout, VkAccessFlags dstAccess ) {
 	// Perform a transition only if layout of access flags change.
 	if( dstLayout != im->layout || dstAccess != im->access ) {
 		VkImageMemoryBarrier imageMemoryBarrier;
@@ -296,7 +297,7 @@ void VK_SetImageLayout( image_t *im, VkImageLayout dstLayout, VkAccessFlags dstA
 		imageMemoryBarrier.subresourceRange.levelCount = VK_REMAINING_MIP_LEVELS;
 
 		vkCmdPipelineBarrier(
-			backEndData->cmdbuf,
+			cmdbuf,
 			VK_GetPipelineStageFlagsForAccess( imageMemoryBarrier.srcAccessMask ),
 			VK_GetPipelineStageFlagsForAccess( imageMemoryBarrier.dstAccessMask ),
 			VK_DEPENDENCY_BY_REGION_BIT,
@@ -1628,15 +1629,11 @@ static inline void RB_BlurGlowTexture() {
 
 	// begin the post-process render pass
 	R_BindFrameBuffer( tr.glowBlurFrameBuffer );
-
-	vkCmdBindPipeline( backEndData->cmdbuf, VK_PIPELINE_BIND_POINT_GRAPHICS, tr.glowBlurPipeline );
-	backEndData->pipeline = tr.glowBlurPipeline;
-	backEndData->pipelineLayout = tr.glowBlurPipelineLayout;
-	backEndData->pipelineStateBits = -1;
+	R_SetPipelineState( &vkState.glowBlurPipeline );
 
 	VK_BindImage( glow );
 
-	vkCmdPushConstants( backEndData->cmdbuf, tr.glowBlurPipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof( fBlurWeight ), fBlurWeight );
+	vkCmdPushConstants( backEndData->cmdbuf, backEndData->pipelineState->layout->handle, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof( fBlurWeight ), fBlurWeight );
 
 	/////////////////////////////////////////////////////////
 	// Draw the blur passes (each pass blurs it more, increasing the blur radius ).
@@ -1657,7 +1654,7 @@ static inline void RB_BlurGlowTexture() {
 			fTexelWidthOffset, fTexelWidthOffset, 0.0f, 0.0f
 		};
 
-		vkCmdPushConstants( backEndData->cmdbuf, tr.glowBlurPipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof( fTexelOffsets ), fTexelOffsets );
+		vkCmdPushConstants( backEndData->cmdbuf, backEndData->pipelineState->layout->handle, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof( fTexelOffsets ), fTexelOffsets );
 
 		// After first pass put the tex coords to the viewport size.
 		if( iNumBlurPasses == 1 ) {
@@ -1712,13 +1709,9 @@ static inline void RB_DrawGlowOverlay() {
 	R_BindFrameBuffer( NULL );
 	VK_SetImageLayout( glow, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_ACCESS_SHADER_READ_BIT );
 
-	R_BindFrameBuffer( tr.postProcessFrameBuffer );
-
 	// additively render the glow texture
-	vkCmdBindPipeline( backEndData->cmdbuf, VK_PIPELINE_BIND_POINT_GRAPHICS, tr.glowCombinePipeline );
-	backEndData->pipeline = tr.glowCombinePipeline;
-	backEndData->pipelineLayout = tr.glowCombinePipelineLayout;
-	backEndData->pipelineStateBits = -1;
+	R_BindFrameBuffer( tr.postProcessFrameBuffer );
+	R_SetPipelineState( &vkState.glowCombinePipeline );
 
 	VK_BindImage( glow );
 

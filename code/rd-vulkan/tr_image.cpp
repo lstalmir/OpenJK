@@ -754,8 +754,11 @@ VK_UploadImage
 ===============
 */
 void VK_UploadImage( image_t *image, const byte *pic, int width, int height, int mip ) {
-	if( !backEndData )
-		return;
+	VkCommandBuffer cmdbuf;
+
+	VK_BeginUpload();
+
+	cmdbuf = VK_GetUploadCommandBuffer();
 
 	int requiredBufferSize = VK_GetRequiredImageUploadBufferSize( image->internalFormat, width, height );
 	uploadBuffer_t *uploadBuffer = VK_GetUploadBuffer( requiredBufferSize );
@@ -779,14 +782,15 @@ void VK_UploadImage( image_t *image, const byte *pic, int width, int height, int
 	uploadRegion.imageSubresource.layerCount = 1;
 	uploadRegion.bufferOffset = uploadBuffer->offset;
 
-	VK_SetImageLayout( image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_ACCESS_TRANSFER_WRITE_BIT );
-	vkCmdCopyBufferToImage( backEndData->cmdbuf,
+	VK_SetImageLayout2( cmdbuf, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_ACCESS_TRANSFER_WRITE_BIT );
+	vkCmdCopyBufferToImage( cmdbuf,
 		uploadBuffer->buffer->buf,
 		image->tex,
 		VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
 		1, &uploadRegion );
 
-	VK_SetImageLayout( image, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_ACCESS_SHADER_READ_BIT );
+	VK_SetImageLayout2( cmdbuf, image, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_ACCESS_SHADER_READ_BIT );
+	VK_EndUpload();
 
 	uploadBuffer->offset += requiredBufferSize;
 }

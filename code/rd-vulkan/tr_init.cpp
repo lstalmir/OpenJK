@@ -2024,10 +2024,6 @@ void RE_Shutdown( qboolean destroyWindow, qboolean restarting ) {
 
 		// free the dynamic glow resources
 		if( r_DynamicGlow && r_DynamicGlow->integer ) {
-			VK_Delete( vkDestroyPipeline, tr.glowBlurPipeline );
-			VK_Delete( vkDestroyPipelineLayout, tr.glowBlurPipelineLayout );
-			VK_Delete( vkDestroyPipeline, tr.glowCombinePipeline );
-			VK_Delete( vkDestroyPipelineLayout, tr.glowCombinePipelineLayout );
 			R_DeleteFrameBuffer( tr.glowBlurFrameBuffer );
 			R_DeleteFrameBuffer( tr.glowFrameBuffer );
 		}
@@ -2045,6 +2041,18 @@ void RE_Shutdown( qboolean destroyWindow, qboolean restarting ) {
 			if( restarting ) {
 				SaveGhoul2InfoArray();
 			}
+
+			VK_Delete( vkDestroyPipelineLayout, vkState.shadePipelineLayout.handle );
+			VK_Delete( vkDestroyPipelineLayout, vkState.ghoul2ShadePipelineLayout.handle );
+
+			VK_Delete( vkDestroyPipelineLayout, vkState.wireframePipelineLayout.handle );
+			VK_Delete( vkDestroyPipeline, vkState.wireframePipeline.handle );
+			VK_Delete( vkDestroyPipeline, vkState.wireframeXRayPipeline.handle );
+
+			VK_Delete( vkDestroyPipeline, vkState.glowBlurPipeline.handle );
+			VK_Delete( vkDestroyPipelineLayout, vkState.glowBlurPipelineLayout.handle );
+			VK_Delete( vkDestroyPipeline, vkState.glowCombinePipeline.handle );
+			VK_Delete( vkDestroyPipelineLayout, vkState.glowCombinePipelineLayout.handle );
 
 			VK_Delete( vkDestroyDescriptorSetLayout, vkState.commonDescriptorSetLayout );
 			VK_Delete( vkDestroyDescriptorSetLayout, vkState.samplerDescriptorSetLayout );

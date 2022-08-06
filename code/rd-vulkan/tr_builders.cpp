@@ -116,7 +116,7 @@ void CPipelineLayoutBuilder::addPushConstantRange( VkShaderStageFlags stages, in
 	range->offset = offset;
 }
 
-void CPipelineLayoutBuilder::build( VkPipelineLayout *layout ) {
+void CPipelineLayoutBuilder::build( pipelineLayout_t *layout ) {
 	VkPipelineLayoutCreateInfo createInfo;
 	VkResult res;
 
@@ -128,10 +128,12 @@ void CPipelineLayoutBuilder::build( VkPipelineLayout *layout ) {
 	createInfo.pushConstantRangeCount = pushConstantRangeCount;
 	createInfo.pPushConstantRanges = pushConstantRanges;
 
-	res = vkCreatePipelineLayout( vkState.device, &createInfo, NULL, layout );
+	res = vkCreatePipelineLayout( vkState.device, &createInfo, NULL, &layout->handle );
 	if( res != VK_SUCCESS ) {
 		Com_Error( ERR_FATAL, "CPipelineLayoutBuilder: failed to create pipeline layout (%d)\n", res );
 	}
+
+	layout->numDescriptorSets = descriptorSetLayoutCount;
 }
 
 CPipelineBuilder::CPipelineBuilder() {
@@ -347,9 +349,11 @@ void CPipelineBuilder::addVertexBinding( int stride, VkVertexInputRate rate ) {
 	vertexBindingCount++;
 }
 
-void CPipelineBuilder::build( VkPipeline *pipeline ) {
+void CPipelineBuilder::build( pipelineState_t *pipeline ) {
 	VkResult res;
 	int i;
+
+	pipelineCreateInfo.layout = layout->handle;
 
 	// update number of defined shader stages
 	pipelineCreateInfo.stageCount = shaderStageCount;
@@ -413,10 +417,13 @@ void CPipelineBuilder::build( VkPipeline *pipeline ) {
 	}
 
 	// create the pipeline
-	res = vkCreateGraphicsPipelines( vkState.device, vkState.pipelineCache, 1, &pipelineCreateInfo, NULL, pipeline );
+	res = vkCreateGraphicsPipelines( vkState.device, vkState.pipelineCache, 1, &pipelineCreateInfo, NULL, &pipeline->handle );
 	if( res != VK_SUCCESS ) {
 		Com_Error( ERR_FATAL, "CPipelineBuilder: failed to create graphics pipeline (%d)\n", res );
 	}
+
+	pipeline->layout = layout;
+	pipeline->stateBits = -1;
 }
 
 CFrameBufferBuilder::CFrameBufferBuilder() {

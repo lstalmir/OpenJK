@@ -981,8 +981,8 @@ private:
 
 	bool		mPopulated;
 
-	VkPipeline	mPipeline;
-	VkPipelineLayout mPipelineLayout;
+	pipelineState_t	mPipeline;
+	pipelineLayout_t mPipelineLayout;
 
 	int			mDescriptorSetLocation;
 	VkDescriptorSet mDescriptorSet;
@@ -1452,15 +1452,11 @@ public:
 
 		// Setup Vk state and bindings
 		//-----------------------------------
-		if( backEndData->pipeline != mPipeline ) {
-			vkCmdBindPipeline( backEndData->cmdbuf, VK_PIPELINE_BIND_POINT_GRAPHICS, mPipeline );
-
-			backEndData->pipeline = mPipeline;
-			backEndData->pipelineLayout = mPipelineLayout;
-			backEndData->pipelineStateBits = -1;
+		if( backEndData->pipelineState != &mPipeline ) {
+			R_SetPipelineState( &mPipeline );
 		}
 
-		vkCmdBindDescriptorSets( backEndData->cmdbuf, VK_PIPELINE_BIND_POINT_GRAPHICS, backEndData->pipelineLayout,
+		vkCmdBindDescriptorSets( backEndData->cmdbuf, VK_PIPELINE_BIND_POINT_GRAPHICS, backEndData->pipelineState->layout->handle,
 			mDescriptorSetLocation, 1, &mDescriptorSet, 0, NULL );
 
 		vkCmdBindVertexBuffers( backEndData->cmdbuf, 1, 1, &mParticleInstanceBuffer->buf, &particleInstanceBufferOffset );

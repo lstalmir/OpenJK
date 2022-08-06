@@ -47,36 +47,31 @@ void R_BindDescriptorSet( int space, VkDescriptorSet descriptorSet ) {
 	if( backEndData->descriptorSets[space] == descriptorSet )
 		return;
 
-	vkCmdBindDescriptorSets( backEndData->cmdbuf, VK_PIPELINE_BIND_POINT_GRAPHICS, backEndData->pipelineLayout, space, 1, &descriptorSet, 0, NULL );
+	vkCmdBindDescriptorSets( backEndData->cmdbuf, VK_PIPELINE_BIND_POINT_GRAPHICS, backEndData->pipelineState->layout->handle, space, 1, &descriptorSet, 0, NULL );
 
 	backEndData->descriptorSets[space] = descriptorSet;
 }
 
 static void R_SetShadePipeline( int stateBits ) {
-	VkPipeline pipeline;
+	pipelineState_t *pipeline;
 
 	if( stateBits == GLS_CURRENT )
 		return;
 
-	if( backEndData->pipelineStateBits != stateBits ) {
+	if( !backEndData->pipelineState || backEndData->pipelineState->stateBits != stateBits ) {
 		pipeline = SPV_GetShadePipeline( stateBits );
 
-		// bind the shader pipeline state
-		vkCmdBindPipeline( backEndData->cmdbuf, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline );
-
-		backEndData->pipeline = pipeline;
-		backEndData->pipelineStateBits = stateBits;
-
-		int input = stateBits & GLS_INPUT_BITS;
-		switch( input ) {
-		case GLS_INPUT_GLM:
-		case GLS_INPUT_GLA:
-			backEndData->pipelineLayout = tr.ghoul2ShadePipelineLayout;
-			break;
-		default:
-			backEndData->pipelineLayout = tr.shadePipelineLayout;
-		}
+		R_SetPipelineState( pipeline );
 	}
+}
+
+void R_SetPipelineState( pipelineState_t *pipeline ) {
+	assert( pipeline );
+
+	// bind the shader pipeline state
+	vkCmdBindPipeline( backEndData->cmdbuf, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->handle );
+
+	backEndData->pipelineState = pipeline;
 }
 
 static void R_DrawElements( shaderCommands_t *input, shaderStage_t *stage, int stateBits ) {
@@ -214,7 +209,7 @@ Draws triangle outlines for debugging
 ================
 */
 static void DrawTris (shaderCommands_t *input, shaderStage_t *stage) {
-	VkPipeline pipeline;
+	pipelineState_t *pipeline;
 	vec3_t color;
 
 	// Check if GPU supports wireframe rasterization.
@@ -264,20 +259,16 @@ static void DrawTris (shaderCommands_t *input, shaderStage_t *stage) {
 	if ( r_showtris->integer == 2 )
 	{
 		// tries to do non-xray style showtris
-		pipeline = tr.wireframePipeline;
+		pipeline = &vkState.wireframePipeline;
 	}
 	else
 	{
 		// same old showtris
-		pipeline = tr.wireframeXRayPipeline;
+		pipeline = &vkState.wireframeXRayPipeline;
 	}
 
-	vkCmdBindPipeline( backEndData->cmdbuf, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline );
-	vkCmdPushConstants( backEndData->cmdbuf, tr.wireframePipelineLayout, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof( color ), color );
-
-	backEndData->pipeline = pipeline;
-	backEndData->pipelineLayout = tr.wireframePipelineLayout;
-	backEndData->pipelineStateBits = -1;
+	R_SetPipelineState( pipeline );
+	vkCmdPushConstants( backEndData->cmdbuf, backEndData->pipelineState->layout->handle, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof( color ), color );
 
 	R_DrawElements( input, stage, GLS_CURRENT );
 }
@@ -1395,8 +1386,8 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input ) {
 				stateBits = GLS_SRCBLEND_SRC_ALPHA | GLS_DSTBLEND_ONE_MINUS_SRC_ALPHA;
 			}
 
-			if( !backEndData->pipeline ) {
-				backEndData->pipelineLayout = tr.shadePipelineLayout;
+			if( !backEndData->pipelineState ) {
+				R_SetShadePipeline( stateBits );
 			}
 
 			//

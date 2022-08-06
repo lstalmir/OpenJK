@@ -38,7 +38,7 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 /*
 ** Pipeline cache
 */
-std::unordered_map<int, VkPipeline> CompiledPipelines;
+std::unordered_map<int, pipelineState_t> CompiledPipelines;
 
 /**
 ===============
@@ -123,16 +123,19 @@ void SPV_InitPipelineCache( void ) {
 }
 
 void SPV_InitGlowShaders( void ) {
+	if( vkState.glowBlurPipeline.handle )
+		return;
+
 	CPipelineLayoutBuilder pipelineLayoutBuilder;
 	CPipelineBuilder pipelineBuilder;
 
 	// create the blur pipeline layout
 	pipelineLayoutBuilder.addPushConstantRange( VK_SHADER_STAGE_VERTEX_BIT, 64 );
 	pipelineLayoutBuilder.addPushConstantRange( VK_SHADER_STAGE_FRAGMENT_BIT, 16 );
-	pipelineLayoutBuilder.build( &tr.glowBlurPipelineLayout );
+	pipelineLayoutBuilder.build( &vkState.glowBlurPipelineLayout );
 
 	// create the pipeline
-	pipelineBuilder.pipelineCreateInfo.layout = tr.glowBlurPipelineLayout;
+	pipelineBuilder.layout = &vkState.glowBlurPipelineLayout;
 	pipelineBuilder.pipelineCreateInfo.renderPass = tr.postProcessFrameBuffer->renderPass;
 	pipelineBuilder.pipelineCreateInfo.subpass = 0;
 
@@ -160,7 +163,7 @@ void SPV_InitGlowShaders( void ) {
 
 	// create the combine pipeline layout
 	pipelineLayoutBuilder.reset();
-	pipelineLayoutBuilder.build( &tr.glowCombinePipelineLayout );
+	pipelineLayoutBuilder.build( &vkState.glowCombinePipelineLayout );
 
 	// setup the blend state for combining the blur result
 	attachmentBlend.blendEnable = VK_TRUE;
@@ -182,20 +185,23 @@ void SPV_InitGlowShaders( void ) {
 	pipelineBuilder.setShader( VK_SHADER_STAGE_FRAGMENT_BIT, tr_blur_combine_PS );
 
 	// create the combine pipeline
-	pipelineBuilder.build( &tr.glowCombinePipeline );
+	pipelineBuilder.build( &vkState.glowCombinePipeline );
 }
 
 void SPV_InitWireframeShaders( void ) {
+	if( vkState.wireframePipeline.handle )
+		return;
+
 	CPipelineLayoutBuilder pipelineLayoutBuilder;
 	CPipelineBuilder pipelineBuilder;
 
 	// create the pipeline layout
 	pipelineLayoutBuilder.addPushConstantRange( VK_SHADER_STAGE_VERTEX_BIT, 12 );
-	pipelineLayoutBuilder.build( &tr.wireframePipelineLayout );
-	VK_SetDebugObjectName( tr.wireframePipelineLayout, VK_OBJECT_TYPE_PIPELINE_LAYOUT, "tr.wireframePipelineLayout" );
+	pipelineLayoutBuilder.build( &vkState.wireframePipelineLayout );
+	VK_SetDebugObjectName( vkState.wireframePipelineLayout.handle, VK_OBJECT_TYPE_PIPELINE_LAYOUT, "tr.wireframePipelineLayout" );
 
 	// create the wireframe pipeline
-	pipelineBuilder.pipelineCreateInfo.layout = tr.wireframePipelineLayout;
+	pipelineBuilder.layout = &vkState.wireframePipelineLayout;
 	pipelineBuilder.pipelineCreateInfo.renderPass = tr.sceneFrameBuffer->renderPass;
 	pipelineBuilder.pipelineCreateInfo.subpass = 0;
 
@@ -221,17 +227,17 @@ void SPV_InitWireframeShaders( void ) {
 	attachmentBlend.colorWriteMask = 0xF;
 
 	// create the wireframe pipeline
-	pipelineBuilder.build( &tr.wireframePipeline );
+	pipelineBuilder.build( &vkState.wireframePipeline );
 
 	// create the xray wireframe pipeline
 	pipelineBuilder.depthStencil.depthTestEnable = VK_FALSE;
 	pipelineBuilder.rasterization.cullMode = VK_CULL_MODE_NONE;
 
-	pipelineBuilder.build( &tr.wireframeXRayPipeline );
+	pipelineBuilder.build( &vkState.wireframeXRayPipeline );
 }
 
 static void InitShadePipelineBuilder( CPipelineBuilder *builder, int spec ) {
-	builder->pipelineCreateInfo.layout = tr.shadePipelineLayout;
+	builder->layout = &vkState.shadePipelineLayout;
 	builder->pipelineCreateInfo.renderPass = tr.sceneFrameBuffer->renderPass;
 	builder->pipelineCreateInfo.subpass = 0;
 
@@ -249,7 +255,7 @@ static void InitShadePipelineBuilder( CPipelineBuilder *builder, int spec ) {
 		builder->setShader( VK_SHADER_STAGE_VERTEX_BIT, tr_shade_md3_VS );
 	}
 	else if( ( spec & TR_SHADER_SPEC_GLA ) || ( spec & TR_SHADER_SPEC_GLM ) ) {
-		builder->pipelineCreateInfo.layout = tr.ghoul2ShadePipelineLayout;
+		builder->layout = &vkState.ghoul2ShadePipelineLayout;
 
 		// use vertex shader with bones
 		builder->setShader( VK_SHADER_STAGE_VERTEX_BIT, tr_shade_ghoul2_VS );
@@ -296,10 +302,10 @@ static VkBlendFactor GetBlendFactor( int blendStateBits ) {
 	}
 }
 
-VkPipeline SPV_GetShadePipeline( int stateBits ) {
-	VkPipeline &pipeline = CompiledPipelines[stateBits];
+pipelineState_t *SPV_GetShadePipeline( int stateBits ) {
+	pipelineState_t &pipeline = CompiledPipelines[stateBits];
 
-	if( !pipeline ) {
+	if( !pipeline.handle ) {
 		CPipelineBuilder pipelineBuilder;
 
 		int spec = 0;
@@ -372,11 +378,12 @@ VkPipeline SPV_GetShadePipeline( int stateBits ) {
 
 		// create the pipeline
 		pipelineBuilder.build( &pipeline );
+		pipeline.stateBits = stateBits;
 
 		char pipelineName[MAX_QPATH];
 		sprintf( pipelineName, "shadePipeline (%08x)", stateBits );
-		VK_SetDebugObjectName( pipeline, VK_OBJECT_TYPE_PIPELINE, pipelineName );
+		VK_SetDebugObjectName( pipeline.handle, VK_OBJECT_TYPE_PIPELINE, pipelineName );
 	}
 
-	return pipeline;
+	return &pipeline;
 }
