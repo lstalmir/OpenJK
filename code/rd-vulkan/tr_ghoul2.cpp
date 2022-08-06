@@ -426,7 +426,19 @@ public:
 
 	void EvalAll() {
 		int i;
+		bool uploadRequired;
 		mdxaBone_t *bones;
+
+		// check if update is required
+		uploadRequired = false;
+		for( i = 0; i < mNumBones; ++i ) {
+			if( mFinalBones[i].touch != mCurrentTouch ) {
+				uploadRequired = true;
+				break;
+			}
+		}
+		if( !uploadRequired )
+			return;
 
 		// begin buffer upload
 		bones = (mdxaBone_t *)VK_BeginUploadBuffer( mBoneBuffer, mNumBones * sizeof( mdxaBone_t ), 0 );
