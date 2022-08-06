@@ -3371,6 +3371,7 @@ qboolean R_LoadMDXM( model_t *mod, void *buffer, const char *mod_name, qboolean 
 	int					size;
 	int					numLODs;
 	int					numSurfaces;
+	int					*piBoneReferences;
 	shader_t			*sh;
 	mdxmSurfHierarchy_t	*surfInfo;
 	tr_shader::vertex_t *verts;
@@ -3683,6 +3684,8 @@ qboolean R_LoadMDXM( model_t *mod, void *buffer, const char *mod_name, qboolean 
 			trsurf->header = surf;
 			trsurf->vertexBuffer = R_CreateVertexBuffer( surf->numVerts, surf->numTriangles * 3, 0, TAG_GHOUL2 );
 
+			piBoneReferences = (int *)( (byte *)surf + surf->ofsBoneReferences );
+
 			byte *uploadData = (byte *)VK_BeginUploadBuffer( &trsurf->vertexBuffer->b, trsurf->vertexBuffer->b.size, 0 );
 			verts	= (tr_shader::vertex_t *)( uploadData + trsurf->vertexBuffer->vertexOffset );
 			indexes = (trIndex_t *)( uploadData + trsurf->vertexBuffer->indexOffset );
@@ -3718,7 +3721,7 @@ qboolean R_LoadMDXM( model_t *mod, void *buffer, const char *mod_name, qboolean 
 				float fTotalWeight = 0.0f;
 				int iNumWeights = G2_GetVertWeights( v );
 				for( k = 0; k < iNumWeights; k++ ) {
-					int iBoneIndex = G2_GetVertBoneIndex( v, k );
+					int iBoneIndex = piBoneReferences[G2_GetVertBoneIndex( v, k )];
 					float fBoneWeight = G2_GetVertBoneWeight( v, k, fTotalWeight, iNumWeights );
 					float fBoneIndex = *(float *)&iBoneIndex;
 					verts[j].lightmaps[( k >> 1 )][k & 1] = fBoneIndex;
