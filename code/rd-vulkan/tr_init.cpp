@@ -667,12 +667,12 @@ static void InitVulkanObjects( void ) {
 	VkDescriptorPoolCreateInfo descriptorPoolCreateInfo = {};
 	descriptorPoolCreateInfo.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
 	descriptorPoolCreateInfo.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT;
-	descriptorPoolCreateInfo.maxSets = 2048;
+	descriptorPoolCreateInfo.maxSets = 4096;
 
 	VkDescriptorPoolSize descriptorPoolSizes[] = {
-		{ VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 1024 },
-		{ VK_DESCRIPTOR_TYPE_SAMPLER, 1024 },
-		{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 512 }
+		{ VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, 2048 },
+		{ VK_DESCRIPTOR_TYPE_SAMPLER, 2048 },
+		{ VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, 2048 }
 	};
 
 	descriptorPoolCreateInfo.poolSizeCount = ARRAY_LEN( descriptorPoolSizes );
