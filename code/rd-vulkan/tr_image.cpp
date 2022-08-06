@@ -877,6 +877,15 @@ void R_Images_DeleteImage( image_t *pImage ) {
 	}
 }
 
+// special function for images not stored in AllocatedImages...
+//
+void R_Images_DeleteTransientImage( image_t *pImage ) {
+
+	// transient images are not stored in AllocatedImages, so just delete the contents
+	// also works for images created via R_CreateReadbackImage
+	R_Images_DeleteImageContents( pImage );
+}
+
 // called only at app startup, vid_restart, app-exit
 //
 void R_Images_Clear( void ) {
@@ -1040,6 +1049,7 @@ static void VK_AllocImageContents( image_t *image ) {
 	}
 
 	VK_SetDebugObjectName( image->tex, VK_OBJECT_TYPE_IMAGE, image->imgName );
+	vmaSetAllocationName( vkState.allocator, image->allocation, image->imgName );
 
 	if( image->usage & ( VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT ) ) {
 		VkImageViewCreateInfo imageViewCreateInfo = {};
@@ -1466,7 +1476,6 @@ void R_UpdateSaveGameImage( const char *filename );
 void R_CreateBuiltinImages( void ) {
 	int x, y, i;
 	byte data[DEFAULT_SIZE][DEFAULT_SIZE][4];
-	CFrameBufferBuilder frameBufferBuilder;
 
 	R_CreateDefaultImage();
 
@@ -1474,7 +1483,6 @@ void R_CreateBuiltinImages( void ) {
 	memset( data, 255, sizeof( data ) );
 
 	tr.whiteImage = R_CreateImage( "*white", (byte *)data, 8, 8, VK_FORMAT_B8G8R8A8_UNORM, qfalse, qfalse, qtrue, VK_SAMPLER_ADDRESS_MODE_REPEAT );
-	tr.screenImage = R_CreateTransientImage( "*screen", glConfig.vidWidth, glConfig.vidHeight, VK_FORMAT_B8G8R8A8_UNORM, VK_SAMPLER_ADDRESS_MODE_REPEAT );
 
 	int randSeed = 0;
 	for( x = 0; x < DEFAULT_SIZE; ++x ) {
@@ -1486,6 +1494,37 @@ void R_CreateBuiltinImages( void ) {
 	}
 
 	tr.noiseImage = R_CreateImage( "*noise", (byte *)data, DEFAULT_SIZE, DEFAULT_SIZE, VK_FORMAT_B8G8R8A8_UNORM, qfalse, qfalse, qfalse, VK_SAMPLER_ADDRESS_MODE_REPEAT );
+
+	// with overbright bits active, we need an image which is some fraction of full color,
+	// for default lightmaps, etc
+	for( x = 0; x < DEFAULT_SIZE; x++ ) {
+		for( y = 0; y < DEFAULT_SIZE; y++ ) {
+			data[y][x][0] =
+				data[y][x][1] =
+					data[y][x][2] = tr.identityLightByte;
+			data[y][x][3] = 255;
+		}
+	}
+
+	tr.identityLightImage = R_CreateImage( "*identityLight", (byte *)data, 8, 8, VK_FORMAT_B8G8R8A8_UNORM, qfalse, qfalse, qtrue, VK_SAMPLER_ADDRESS_MODE_REPEAT );
+
+	// scratchimage is usually used for cinematic drawing
+	for( x = 0; x < NUM_SCRATCH_IMAGES; x++ ) {
+		// scratchimage is usually used for cinematic drawing
+		tr.scratchImage[x] = R_CreateImage( va( "*scratch%d", x ), (byte *)data, DEFAULT_SIZE, DEFAULT_SIZE, VK_FORMAT_B8G8R8A8_UNORM, qfalse, qfalse, qfalse, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE );
+	}
+
+	R_CreateDlightImage();
+	R_CreateFogImage();
+}
+
+/*
+==================
+R_CreateTransientImages
+==================
+*/
+static void R_CreateTransientImages( void ) {
+	CFrameBufferBuilder frameBufferBuilder;
 
 	// Create the scene image
 	frameBufferBuilder.width = glConfig.vidWidth;
@@ -1519,24 +1558,8 @@ void R_CreateBuiltinImages( void ) {
 
 	frameBufferBuilder.build( &tr.postProcessFrameBuffer );
 
-	// with overbright bits active, we need an image which is some fraction of full color,
-	// for default lightmaps, etc
-	for( x = 0; x < DEFAULT_SIZE; x++ ) {
-		for( y = 0; y < DEFAULT_SIZE; y++ ) {
-			data[y][x][0] =
-				data[y][x][1] =
-					data[y][x][2] = tr.identityLightByte;
-			data[y][x][3] = 255;
-		}
-	}
-
-	tr.identityLightImage = R_CreateImage( "*identityLight", (byte *)data, 8, 8, VK_FORMAT_B8G8R8A8_UNORM, qfalse, qfalse, qtrue, VK_SAMPLER_ADDRESS_MODE_REPEAT );
-
-	// scratchimage is usually used for cinematic drawing
-	for( x = 0; x < NUM_SCRATCH_IMAGES; x++ ) {
-		// scratchimage is usually used for cinematic drawing
-		tr.scratchImage[x] = R_CreateImage( va( "*scratch%d", x ), (byte *)data, DEFAULT_SIZE, DEFAULT_SIZE, VK_FORMAT_B8G8R8A8_UNORM, qfalse, qfalse, qfalse, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE );
-	}
+	// create a temporary image for distortion effect
+	tr.screenImage = R_CreateTransientImage( "*screen", glConfig.vidWidth, glConfig.vidHeight, VK_FORMAT_B8G8R8A8_UNORM, VK_SAMPLER_ADDRESS_MODE_REPEAT );
 
 	// create a buffer for screen shots
 	if( !tr.screenshotImage ||
@@ -1553,11 +1576,7 @@ void R_CreateBuiltinImages( void ) {
 			glConfig.vidHeight,
 			VK_FORMAT_B8G8R8A8_UNORM );
 	}
-
-	R_CreateDlightImage();
-	R_CreateFogImage();
 }
-
 
 /*
 ===============
@@ -1652,6 +1671,29 @@ void R_InitImages( void ) {
 
 	// create default texture and white texture
 	R_CreateBuiltinImages();
+
+	// create the render targets and readback images
+	R_CreateTransientImages();
+}
+
+/*
+===============
+R_DeleteTransientTextures
+===============
+*/
+void R_DeleteTransientTextures( void ) {
+
+	R_Images_DeleteImageContents( tr.screenImage );
+	R_Images_DeleteImageContents( tr.screenshotImage );
+
+	R_DeleteFrameBuffer( tr.sceneFrameBuffer );
+	R_DeleteFrameBuffer( tr.postProcessFrameBuffer );
+
+	// free the dynamic glow resources
+	if( r_DynamicGlow && r_DynamicGlow->integer ) {
+		R_DeleteFrameBuffer( tr.glowBlurFrameBuffer );
+		R_DeleteFrameBuffer( tr.glowFrameBuffer );
+	}
 }
 
 /*

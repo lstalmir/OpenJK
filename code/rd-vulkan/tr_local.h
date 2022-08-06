@@ -1239,6 +1239,7 @@ image_t *R_Images_GetNextIteration(void);
 void	 R_Images_Clear(void);
 void	 R_Images_DeleteLightMaps(void);
 void	 R_Images_DeleteImage(image_t *pImage);
+void	 R_Images_DeleteTransientImage(image_t *pImage);
 
 int		 R_Buffers_StartIteration(void);
 buffer_t *R_Buffers_GetNextIteration(void);
@@ -1570,6 +1571,7 @@ void	R_ScreenShotTGA_f( void );
 void	R_InitFogTable( void );
 float	R_FogFactor( float s, float t );
 void	R_InitImages( void );
+void	R_DeleteTransientTextures( void );
 void	R_DeleteTextures( void );
 void	R_InitBuffers( void );
 void	R_DeleteBuffers( void );

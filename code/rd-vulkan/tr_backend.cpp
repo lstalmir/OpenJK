@@ -1764,7 +1764,7 @@ void R_DeleteFrameBuffer( frameBuffer_t *frameBuffer ) {
 	}
 	for( int i = 0; i < frameBuffer->numImages; ++i ) {
 		if( !frameBuffer->images[i].external ) {
-			R_Images_DeleteImage( frameBuffer->images[i].i );
+			R_Images_DeleteTransientImage( frameBuffer->images[i].i );
 		}
 	}
 	R_Free( frameBuffer );

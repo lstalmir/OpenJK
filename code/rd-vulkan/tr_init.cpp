@@ -2022,16 +2022,11 @@ void RE_Shutdown( qboolean destroyWindow, qboolean restarting ) {
 		R_IssuePendingRenderCommands();
 		vkDeviceWaitIdle( vkState.device );
 
-		// free the dynamic glow resources
-		if( r_DynamicGlow && r_DynamicGlow->integer ) {
-			R_DeleteFrameBuffer( tr.glowBlurFrameBuffer );
-			R_DeleteFrameBuffer( tr.glowFrameBuffer );
-		}
-
 		VK_Free( vkFreeDescriptorSets, vkState.descriptorPool, tr.commonDescriptorSet );
 		VK_Free( vkFreeDescriptorSets, vkState.descriptorPool, tr.samplerDescriptorSet );
 
 		R_DeleteBuffers();
+		R_DeleteTransientTextures();
 
 		if( destroyWindow ) {
 			int i;
@@ -2067,9 +2062,6 @@ void RE_Shutdown( qboolean destroyWindow, qboolean restarting ) {
 			VK_Delete( vkDestroySampler, vkState.pointWrapSampler );
 			VK_Delete( vkDestroySampler, vkState.linearClampSampler );
 			VK_Delete( vkDestroySampler, vkState.linearWrapSampler );
-
-			R_DeleteFrameBuffer( tr.sceneFrameBuffer );
-			R_DeleteFrameBuffer( tr.postProcessFrameBuffer );
 
 			for( i = 0; i < vkState.imgcount; ++i ) {
 				VK_Delete( vkDestroyFence, vkState.fences[i] );
