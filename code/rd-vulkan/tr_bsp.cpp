@@ -517,6 +517,59 @@ static void ParseMesh( dsurface_t *ds, mapVert_t *verts, msurface_t *surf, world
 	grid = R_SubdividePatchToGrid( width, height, points );
 	surf->data = (surfaceType_t *)grid;
 
+	numPoints = grid->width * grid->height;
+
+	// create a buffer for the vertex data
+	grid->vertexBuffer = R_CreateVertexBuffer(
+		numPoints,
+		numPoints * 6 );
+
+	byte *uploadData = (byte *)VK_BeginUploadBuffer(
+		&grid->vertexBuffer->b,
+		grid->vertexBuffer->b.size,
+		0 );
+
+#ifndef NDEBUG
+	// fill vertex buffer with 0xCD for debugging purposes
+	memset( uploadData, 0xCD, grid->vertexBuffer->b.size );
+#endif
+
+	trIndex_t *grid_indexes = (trIndex_t *)( uploadData + grid->vertexBuffer->indexOffset );
+	tr_shader::vertex_t *grid_vertexes = (tr_shader::vertex_t *)( uploadData + grid->vertexBuffer->vertexOffset );
+
+	for( i = 0; i < numPoints; ++i ) {
+		memcpy( grid_vertexes[i].position.m, grid->verts[i].xyz, 12 );
+		grid_vertexes[i].position.w = 1;
+		memcpy( grid_vertexes[i].normal.m, grid->verts[i].normal, 12 );
+		grid_vertexes[i].normal.w = 0;
+		memcpy( grid_vertexes[i].texCoord0.m, grid->verts[i].st, 8 );
+		memcpy( grid_vertexes[i].vertexColor.m, grid->verts[i].color[0], 4 );
+		memcpy( grid_vertexes[i].lightmaps, grid->verts[i].lightmap, MAXLIGHTMAPS * 8 );
+	}
+
+	for( i = 0, k = 0; i < grid->height-1; i++ ) {
+		for( j = 0; j < grid->width-1; j++ ) {
+			int v1, v2, v3, v4;
+
+			// vertex order to be reckognized as tristrips
+			v1 = i * grid->width + j + 1;
+			v2 = v1 - 1;
+			v3 = v2 + grid->width;
+			v4 = v3 + 1;
+
+			grid_indexes[k] = v2;
+			grid_indexes[k + 1] = v3;
+			grid_indexes[k + 2] = v1;
+
+			grid_indexes[k + 3] = v1;
+			grid_indexes[k + 4] = v3;
+			grid_indexes[k + 5] = v4;
+			k += 6;
+		}
+	}
+
+	VK_EndUploadBuffer();
+
 	// copy the level of detail origin, which is the center
 	// of the group of all curves that must subdivide the same
 	// to avoid cracking

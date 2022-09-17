@@ -621,6 +621,8 @@ typedef struct srfFlare_s {
 typedef struct srfGridMesh_s {
 	surfaceType_t	surfaceType;
 
+	vertexBuffer_t	*vertexBuffer;
+
 	// dynamic lighting information
 	int				dlightBits;
 

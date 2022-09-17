@@ -1189,6 +1189,19 @@ Just copy the grid of points and triangulate
 =============
 */
 void RB_SurfaceGrid( srfGridMesh_t *cv ) {
+	drawCommand_t *draw = RB_DrawSurface();
+
+	draw->numVertexBuffers = 1;
+	draw->vertexBuffers[0] = cv->vertexBuffer;
+
+	draw->vertexCount = cv->vertexBuffer->numVertexes;
+	draw->vertexOffsets[0] = cv->vertexBuffer->vertexOffset;
+
+	draw->indexCount = cv->vertexBuffer->numIndexes;
+	draw->indexOffset = cv->vertexBuffer->indexOffset;
+
+	draw->stateBits = GLS_DEFAULT;
+
 #if 0
 	int		i, j, k;
 	float	*xyz;
