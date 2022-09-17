@@ -100,6 +100,8 @@ typedef struct image_s {
 	VkImageLayout		layout;
 	VkAccessFlags		access;
 
+	bool				cube;
+
 	bool				mipmap;
 
 	bool				allowPicmip;
@@ -432,6 +434,11 @@ typedef enum {
 	FP_EQUAL,		// surface is opaque but possibly alpha tested
 	FP_LE			// surface is trnaslucent, but still needs a fog pass (fog surface)
 } fogPass_t;
+
+typedef struct skyParms_s {
+	image_t		*outerbox;
+	float		cloudHeight;
+} skyParms_t;
 
 
 typedef struct shader_s {
@@ -1067,6 +1074,9 @@ typedef struct {
 	pipelineLayout_t		shadePipelineLayout;
 	pipelineLayout_t		ghoul2ShadePipelineLayout;
 
+	pipelineState_t			skyboxPipeline;
+	pipelineLayout_t		skyboxPipelineLayout;
+
 	// Debug pipelines
 	pipelineState_t			wireframePipeline;
 	pipelineState_t			wireframeXRayPipeline;
@@ -1211,6 +1221,8 @@ typedef struct {
 	tr_shader::trGlobals_t	globals;
 
 	buffer_t				*funcTablesBuffer;
+
+	vertexBuffer_t			*skyboxVertexBuffer;
 
 	//
 	// put large tables at the end, so most elements will be
@@ -1436,7 +1448,7 @@ void VK_EndFrame( void );
 void VK_TextureMode( const char *string );
 uploadBuffer_t *VK_GetUploadBuffer( int uploadSize );
 void VK_PrepareUploadBuffers( void );
-void VK_UploadImage( image_t *im, const byte *pic, int width, int height, int mip );
+void VK_UploadImage( image_t *im, const byte *pic, int width, int height, int mip = 0, int layer = 0 );
 void VK_UploadBuffer( buffer_t *buffer, const byte *data, int size, int offset );
 void *VK_BeginUploadBuffer( buffer_t *buffer, int size, int offset );
 void VK_EndUploadBuffer();
@@ -1546,8 +1558,10 @@ void		R_Init( void );
 void		VK_InitSwapchain( void );
 
 image_t		*R_FindImageFile( const char *name, qboolean mipmap, qboolean allowPicmip, qboolean allowTC, VkSamplerAddressMode wrapClampMode );
+image_t		*R_FindImageCubeFile( const char *name, qboolean mipmap, qboolean allowPicmip, qboolean allowTC, VkSamplerAddressMode wrapClampMode );
 
 image_t		*R_CreateImage( const char *name, const byte *pic, int width, int height, VkFormat format, qboolean mipmap, qboolean allowPicmip, qboolean allowTC, VkSamplerAddressMode wrapClampMode );
+image_t		*R_CreateImageCube( const char *name, const byte *const *pics, int size, VkFormat format, qboolean mipmap, qboolean allowPicmip, qboolean allowTC, VkSamplerAddressMode wrapClampMode );
 image_t		*R_CreateTransientImage( const char *name, int width, int height, VkFormat format, VkSamplerAddressMode wrapClampMode );
 image_t		*R_CreateReadbackImage( const char *name, int width, int height, VkFormat format );
 
@@ -1605,6 +1619,7 @@ VkShaderModule	SPV_CreateShaderModule( const uint32_t *code, int size );
 void			SPV_InitPipelineCache( void );
 void			SPV_InitGlowShaders( void );
 void			SPV_InitWireframeShaders( void );
+void			SPV_InitSkyboxShaders( void );
 pipelineState_t *SPV_GetShadePipeline( int stateBits );
 
 void			R_SetPipelineState( pipelineState_t *pipeline );

@@ -467,22 +467,6 @@ typedef bool qboolean32;
 		float4 sunLight;
 	} sunParms_t;
 
-#ifdef __cplusplus
-	typedef union {
-		struct image_s *outerbox[6];
-		byte m[48];
-	} skyParmsCppData_t;
-#endif
-
-	typedef struct {
-		float cloudHeight;
-#ifdef __cplusplus
-		skyParmsCppData_t cppData;
-#else
-		float cppData[12];
-#endif
-	} skyParms_t;
-
 	typedef struct {
 		float3 color;
 		float depthForOpaque;

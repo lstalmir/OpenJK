@@ -34,6 +34,44 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 static float s_cloudTexCoords[6][SKY_SUBDIVISIONS+1][SKY_SUBDIVISIONS+1][2];
 static float s_cloudTexP[6][SKY_SUBDIVISIONS+1][SKY_SUBDIVISIONS+1];
 
+
+static void RB_DrawSky() {
+	VkBuffer vertexBuffer;
+	VkDeviceSize vertexOffset;
+	VkDeviceSize indexOffset;
+
+	// make sure there is a framebuffer bound
+	if( !backEndData->frameBuffer ) {
+		R_BindFrameBuffer( tr.sceneFrameBuffer );
+	}
+
+	R_SetPipelineState( &vkState.skyboxPipeline );
+
+	R_BindDescriptorSet( TR_GLOBALS_SPACE, tr.commonDescriptorSet );
+	R_BindDescriptorSet( TR_SAMPLERS_SPACE, tr.samplerDescriptorSet );
+
+	if( backEnd.viewParms.descriptorSet ) {
+		R_BindDescriptorSet( TR_VIEW_SPACE, backEnd.viewParms.descriptorSet );
+	}
+	else {
+		R_BindDescriptorSet( TR_VIEW_SPACE, tr.viewParms.descriptorSet );
+	}
+
+	VK_BindImage( tess.shader->sky->outerbox );
+
+	vertexBuffer = tr.skyboxVertexBuffer->b.buf;
+	vertexOffset = (VkDeviceSize)tr.skyboxVertexBuffer->vertexOffset;
+	indexOffset = (VkDeviceSize)tr.skyboxVertexBuffer->indexOffset;
+
+	// bind vertex buffers
+	vkCmdBindVertexBuffers( backEndData->cmdbuf, 0, 1, &vertexBuffer, &vertexOffset );
+	vkCmdBindIndexBuffer( backEndData->cmdbuf, vertexBuffer, indexOffset, g_scIndexType );
+
+	// draw
+	vkCmdDrawIndexed( backEndData->cmdbuf, tr.skyboxVertexBuffer->numIndexes, 1, 0, 0, 0 );
+}
+
+
 /*
 ===================================================================================
 
@@ -721,13 +759,11 @@ Other things could be stuck in here, like birds in the sky, etc
 ================
 */
 void RB_StageIteratorSky( void ) {
-#if 0
-	if ( r_fastsky->integer ) {
+	if( r_fastsky->integer ) {
 		return;
 	}
 
-	if (skyboxportal && !(backEnd.refdef.rdflags & RDF_SKYBOXPORTAL))
-	{
+	if( skyboxportal && !( backEnd.refdef.rdflags & RDF_SKYBOXPORTAL ) ) {
 		return;
 	}
 
@@ -736,6 +772,7 @@ void RB_StageIteratorSky( void ) {
 	// to be drawn
 	RB_ClipSkyPolygons( &tess );
 
+#if 0
 	// r_showsky will let all the sky blocks be drawn in
 	// front of everything to allow developers to see how
 	// much sky is getting sucked in
@@ -744,18 +781,19 @@ void RB_StageIteratorSky( void ) {
 	} else {
 		qglDepthRange( 1.0, 1.0 );
 	}
+#endif
 
 	// draw the outer skybox
-	if ( tess.shader->sky->outerbox[0] && tess.shader->sky->outerbox[0] != tr.defaultImage ) {
+	if( tess.shader->sky->outerbox ) {
+#if 0
 		qglColor3f( tr.identityLight, tr.identityLight, tr.identityLight );
 
 		qglPushMatrix ();
 		GL_State( 0 );
 		qglTranslatef (backEnd.viewParms.ori.origin[0], backEnd.viewParms.ori.origin[1], backEnd.viewParms.ori.origin[2]);
+#endif
 
-		DrawSkyBox( tess.shader );
-
-		qglPopMatrix();
+		RB_DrawSky();
 	}
 
 	// generate the vertexes for all the clouds, which will be drawn
@@ -772,6 +810,4 @@ void RB_StageIteratorSky( void ) {
 
 	// note that sky was drawn so we will draw a sun later
 	backEnd.skyRenderedThisView = qtrue;
-#endif
 }
-

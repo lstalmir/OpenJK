@@ -1960,17 +1960,7 @@ static void ParseSkyParms( const char **text ) {
 		return;
 	}
 	if ( strcmp( token, "-" ) ) {
-		for (i=0 ; i<6 ; i++) {
-			Com_sprintf( pathname, sizeof(pathname), "%s_%s", token, suf[i] );
-			shader.sky->cppData.outerbox[i] = R_FindImageFile( ( char * ) pathname, qtrue, qtrue, (qboolean)!shader.noTC, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE );
-			if( !shader.sky->cppData.outerbox[i] ) {
-				if (i) {
-					shader.sky->cppData.outerbox[i] = shader.sky->cppData.outerbox[i - 1]; // not found, so let's use the previous image
-				}else{
-					shader.sky->cppData.outerbox[i] = tr.defaultImage;
-				}
-			}
-		}
+		shader.sky->outerbox = R_FindImageCubeFile( token, qtrue, qtrue, (qboolean)!shader.noTC, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE );
 	}
 
 	// cloudheight
@@ -3841,6 +3831,7 @@ CreateInternalShaders
 static void CreateInternalShaders( void ) {
 	SPV_InitGlowShaders();
 	SPV_InitWireframeShaders();
+	SPV_InitSkyboxShaders();
 
 	tr.numShaders = 0;
 	tr.iNumDeniedShaders = 0;

@@ -46,10 +46,10 @@ void R_BufferList_f( void ) {
 	while( ( buffer = R_Buffers_GetNextIteration() ) != NULL ) {
 		bytes += buffer->size;
 		ri.Printf( PRINT_ALL, "%4i: %12i %4u %p %8i",
-			   i, buffer->size,
-			   buffer->allocationInfo.memoryType,
-			   buffer->allocationInfo.deviceMemory,
-			   ( int )buffer->allocationInfo.offset );
+			i, buffer->size,
+			buffer->allocationInfo.memoryType,
+			buffer->allocationInfo.deviceMemory,
+			(int)buffer->allocationInfo.offset );
 		if( buffer->allocationInfo.pName ) {
 			ri.Printf( PRINT_ALL, "%s", buffer->allocationInfo.pName );
 		}
@@ -73,7 +73,7 @@ VK_GetUploadBuffer
 uploadBuffer_t *VK_GetUploadBuffer( int size ) {
 	// check if there are any upload buffers associated with the current frame
 	auto &frameUploadBuffers = vkState.frameUploadBuffers[vkState.resnum];
-	for( int index: frameUploadBuffers ) {
+	for( int index : frameUploadBuffers ) {
 		uploadBuffer_t *uploadBuffer = &vkState.uploadBuffers[index];
 		if( ( uploadBuffer->buffer->size - uploadBuffer->offset ) >= size ) {
 			return uploadBuffer;
@@ -134,7 +134,7 @@ void VK_PrepareUploadBuffers( void ) {
 	// return the upload buffers from the current frame back to the free pool
 	auto &frameUploadBuffers = vkState.frameUploadBuffers[vkState.resnum];
 	if( !frameUploadBuffers.empty() ) {
-		for( int i: frameUploadBuffers ) {
+		for( int i : frameUploadBuffers ) {
 			vkState.uploadBuffers.free( i );
 		}
 		vkState.frameUploadBuffers[vkState.resnum].clear();
@@ -216,9 +216,9 @@ void VK_UploadBuffer( buffer_t *buffer, const byte *data, int size, int offset )
 		uploadRegion.size = size;
 
 		vkCmdCopyBuffer( VK_GetUploadCommandBuffer(),
-				 uploadBuffer->buffer->buf,
-				 buffer->buf,
-				 1, &uploadRegion );
+			uploadBuffer->buffer->buf,
+			buffer->buf,
+			1, &uploadRegion );
 
 		if( backEndData ) {
 			uploadBuffer->offset += size;
@@ -230,7 +230,7 @@ void VK_UploadBuffer( buffer_t *buffer, const byte *data, int size, int offset )
 	else {
 		// buffer is host-visible and can be updated directly
 		assert( buffer->allocationInfo.pMappedData );
-		memcpy( ( ( byte * )buffer->allocationInfo.pMappedData ) + offset, data, size );
+		memcpy( ( (byte *)buffer->allocationInfo.pMappedData ) + offset, data, size );
 
 		if( ( buffer->memoryPropertyFlags & VK_MEMORY_PROPERTY_HOST_COHERENT_BIT ) == 0 ) {
 			// if memory is not coherent, it has to be manually flushed
@@ -243,7 +243,7 @@ void VK_UploadBuffer( buffer_t *buffer, const byte *data, int size, int offset )
 			res = vkFlushMappedMemoryRanges( vkState.device, 1, &memoryRange );
 			if( res != VK_SUCCESS ) {
 				Com_Error( ERR_FATAL, "VK_UploadBuffer: failed to flush mapped memory range [%llu:%llu] (%d)\n",
-					   memoryRange.offset, memoryRange.offset + size, res );
+					memoryRange.offset, memoryRange.offset + size, res );
 			}
 		}
 	}
@@ -259,7 +259,7 @@ void *VK_BeginUploadBuffer( buffer_t *buffer, int size, int offset ) {
 		assert( ( uploadBuffer->buffer->size - uploadBuffer->offset ) >= size );
 
 		// update the upload buffer
-		void* data = VK_BeginUploadBuffer( uploadBuffer->buffer, size, uploadBuffer->offset );
+		void *data = VK_BeginUploadBuffer( uploadBuffer->buffer, size, uploadBuffer->offset );
 
 		// copy the data from the upload buffer to the final resource
 		VkBufferCopy uploadRegion = {};
@@ -307,7 +307,7 @@ buffer_t *R_Buffers_GetNextIteration( void ) {
 	return pBuffer;
 }
 
-static void VK_DeleteBufferContents( buffer_t* buffer ) {
+static void VK_DeleteBufferContents( buffer_t *buffer ) {
 	assert( buffer );
 	if( buffer && buffer->buf ) {
 		vmaDestroyBuffer( vkState.allocator, buffer->buf, buffer->allocation );
@@ -365,7 +365,7 @@ void RE_RegisterBuffers_Info_f( void ) {
 		iTexels += pImage->width * pImage->height;
 		iImage++;
 	}
-	ri.Printf( PRINT_ALL, "%d Images. %d (%.2fMB) texels total, (not including mipmaps)\n", iNumImages, iTexels, ( float )iTexels / 1024.0f / 1024.0f );
+	ri.Printf( PRINT_ALL, "%d Images. %d (%.2fMB) texels total, (not including mipmaps)\n", iNumImages, iTexels, (float)iTexels / 1024.0f / 1024.0f );
 	ri.Printf( PRINT_DEVELOPER, "RE_RegisterMedia_GetLevel(): %d", RE_RegisterMedia_GetLevel() );
 }
 
@@ -380,14 +380,14 @@ buffer_t *R_CreateBuffer( int size, VkBufferUsageFlags usage, VkMemoryPropertyFl
 	VkResult res;
 	buffer_t *buffer;
 
-	buffer = ( buffer_t * )R_Malloc( sizeof( buffer_t ), tag, qtrue );
+	buffer = (buffer_t *)R_Malloc( sizeof( buffer_t ), tag, qtrue );
 	buffer->size = size;
 	buffer->memtag = tag;
 
 	VkBufferCreateInfo bufferCreateInfo = {};
 	bufferCreateInfo.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
 	bufferCreateInfo.usage = usage;
-	bufferCreateInfo.size = ( VkDeviceSize )size;
+	bufferCreateInfo.size = (VkDeviceSize)size;
 
 	VmaAllocationCreateInfo allocationCreateInfo = {};
 	allocationCreateInfo.usage = VMA_MEMORY_USAGE_AUTO;
@@ -407,7 +407,7 @@ buffer_t *R_CreateBuffer( int size, VkBufferUsageFlags usage, VkMemoryPropertyFl
 
 	if( res != VK_SUCCESS ) {
 		Com_Error( ERR_FATAL, "R_CreateBuffer: failed to allocate buffer with size = %llu (%d)\n",
-			   bufferCreateInfo.size, res );
+			bufferCreateInfo.size, res );
 	}
 
 	// get memory property flags of the allocation
@@ -431,8 +431,8 @@ vertexBuffer_t *R_CreateVertexBuffer( int numVertexes, int numIndexes, int index
 
 	buffer = (vertexBuffer_t *)R_Malloc( sizeof( vertexBuffer_t ), tag, qtrue );
 	buffer->b.size = indexOffset +
-		sizeof( tr_shader::vertex_t ) * numVertexes +
-		sizeof( trIndex_t ) * numIndexes;
+					 sizeof( tr_shader::vertex_t ) * numVertexes +
+					 sizeof( trIndex_t ) * numIndexes;
 	buffer->b.memtag = tag;
 
 	VkBufferCreateInfo bufferCreateInfo = {};
@@ -476,6 +476,150 @@ vertexBuffer_t *R_CreateVertexBuffer( int numVertexes, int numIndexes, int index
 R_CreateBuiltinBuffers
 ==================
 */
+static void R_CreateSkybox( void ) {
+	tr_shader::vertex_t *vertexes;
+	trIndex_t *indexes;
+
+	// allocate a vertex buffer
+	tr.skyboxVertexBuffer = R_CreateVertexBuffer( 24, 36 );
+
+	byte *uploadData = (byte *)VK_BeginUploadBuffer( &tr.skyboxVertexBuffer->b, tr.skyboxVertexBuffer->b.size, 0 );
+	vertexes = (tr_shader::vertex_t *)( uploadData + tr.skyboxVertexBuffer->vertexOffset );
+	indexes = (trIndex_t *)( uploadData + tr.skyboxVertexBuffer->indexOffset );
+
+	// left face (-X)
+	vertexes[0].position = { -1, -1, -1, 1 };
+	vertexes[0].normal = { 1, 0, 0, 0 };
+	vertexes[0].texCoord0 = { 0, 0 };
+	vertexes[1].position = { -1, -1, 1, 1 };
+	vertexes[1].normal = { 1, 0, 0, 0 };
+	vertexes[1].texCoord0 = { 1, 0 };
+	vertexes[2].position = { -1, 1, 1, 1 };
+	vertexes[2].normal = { 1, 0, 0, 0 };
+	vertexes[2].texCoord0 = { 1, 1 };
+	vertexes[3].position = { -1, 1, -1, 1 };
+	vertexes[3].normal = { 1, 0, 0, 0 };
+	vertexes[3].texCoord0 = { 0, 1 };
+	indexes[0] = 0;
+	indexes[1] = 1;
+	indexes[2] = 2;
+	indexes[3] = 0;
+	indexes[4] = 2;
+	indexes[5] = 3;
+
+	// right face (+X)
+	vertexes += 4;
+	vertexes[0].position = { 1, -1, 1, 1 };
+	vertexes[0].normal = { -1, 0, 0, 0 };
+	vertexes[0].texCoord0 = { 0, 0 };
+	vertexes[1].position = { 1, -1, -1, 1 };
+	vertexes[1].normal = { -1, 0, 0, 0 };
+	vertexes[1].texCoord0 = { 1, 0 };
+	vertexes[2].position = { 1, 1, -1, 1 };
+	vertexes[2].normal = { -1, 0, 0, 0 };
+	vertexes[2].texCoord0 = { 1, 1 };
+	vertexes[3].position = { 1, 1, 1, 1 };
+	vertexes[3].normal = { -1, 0, 0, 0 };
+	vertexes[3].texCoord0 = { 0, 1 };
+	indexes += 6;
+	indexes[0] = 4;
+	indexes[1] = 5;
+	indexes[2] = 6;
+	indexes[3] = 4;
+	indexes[4] = 6;
+	indexes[5] = 7;
+
+	// front face (-Z)
+	vertexes += 4;
+	vertexes[0].position = { -1, -1, -1, 1 };
+	vertexes[0].normal = { 0, 0, 1, 0 };
+	vertexes[0].texCoord0 = { 0, 0 };
+	vertexes[1].position = { 1, -1, -1, 1 };
+	vertexes[1].normal = { 0, 0, 1, 0 };
+	vertexes[1].texCoord0 = { 1, 0 };
+	vertexes[2].position = { 1, 1, -1, 1 };
+	vertexes[2].normal = { 0, 0, 1, 0 };
+	vertexes[2].texCoord0 = { 1, 1 };
+	vertexes[3].position = { -1, 1, -1, 1 };
+	vertexes[3].normal = { 0, 0, 1, 0 };
+	vertexes[3].texCoord0 = { 0, 1 };
+	indexes += 6;
+	indexes[0] = 8;
+	indexes[1] = 9;
+	indexes[2] = 10;
+	indexes[3] = 8;
+	indexes[4] = 10;
+	indexes[5] = 11;
+
+	// back face (+Z)
+	vertexes += 4;
+	vertexes[0].position = { 1, -1, 1, 1 };
+	vertexes[0].normal = { 0, 0, -1, 0 };
+	vertexes[0].texCoord0 = { 0, 0 };
+	vertexes[1].position = { -1, -1, 1, 1 };
+	vertexes[1].normal = { 0, 0, -1, 0 };
+	vertexes[1].texCoord0 = { 1, 0 };
+	vertexes[2].position = { -1, 1, 1, 1 };
+	vertexes[2].normal = { 0, 0, -1, 0 };
+	vertexes[2].texCoord0 = { 1, 1 };
+	vertexes[3].position = { 1, 1, 1, 1 };
+	vertexes[3].normal = { 0, 0, -1, 0 };
+	vertexes[3].texCoord0 = { 0, 1 };
+	indexes += 6;
+	indexes[0] = 12;
+	indexes[1] = 13;
+	indexes[2] = 14;
+	indexes[3] = 12;
+	indexes[4] = 14;
+	indexes[5] = 15;
+
+	// top face (+Y)
+	vertexes += 4;
+	vertexes[0].position = { -1, 1, -1, 1 };
+	vertexes[0].normal = { 0, -1, 0, 0 };
+	vertexes[0].texCoord0 = { 0, 0 };
+	vertexes[1].position = { 1, 1, -1, 1 };
+	vertexes[1].normal = { 0, -1, 0, 0 };
+	vertexes[1].texCoord0 = { 1, 0 };
+	vertexes[2].position = { 1, 1, 1, 1 };
+	vertexes[2].normal = { 0, -1, 0, 0 };
+	vertexes[2].texCoord0 = { 1, 1 };
+	vertexes[3].position = { -1, 1, 1, 1 };
+	vertexes[3].normal = { 0, -1, 0, 0 };
+	vertexes[3].texCoord0 = { 0, 1 };
+	indexes += 6;
+	indexes[0] = 16;
+	indexes[1] = 17;
+	indexes[2] = 18;
+	indexes[3] = 16;
+	indexes[4] = 18;
+	indexes[5] = 19;
+
+	// bottom face (-Y)
+	vertexes += 4;
+	vertexes[0].position = { 1, -1, 1, 1 };
+	vertexes[0].normal = { 0, 1, 0, 0 };
+	vertexes[0].texCoord0 = { 0, 0 };
+	vertexes[1].position = { -1, -1, 1, 1 };
+	vertexes[1].normal = { 0, 1, 0, 0 };
+	vertexes[1].texCoord0 = { 1, 0 };
+	vertexes[2].position = { -1, -1, -1, 1 };
+	vertexes[2].normal = { 0, 1, 0, 0 };
+	vertexes[2].texCoord0 = { 1, 1 };
+	vertexes[3].position = { 1, -1, -1, 1 };
+	vertexes[3].normal = { 0, 1, 0, 0 };
+	vertexes[3].texCoord0 = { 0, 1 };
+	indexes += 6;
+	indexes[0] = 20;
+	indexes[1] = 21;
+	indexes[2] = 22;
+	indexes[3] = 20;
+	indexes[4] = 22;
+	indexes[5] = 23;
+
+	VK_EndUploadBuffer();
+}
+
 void R_CreateBuiltinBuffers( void ) {
 	tr_shader::fog_t fog;
 
@@ -510,6 +654,9 @@ void R_CreateBuiltinBuffers( void ) {
 	// allocate a viewParms buffer
 	tr.viewParms.buffer = R_CreateBuffer( sizeof( tr.viewParms.shaderData ), VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, 0 );
 	memset( &tr.viewParms.shaderData, 0, sizeof( tr.viewParms.shaderData ) );
+
+	// create a skybox vertex buffer
+	R_CreateSkybox();
 }
 
 /*

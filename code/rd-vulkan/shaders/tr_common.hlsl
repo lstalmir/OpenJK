@@ -4,6 +4,13 @@
 #define TR_HLSL 1
 #include "../tr_shader.h"
 
+#ifndef TR_TEXTURE0_T
+#define TR_TEXTURE0_T Texture2D
+#endif
+#ifndef TR_TEXTURE1_T
+#define TR_TEXTURE1_T Texture2D
+#endif
+
 // Frame globals space (0)
 cbuffer trGlobals : register( b0, TR_GLOBALS_SPACE ) {
 	trGlobals_t				tr;
@@ -37,11 +44,11 @@ cbuffer model : register( b0, TR_MODEL_SPACE ) {
 };
 
 // Texture space (4)
-Texture2D					tr_texture_0 : register( t0, TR_TEXTURE_SPACE_0 );
+TR_TEXTURE0_T				tr_texture_0 : register( t0, TR_TEXTURE_SPACE_0 );
 SamplerState				tr_sampler_0 : register( s1, TR_TEXTURE_SPACE_0 );
 
 // Texture space (5)
-Texture2D					tr_texture_1 : register( t0, TR_TEXTURE_SPACE_1 );
+TR_TEXTURE1_T				tr_texture_1 : register( t0, TR_TEXTURE_SPACE_1 );
 SamplerState				tr_sampler_1 : register( s1, TR_TEXTURE_SPACE_1 );
 
 // ViewParms space (6)

@@ -32,6 +32,8 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 #include "tr_shade_PS.h"
 #include "tr_shade_md3_VS.h"
 #include "tr_shade_ghoul2_VS.h"
+#include "tr_skybox_VS.h"
+#include "tr_skybox_PS.h"
 
 #include <unordered_map>
 
@@ -234,6 +236,48 @@ void SPV_InitWireframeShaders( void ) {
 	pipelineBuilder.rasterization.cullMode = VK_CULL_MODE_NONE;
 
 	pipelineBuilder.build( &vkState.wireframeXRayPipeline );
+}
+
+void SPV_InitSkyboxShaders( void ) {
+	if( vkState.skyboxPipeline.handle )
+		return;
+
+	CPipelineLayoutBuilder pipelineLayoutBuilder;
+	CPipelineBuilder pipelineBuilder;
+
+	// create the pipeline layout
+	pipelineLayoutBuilder.build( &vkState.skyboxPipelineLayout );
+	VK_SetDebugObjectName( vkState.skyboxPipelineLayout.handle, VK_OBJECT_TYPE_PIPELINE_LAYOUT, "tr.skyboxPipelineLayout" );
+
+	// create the skybox pipeline
+	pipelineBuilder.layout = &vkState.skyboxPipelineLayout;
+	pipelineBuilder.pipelineCreateInfo.renderPass = tr.sceneFrameBuffer->renderPass;
+	pipelineBuilder.pipelineCreateInfo.subpass = 0;
+
+	// setup the vertex input
+	pipelineBuilder.addVertexAttributesAndBinding<tr_shader::vertex_t>();
+
+	// setup the pipeline shader stages
+	pipelineBuilder.setShader( VK_SHADER_STAGE_VERTEX_BIT, tr_skybox_VS );
+	pipelineBuilder.setShader( VK_SHADER_STAGE_FRAGMENT_BIT, tr_skybox_PS );
+
+	// setup the rasterizer
+	pipelineBuilder.rasterization.cullMode = VK_CULL_MODE_NONE;
+
+	// setup the depth state
+	pipelineBuilder.depthStencil.depthTestEnable = VK_TRUE;
+	pipelineBuilder.depthStencil.depthWriteEnable = VK_FALSE;
+	pipelineBuilder.depthStencil.depthCompareOp = VK_COMPARE_OP_EQUAL;
+
+	// setup the color blend state
+	VkPipelineColorBlendAttachmentState attachmentBlend = {};
+	pipelineBuilder.colorBlend.attachmentCount = 1;
+	pipelineBuilder.colorBlend.pAttachments = &attachmentBlend;
+	attachmentBlend.blendEnable = VK_FALSE;
+	attachmentBlend.colorWriteMask = 0xF;
+
+	// create the wireframe pipeline
+	pipelineBuilder.build( &vkState.skyboxPipeline );
 }
 
 static void InitShadePipelineBuilder( CPipelineBuilder *builder, int spec ) {

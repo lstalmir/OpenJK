@@ -1277,6 +1277,7 @@ const void *RB_DrawSurfs( const void *data ) {
 
 	// update the viewParms buffer
 	memcpy( &backEnd.viewParms.shaderData.projectionMatrix, backEnd.viewParms.projectionMatrix, sizeof( backEnd.viewParms.projectionMatrix ) );
+	memcpy( &backEnd.viewParms.shaderData.world.modelMatrix, backEnd.viewParms.world.modelMatrix, sizeof( backEnd.viewParms.world.modelMatrix ) );
 	memcpy( &backEnd.viewParms.shaderData.ori.viewOrigin, backEnd.viewParms.ori.viewOrigin, sizeof( backEnd.viewParms.ori.viewOrigin ) );
 	VK_UploadBuffer( backEnd.viewParms.buffer, (byte *)&backEnd.viewParms.shaderData, sizeof( backEnd.viewParms.shaderData ), 0 );
 

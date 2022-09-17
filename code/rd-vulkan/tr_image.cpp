@@ -753,7 +753,7 @@ VK_UploadImage
 
 ===============
 */
-void VK_UploadImage( image_t *image, const byte *pic, int width, int height, int mip ) {
+void VK_UploadImage( image_t *image, const byte *pic, int width, int height, int mip, int layer ) {
 	VkCommandBuffer cmdbuf;
 
 	VK_BeginUpload();
@@ -779,6 +779,7 @@ void VK_UploadImage( image_t *image, const byte *pic, int width, int height, int
 	uploadRegion.imageExtent.depth = 1;
 	uploadRegion.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
 	uploadRegion.imageSubresource.mipLevel = mip;
+	uploadRegion.imageSubresource.baseArrayLayer = layer;
 	uploadRegion.imageSubresource.layerCount = 1;
 	uploadRegion.bufferOffset = uploadBuffer->offset;
 
@@ -822,7 +823,7 @@ image_t *R_Images_GetNextIteration( void ) {
 
 template<bool FreeDescriptorSet>
 static void VK_DeleteImageContents( image_t *pImage ) {
-	if constexpr (FreeDescriptorSet) {
+	if constexpr( FreeDescriptorSet ) {
 		if( pImage->descriptorSet ) {
 			vkFreeDescriptorSets( vkState.device, vkState.descriptorPool, 1, &pImage->descriptorSet );
 			pImage->descriptorSet = VK_NULL_HANDLE;
@@ -960,7 +961,7 @@ qboolean RE_RegisterImages_LevelLoadEnd( void ) {
 //
 // This is called by both R_FindImageFile and anything that creates default images...
 //
-static image_t *R_FindImageFile_NoLoad( const char *name, qboolean mipmap, qboolean allowPicmip, qboolean allowTC, VkSamplerAddressMode wrapClampMode ) {
+static image_t *R_FindImageFile_NoLoad( const char *name, qboolean mipmap, qboolean allowPicmip, qboolean allowTC, VkSamplerAddressMode wrapClampMode, bool cube ) {
 	if( !name ) {
 		return NULL;
 	}
@@ -973,6 +974,11 @@ static image_t *R_FindImageFile_NoLoad( const char *name, qboolean mipmap, qbool
 	AllocatedImages_t::iterator itAllocatedImage = AllocatedImages.find( pName );
 	if( itAllocatedImage != AllocatedImages.end() ) {
 		image_t *pImage = ( *itAllocatedImage ).second;
+
+		// cube images should not be mixed with typical 2D images
+		if( pImage->cube != cube ) {
+			ri.Printf( PRINT_WARNING, "WARNING: reused image %s with mixed cube parm\n", pName );
+		}
 
 		// the white image can be used with any set of parms, but other mismatches are errors...
 		//
@@ -1016,6 +1022,11 @@ static void VK_AllocImageContents( image_t *image ) {
 	imageCreateInfo.usage = image->usage;
 	imageCreateInfo.tiling = image->tiling;
 
+	if( image->cube ) {
+		imageCreateInfo.flags |= VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT;
+		imageCreateInfo.arrayLayers = 6;
+	}
+
 	if( image->mipmap ) {
 		int mipwidth = image->width;
 		int mipheight = image->height;
@@ -1056,12 +1067,12 @@ static void VK_AllocImageContents( image_t *image ) {
 
 		// create an image view
 		imageViewCreateInfo.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
-		imageViewCreateInfo.viewType = VK_IMAGE_VIEW_TYPE_2D;
+		imageViewCreateInfo.viewType = image->cube ? VK_IMAGE_VIEW_TYPE_CUBE : VK_IMAGE_VIEW_TYPE_2D;
 		imageViewCreateInfo.image = image->tex;
 		imageViewCreateInfo.format = image->internalFormat;
 		imageViewCreateInfo.subresourceRange.aspectMask = image->allAspectFlags;
 		imageViewCreateInfo.subresourceRange.levelCount = VK_REMAINING_MIP_LEVELS;
-		imageViewCreateInfo.subresourceRange.layerCount = 1;
+		imageViewCreateInfo.subresourceRange.layerCount = VK_REMAINING_ARRAY_LAYERS;
 
 		res = vkCreateImageView( vkState.device, &imageViewCreateInfo, NULL, &image->texview );
 		if( res != VK_SUCCESS ) {
@@ -1088,12 +1099,13 @@ static void VK_AllocImageContents( image_t *image ) {
 
 // initializes the image object
 static void VK_InitImage( image_t *image, const char *name, int width, int height, VkFormat internalFormat, qboolean mipmap, qboolean allowPicmip,
-	VkSamplerAddressMode wrapClampMode, VkImageUsageFlags usage, VkImageTiling tiling ) {
+	VkSamplerAddressMode wrapClampMode, VkImageUsageFlags usage, VkImageTiling tiling, bool cube ) {
 
 	// record which map it was used on...
 	//
 	image->iLastLevelUsedOn = RE_RegisterMedia_GetLevel();
 
+	image->cube = cube;
 	image->mipmap = !!mipmap;
 	image->allowPicmip = !!allowPicmip;
 
@@ -1122,7 +1134,6 @@ static void VK_InitImage( image_t *image, const char *name, int width, int heigh
 	VK_AllocImageContents( image );
 }
 
-
 /*
 ================
 R_CreateImage
@@ -1148,7 +1159,7 @@ image_t *R_CreateImage( const char *name, const byte *pic, int width, int height
 		Com_Error( ERR_FATAL, "R_CreateImage: %s dimensions (%i x %i) not power of 2!\n", name, width, height );
 	}
 
-	image = R_FindImageFile_NoLoad( name, mipmap, allowPicmip, allowTC, wrapClampMode );
+	image = R_FindImageFile_NoLoad( name, mipmap, allowPicmip, allowTC, wrapClampMode, false );
 	if( image ) {
 		return image;
 	}
@@ -1163,7 +1174,7 @@ image_t *R_CreateImage( const char *name, const byte *pic, int width, int height
 	internalFormat = VK_GetInternalFormat( pic, width, height, isLightmap, allowTC );
 	VK_InitImage( image, name, width, height, internalFormat, mipmap, allowPicmip, wrapClampMode,
 		VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
-		VK_IMAGE_TILING_OPTIMAL );
+		VK_IMAGE_TILING_OPTIMAL, false );
 
 	// upload the first mip
 	VK_UploadImage( image, pic, width, height, 0 );
@@ -1197,7 +1208,88 @@ image_t *R_CreateImage( const char *name, const byte *pic, int width, int height
 	auto emplaced = AllocatedImages.emplace( image->imgName, image );
 	if( !emplaced.second ) {
 		// this should never happen, as existing images should be handled by R_FindImageFile_NoLoad
-		//assert( 0 );
+		// assert( 0 );
+	}
+
+	return image;
+}
+
+image_t *R_CreateImageCube( const char *name, const byte *const *pics, int size,
+	VkFormat format, qboolean mipmap, qboolean allowPicmip, qboolean allowTC, VkSamplerAddressMode wrapClampMode ) {
+	image_t *image;
+	qboolean isLightmap = qfalse;
+	VkFormat internalFormat;
+	int width, height;
+	int i;
+
+	if( strlen( name ) >= MAX_QPATH ) {
+		Com_Error( ERR_DROP, "R_CreateImageCube: \"%s\" is too long\n", name );
+	}
+
+	if( name[0] == '$' ) {
+		isLightmap = qtrue;
+	}
+
+	if( ( size & ( size - 1 ) ) ) {
+		Com_Error( ERR_FATAL, "R_CreateImageCube: %s size (%i) not power of 2!\n", name, size );
+	}
+
+	image = R_FindImageFile_NoLoad( name, mipmap, allowPicmip, allowTC, wrapClampMode, true );
+	if( image ) {
+		return image;
+	}
+
+	image = (image_t *)R_Malloc( sizeof( image_t ), TAG_IMAGE_T, qtrue );
+
+	// Resize the image if needed
+	for( i = 0; i < 6; ++i ) {
+		width = size;
+		height = size;
+		VK_AdjustTextureSize( (byte *)pics[i], &width, &height, allowPicmip );
+	}
+
+	// image->imgfileSize=fileSize;
+
+	internalFormat = VK_GetInternalFormat( pics[0], width, height, isLightmap, allowTC );
+	VK_InitImage( image, name, width, height, internalFormat, mipmap, allowPicmip, wrapClampMode,
+		VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+		VK_IMAGE_TILING_OPTIMAL, true );
+
+	for( i = 0; i < 6; ++i ) {
+		// upload the first mip
+		VK_UploadImage( image, pics[i], width, height, 0, i );
+
+		if( mipmap ) {
+			int mipwidth = width;
+			int mipheight = height;
+			int miplevel = 0;
+
+			// generate and upload the remaining mips
+			while( mipwidth > 1 || mipheight > 1 ) {
+				miplevel++;
+
+				R_MipMap( (byte *)pics[i], mipwidth, mipheight );
+
+				if( r_colorMipLevels->integer ) {
+					R_BlendOverTexture( (byte *)pics[i], mipwidth * mipheight, mipBlendColors[miplevel] );
+				}
+
+				mipwidth >>= 1;
+				mipheight >>= 1;
+				if( mipwidth < 1 )
+					mipwidth = 1;
+				if( mipheight < 1 )
+					mipheight = 1;
+
+				VK_UploadImage( image, pics[i], mipwidth, mipheight, miplevel, i );
+			}
+		}
+	}
+
+	auto emplaced = AllocatedImages.emplace( image->imgName, image );
+	if( !emplaced.second ) {
+		// this should never happen, as existing images should be handled by R_FindImageFile_NoLoad
+		// assert( 0 );
 	}
 
 	return image;
@@ -1222,7 +1314,7 @@ image_t *R_CreateTransientImage( const char *name, int width, int height, VkForm
 	else
 		usage |= VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
 
-	VK_InitImage( image, name, width, height, format, qfalse, qfalse, wrapClampMode, usage, VK_IMAGE_TILING_OPTIMAL );
+	VK_InitImage( image, name, width, height, format, qfalse, qfalse, wrapClampMode, usage, VK_IMAGE_TILING_OPTIMAL, false );
 
 	return image;
 }
@@ -1240,7 +1332,7 @@ image_t *R_CreateReadbackImage( const char *name, int width, int height, VkForma
 	VK_InitImage( image, name, width, height, format, qfalse, qfalse,
 		VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
 		VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
-		VK_IMAGE_TILING_LINEAR );
+		VK_IMAGE_TILING_LINEAR, false );
 
 	return image;
 }
@@ -1283,7 +1375,7 @@ image_t *R_FindImageFile( const char *name, qboolean mipmap, qboolean allowPicmi
 		return NULL;
 	}
 
-	image = R_FindImageFile_NoLoad( name, mipmap, allowPicmip, allowTC, wrapClampMode );
+	image = R_FindImageFile_NoLoad( name, mipmap, allowPicmip, allowTC, wrapClampMode, false );
 	if( image ) {
 		return image;
 	}
@@ -1298,6 +1390,56 @@ image_t *R_FindImageFile( const char *name, qboolean mipmap, qboolean allowPicmi
 
 	image = R_CreateImage( (char *)name, pic, width, height, VK_FORMAT_B8G8R8A8_UNORM, mipmap, allowPicmip, allowTC, wrapClampMode );
 	R_Free( pic );
+	return image;
+}
+
+/*
+===============
+R_FindImageCubeFile
+
+Finds or loads the given cube image.
+Returns NULL if it fails, not a default image.
+==============
+*/
+image_t *R_FindImageCubeFile( const char *name, qboolean mipmap, qboolean allowPicmip, qboolean allowTC, VkSamplerAddressMode wrapClampMode ) {
+	image_t *image;
+	int width, height, size;
+	byte *pics[6];
+	const char *suf[6] = { "rt", "lf", "up", "dn", "bk", "ft" };
+	char pathname[MAX_QPATH];
+	int i;
+
+	if( !name ) {
+		return NULL;
+	}
+
+	image = R_FindImageFile_NoLoad( name, mipmap, allowPicmip, allowTC, wrapClampMode, true );
+	if( image ) {
+		return image;
+	}
+
+	//
+	// load the pic from disk
+	//
+	size = 0;
+	for( i = 0; i < 6; i++ ) {
+		Com_sprintf( pathname, sizeof( pathname ), "%s_%s", name, suf[i] );
+		R_LoadImage( pathname, &pics[i], &width, &height );
+		if( !pics[i] ) {
+			Com_Error( ERR_DROP, "R_FindImageCubeFile: \"%s\" not found\n", pathname );
+		}
+		if( !size ) {
+			size = width;
+		}
+		if( ( size != width ) || ( size != height ) ) {
+			Com_Error( ERR_DROP, "R_FindImageCubeFile: \"%s\" is not square or has different dimensions than other cube faces\n", pathname );
+		}
+	}
+
+	image = R_CreateImageCube( (char *)name, pics, size, VK_FORMAT_B8G8R8A8_UNORM, mipmap, allowPicmip, allowTC, wrapClampMode );
+	for( i = 0; i < 6; i++ ) {
+		R_Free( pics[i] );
+	}
 	return image;
 }
 

@@ -762,7 +762,8 @@ int CDynamicGeometryBuilder::addVertex() {
 		if( triangleStripVertexCount == 2 ) {
 			// next vertex will form a triangle
 			addTriangle( triangleStripVertexes[0], triangleStripVertexes[1], vertex );
-			triangleStripVertexCount = 0;
+			triangleStripVertexes[0] = triangleStripVertexes[1];
+			triangleStripVertexCount = 1;
 		}
 		triangleStripVertexes[triangleStripVertexCount] = vertex;
 		triangleStripVertexCount++;
