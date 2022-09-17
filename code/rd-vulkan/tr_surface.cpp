@@ -233,114 +233,91 @@ RB_SurfaceLine
 static void DoLine( const vec3_t start, const vec3_t end, const vec3_t up, float spanWidth ) {
 	float		spanWidth2;
 	tr_shader::vertex_t *v;
+	tr_shader::byte4 vertexColor;
 
 	backEndData->dynamicGeometryBuilder.checkOverflow( 4, 6 );
 
 	spanWidth2 = -spanWidth;
+
+	vertexColor[0] = backEnd.currentEntity->e.shaderRGBA[2]; // * 0.25;//wtf??not sure why the code would be doing this
+	vertexColor[1] = backEnd.currentEntity->e.shaderRGBA[1]; // * 0.25;
+	vertexColor[2] = backEnd.currentEntity->e.shaderRGBA[0]; // * 0.25;
+	vertexColor[3] = backEnd.currentEntity->e.shaderRGBA[3]; // * 0.25;
 
 	int a = backEndData->dynamicGeometryBuilder.addVertex();
 	v = &backEndData->dynamicGeometryBuilder.vertexes[a];
 	VectorMA( start, spanWidth, up, v->position.m );
 	v->texCoord0[0] = 0;
 	v->texCoord0[1] = 0;
-	v->vertexColor[0] = backEnd.currentEntity->e.shaderRGBA[2];// * 0.25;//wtf??not sure why the code would be doing this
-	v->vertexColor[1] = backEnd.currentEntity->e.shaderRGBA[1];// * 0.25;
-	v->vertexColor[2] = backEnd.currentEntity->e.shaderRGBA[0];// * 0.25;
-	v->vertexColor[3] = backEnd.currentEntity->e.shaderRGBA[3];// * 0.25;
+	v->vertexColor = vertexColor;
 
 	int b = backEndData->dynamicGeometryBuilder.addVertex();
 	v = &backEndData->dynamicGeometryBuilder.vertexes[b];
 	VectorMA( start, spanWidth2, up, v->position.m );
 	v->texCoord0[0] = 1;//backEnd.currentEntity->e.shaderTexCoord[0];
 	v->texCoord0[1] = 0;
-	v->vertexColor[0] = backEnd.currentEntity->e.shaderRGBA[2];
-	v->vertexColor[1] = backEnd.currentEntity->e.shaderRGBA[1];
-	v->vertexColor[2] = backEnd.currentEntity->e.shaderRGBA[0];
-	v->vertexColor[3] = backEnd.currentEntity->e.shaderRGBA[3];
+	v->vertexColor = vertexColor;
 
 	int c = backEndData->dynamicGeometryBuilder.addVertex();
 	v = &backEndData->dynamicGeometryBuilder.vertexes[c];
 	VectorMA( end, spanWidth, up, v->position.m );
 	v->texCoord0[0] = 0;
 	v->texCoord0[1] = 1;//backEnd.currentEntity->e.shaderTexCoord[1];
-	v->vertexColor[0] = backEnd.currentEntity->e.shaderRGBA[2];
-	v->vertexColor[1] = backEnd.currentEntity->e.shaderRGBA[1];
-	v->vertexColor[2] = backEnd.currentEntity->e.shaderRGBA[0];
-	v->vertexColor[3] = backEnd.currentEntity->e.shaderRGBA[3];
+	v->vertexColor = vertexColor;
 
 	int d = backEndData->dynamicGeometryBuilder.addVertex();
 	v = &backEndData->dynamicGeometryBuilder.vertexes[d];
 	VectorMA( end, spanWidth2, up, v->position.m );
 	v->texCoord0[0] = 1;//backEnd.currentEntity->e.shaderTexCoord[0];
 	v->texCoord0[1] = 1;//backEnd.currentEntity->e.shaderTexCoord[1];
-	v->vertexColor[0] = backEnd.currentEntity->e.shaderRGBA[2];
-	v->vertexColor[1] = backEnd.currentEntity->e.shaderRGBA[1];
-	v->vertexColor[2] = backEnd.currentEntity->e.shaderRGBA[0];
-	v->vertexColor[3] = backEnd.currentEntity->e.shaderRGBA[3];
+	v->vertexColor = vertexColor;
 
 	backEndData->dynamicGeometryBuilder.addTriangle( a, b, c );
 	backEndData->dynamicGeometryBuilder.addTriangle( c, b, d );
 }
 
-#if 0
 static void DoLine2( const vec3_t start, const vec3_t end, const vec3_t up, float spanWidth, float spanWidth2, const float tcStart, const float tcEnd ) {
 	tr_shader::vertex_t *v;
+	tr_shader::byte4 vertexColor;
 
 	backEndData->dynamicGeometryBuilder.checkOverflow( 4, 6 );
 
+	vertexColor[0] = backEnd.currentEntity->e.shaderRGBA[2]; // * 0.25;//wtf??not sure why the code would be doing this
+	vertexColor[1] = backEnd.currentEntity->e.shaderRGBA[1]; // * 0.25;
+	vertexColor[2] = backEnd.currentEntity->e.shaderRGBA[0]; // * 0.25;
+	vertexColor[3] = backEnd.currentEntity->e.shaderRGBA[3]; // * 0.25;
+
 	int a = backEndData->dynamicGeometryBuilder.addVertex();
 	v = &backEndData->dynamicGeometryBuilder.vertexes[a];
-	VectorMA( start, spanWidth, up, tess.xyz[tess.numVertexes] );
-	tess.texCoords[tess.numVertexes][0][0] = 0;
-	tess.texCoords[tess.numVertexes][0][1] = tcStart;
-	tess.vertexColors[tess.numVertexes][0] = backEnd.currentEntity->e.shaderRGBA[0];// * 0.25;//wtf??not sure why the code would be doing this
-	tess.vertexColors[tess.numVertexes][1] = backEnd.currentEntity->e.shaderRGBA[1];// * 0.25;
-	tess.vertexColors[tess.numVertexes][2] = backEnd.currentEntity->e.shaderRGBA[2];// * 0.25;
-	tess.vertexColors[tess.numVertexes][3] = backEnd.currentEntity->e.shaderRGBA[3];// * 0.25;
-	tess.numVertexes++;
+	VectorMA( start, spanWidth, up, v->position.m );
+	v->texCoord0[0] = 0;
+	v->texCoord0[1] = tcStart;
+	v->vertexColor = vertexColor;
 
 	int b = backEndData->dynamicGeometryBuilder.addVertex();
 	v = &backEndData->dynamicGeometryBuilder.vertexes[b];
-	VectorMA( start, -spanWidth, up, tess.xyz[tess.numVertexes] );
-	tess.texCoords[tess.numVertexes][0][0] = 1;//backEnd.currentEntity->e.shaderTexCoord[0];
-	tess.texCoords[tess.numVertexes][0][1] = tcStart;
-	tess.vertexColors[tess.numVertexes][0] = backEnd.currentEntity->e.shaderRGBA[0];
-	tess.vertexColors[tess.numVertexes][1] = backEnd.currentEntity->e.shaderRGBA[1];
-	tess.vertexColors[tess.numVertexes][2] = backEnd.currentEntity->e.shaderRGBA[2];
-	tess.vertexColors[tess.numVertexes][3] = backEnd.currentEntity->e.shaderRGBA[3];
-	tess.numVertexes++;
+	VectorMA( start, -spanWidth, up, v->position.m );
+	v->texCoord0[0] = 1;//backEnd.currentEntity->e.shaderTexCoord[0];
+	v->texCoord0[1] = tcStart;
+	v->vertexColor = vertexColor;
 
 	int c = backEndData->dynamicGeometryBuilder.addVertex();
 	v = &backEndData->dynamicGeometryBuilder.vertexes[c];
-	VectorMA( end, spanWidth2, up, tess.xyz[tess.numVertexes] );
-	tess.texCoords[tess.numVertexes][0][0] = 0;
-	tess.texCoords[tess.numVertexes][0][1] = tcEnd;//backEnd.currentEntity->e.shaderTexCoord[1];
-	tess.vertexColors[tess.numVertexes][0] = backEnd.currentEntity->e.shaderRGBA[0];
-	tess.vertexColors[tess.numVertexes][1] = backEnd.currentEntity->e.shaderRGBA[1];
-	tess.vertexColors[tess.numVertexes][2] = backEnd.currentEntity->e.shaderRGBA[2];
-	tess.vertexColors[tess.numVertexes][3] = backEnd.currentEntity->e.shaderRGBA[3];
-	tess.numVertexes++;
+	VectorMA( end, spanWidth2, up, v->position.m );
+	v->texCoord0[0] = 0;
+	v->texCoord0[1] = tcEnd;//backEnd.currentEntity->e.shaderTexCoord[1];
+	v->vertexColor = vertexColor;
 
 	int d = backEndData->dynamicGeometryBuilder.addVertex();
 	v = &backEndData->dynamicGeometryBuilder.vertexes[d];
-	VectorMA( end, -spanWidth2, up, tess.xyz[tess.numVertexes] );
-	tess.texCoords[tess.numVertexes][0][0] = 1;//backEnd.currentEntity->e.shaderTexCoord[0];
-	tess.texCoords[tess.numVertexes][0][1] = tcEnd;//backEnd.currentEntity->e.shaderTexCoord[1];
-	tess.vertexColors[tess.numVertexes][0] = backEnd.currentEntity->e.shaderRGBA[0];
-	tess.vertexColors[tess.numVertexes][1] = backEnd.currentEntity->e.shaderRGBA[1];
-	tess.vertexColors[tess.numVertexes][2] = backEnd.currentEntity->e.shaderRGBA[2];
-	tess.vertexColors[tess.numVertexes][3] = backEnd.currentEntity->e.shaderRGBA[3];
-	tess.numVertexes++;
+	VectorMA( end, -spanWidth2, up, v->position.m );
+	v->texCoord0[0] = 1;//backEnd.currentEntity->e.shaderTexCoord[0];
+	v->texCoord0[1] = tcEnd;//backEnd.currentEntity->e.shaderTexCoord[1];
+	v->vertexColor = vertexColor;
 
-	tess.indexes[tess.numIndexes++] = vbase;
-	tess.indexes[tess.numIndexes++] = vbase + 1;
-	tess.indexes[tess.numIndexes++] = vbase + 2;
-
-	tess.indexes[tess.numIndexes++] = vbase + 2;
-	tess.indexes[tess.numIndexes++] = vbase + 1;
-	tess.indexes[tess.numIndexes++] = vbase + 3;
+	backEndData->dynamicGeometryBuilder.addTriangle( a, b, c );
+	backEndData->dynamicGeometryBuilder.addTriangle( c, b, d );
 }
-#endif
 
 //-----------------
 // RB_SurfaceLine
@@ -366,7 +343,6 @@ static void RB_SurfaceLine( void )
 	DoLine( start, end, right, e->radius);
 }
 
-#if 0
 /*
 ==============
 RB_SurfaceCylinder
@@ -386,12 +362,17 @@ static void RB_SurfaceCone( void )
 //-------------------------------------
 {
 	static vec3_t points[NUM_CYLINDER_SEGMENTS];
+	static vec3_t normals[NUM_CYLINDER_SEGMENTS];
+	static int verts[NUM_CYLINDER_SEGMENTS * 2 + 2];
 	vec3_t		vr, vu, midpoint;
 	vec3_t		tapered, base;
 	float		detail, length;
-	int			i;
+	int			i, a, b;
 	int			segments;
+	int			vbase;
 	refEntity_t *e;
+	tr_shader::vertex_t *v;
+	tr_shader::byte4 vertexColor;
 
 	e = &backEnd.currentEntity->e;
 
@@ -444,64 +425,69 @@ static void RB_SurfaceCone( void )
 	{
 		// ring
 		RotatePointAroundVector( points[i], e->axis[0], vu, detail * i );
+		VectorCopy( points[i], normals[i] );
+		VectorNormalizeFast( normals[i] );
 		VectorAdd( points[i], base, points[i] );
 	}
 
 	// Calculate the texture coords so the texture can wrap around the whole cylinder
 	detail = 1.0f / (float)segments;
 
-	RB_CHECKOVERFLOW( 2 * (segments+1), 3 * segments ); // this isn't 100% accurate
+	backEndData->dynamicGeometryBuilder.checkOverflow( 2 * (segments+1), 3 * segments ); // this isn't 100% accurate
 
-	int vbase = tess.numVertexes;
+	vertexColor[0] = e->shaderRGBA[2];
+	vertexColor[1] = e->shaderRGBA[1];
+	vertexColor[2] = e->shaderRGBA[0];
+	vertexColor[3] = e->shaderRGBA[3];
 
-	for ( i = 0; i < segments; i++ )
-	{
- 		VectorCopy( points[i], tess.xyz[tess.numVertexes] );
-		tess.texCoords[tess.numVertexes][0][0] = detail * i;
-		tess.texCoords[tess.numVertexes][0][1] = 1.0f;
-		tess.vertexColors[tess.numVertexes][0] = e->shaderRGBA[0];
-		tess.vertexColors[tess.numVertexes][1] = e->shaderRGBA[1];
-		tess.vertexColors[tess.numVertexes][2] = e->shaderRGBA[2];
-		tess.vertexColors[tess.numVertexes][3] = e->shaderRGBA[3];
-		tess.numVertexes++;
+	vbase = 0;
+	for ( i = 0; i < segments; i++ ) {
+		a = backEndData->dynamicGeometryBuilder.addVertex();
+		v = &backEndData->dynamicGeometryBuilder.vertexes[a];
+ 		VectorCopy( points[i], v->position.m );
+		VectorCopy( normals[i], v->normal.m );
+		v->texCoord0[0] = detail * i;
+		v->texCoord0[1] = 1.0f;
+		v->vertexColor = vertexColor;
+		verts[vbase] = a;
 
 		// We could add this vert once, but using the given texture mapping method, we need to generate different texture coordinates
-		VectorCopy( tapered, tess.xyz[tess.numVertexes] );
-		tess.texCoords[tess.numVertexes][0][0] = detail * i + detail * 0.5f; // set the texture coordinates to the point half-way between the untapered ends....but on the other end of the texture
-		tess.texCoords[tess.numVertexes][0][1] = 0.0f;
-		tess.vertexColors[tess.numVertexes][0] = e->shaderRGBA[0];
-		tess.vertexColors[tess.numVertexes][1] = e->shaderRGBA[1];
-		tess.vertexColors[tess.numVertexes][2] = e->shaderRGBA[2];
-		tess.vertexColors[tess.numVertexes][3] = e->shaderRGBA[3];
-		tess.numVertexes++;
+		b = backEndData->dynamicGeometryBuilder.addVertex();
+		v = &backEndData->dynamicGeometryBuilder.vertexes[b];
+		VectorCopy( tapered, v->position.m );
+		VectorCopy( normals[i], v->normal.m );
+		v->texCoord0[0] = detail * i + detail * 0.5f; // set the texture coordinates to the point half-way between the untapered ends....but on the other end of the texture
+		v->texCoord0[1] = 0.0f;
+		v->vertexColor = vertexColor;
+		verts[vbase + 1] = b;
+
+		vbase += 2;
 	}
 
 	// last point has the same verts as the first, but does not share the same tex coords, so we have to duplicate it
- 	VectorCopy( points[0], tess.xyz[tess.numVertexes] );
-	tess.texCoords[tess.numVertexes][0][0] = detail * i;
-	tess.texCoords[tess.numVertexes][0][1] = 1.0f;
-	tess.vertexColors[tess.numVertexes][0] = e->shaderRGBA[0];
-	tess.vertexColors[tess.numVertexes][1] = e->shaderRGBA[1];
-	tess.vertexColors[tess.numVertexes][2] = e->shaderRGBA[2];
-	tess.vertexColors[tess.numVertexes][3] = e->shaderRGBA[3];
-	tess.numVertexes++;
+	a = backEndData->dynamicGeometryBuilder.addVertex();
+	v = &backEndData->dynamicGeometryBuilder.vertexes[a];
+ 	VectorCopy( points[0], v->position.m );
+	VectorCopy( normals[0], v->normal.m );
+	v->texCoord0[0] = detail * i;
+	v->texCoord0[1] = 1.0f;
+	v->vertexColor = vertexColor;
+	verts[vbase] = a;
 
- 	VectorCopy( tapered, tess.xyz[tess.numVertexes] );
-	tess.texCoords[tess.numVertexes][0][0] = detail * i + detail * 0.5f;
-	tess.texCoords[tess.numVertexes][0][1] = 0.0f;
-	tess.vertexColors[tess.numVertexes][0] = e->shaderRGBA[0];
-	tess.vertexColors[tess.numVertexes][1] = e->shaderRGBA[1];
-	tess.vertexColors[tess.numVertexes][2] = e->shaderRGBA[2];
-	tess.vertexColors[tess.numVertexes][3] = e->shaderRGBA[3];
-	tess.numVertexes++;
+	b = backEndData->dynamicGeometryBuilder.addVertex();
+	v = &backEndData->dynamicGeometryBuilder.vertexes[b];
+ 	VectorCopy( tapered, v->position.m );
+	VectorCopy( normals[0], v->normal.m );
+	v->texCoord0[0] = detail * i + detail * 0.5f;
+	v->texCoord0[1] = 0.0f;
+	v->vertexColor = vertexColor;
+	verts[vbase + 1] = b;
 
 	// do the welding
+	vbase = 0;
 	for ( i = 0; i < segments; i++ )
 	{
-		tess.indexes[tess.numIndexes++] = vbase;
-		tess.indexes[tess.numIndexes++] = vbase + 1;
-		tess.indexes[tess.numIndexes++] = vbase + 2;
-
+		backEndData->dynamicGeometryBuilder.addTriangle( verts[vbase], verts[vbase + 1], verts[vbase + 2] );
 		vbase += 2;
 	}
 }
@@ -511,11 +497,16 @@ static void RB_SurfaceCylinder( void )
 //-------------------------------------
 {
 	static vec3_t lower_points[NUM_CYLINDER_SEGMENTS], upper_points[NUM_CYLINDER_SEGMENTS];
+	static vec3_t normals[NUM_CYLINDER_SEGMENTS];
+	static int verts[NUM_CYLINDER_SEGMENTS * 2 + 2];
 	vec3_t		vr, vu, midpoint, v1;
 	float		detail, length;
-	int			i;
+	int			i, a, b;
 	int			segments;
+	int			vbase;
 	refEntity_t *e;
+	tr_shader::vertex_t *v;
+	tr_shader::byte4 vertexColor;
 
 	e = &backEnd.currentEntity->e;
 
@@ -568,67 +559,71 @@ static void RB_SurfaceCylinder( void )
 
 		//Lower ring
 		RotatePointAroundVector( lower_points[i], e->axis[0], v1, detail * i );
+		VectorCopy( lower_points[i], normals[i] );
 		VectorAdd( lower_points[i], e->oldorigin, lower_points[i] );
+
+		//Normal
+		VectorNormalizeFast( normals[i] );
 	}
 
 	// Calculate the texture coords so the texture can wrap around the whole cylinder
 	detail = 1.0f / (float)segments;
 
-	RB_CHECKOVERFLOW( 2 * (segments+1), 6 * segments ); // this isn't 100% accurate
+	backEndData->dynamicGeometryBuilder.checkOverflow( 2 * ( segments + 1 ), 6 * segments ); // this isn't 100% accurate
 
-	int vbase = tess.numVertexes;
+	vertexColor[0] = e->shaderRGBA[2];
+	vertexColor[1] = e->shaderRGBA[1];
+	vertexColor[2] = e->shaderRGBA[0];
+	vertexColor[3] = e->shaderRGBA[3];
 
-	for ( i = 0; i < segments; i++ )
-	{
- 		VectorCopy( upper_points[i], tess.xyz[tess.numVertexes] );
-		tess.texCoords[tess.numVertexes][0][0] = detail * i;
-		tess.texCoords[tess.numVertexes][0][1] = 1.0f;
-		tess.vertexColors[tess.numVertexes][0] = e->shaderRGBA[0];
-		tess.vertexColors[tess.numVertexes][1] = e->shaderRGBA[1];
-		tess.vertexColors[tess.numVertexes][2] = e->shaderRGBA[2];
-		tess.vertexColors[tess.numVertexes][3] = e->shaderRGBA[3];
-		tess.numVertexes++;
+	vbase = 0;
+	for ( i = 0; i < segments; i++ ) {
+		a = backEndData->dynamicGeometryBuilder.addVertex();
+		v = &backEndData->dynamicGeometryBuilder.vertexes[a];
+ 		VectorCopy( upper_points[i], v->position.m );
+		VectorCopy( normals[i], v->normal.m );
+		v->texCoord0[0] = detail * i;
+		v->texCoord0[1] = 1.0f;
+		v->vertexColor = vertexColor;
+		verts[vbase] = a;
 
-		VectorCopy( lower_points[i], tess.xyz[tess.numVertexes] );
-		tess.texCoords[tess.numVertexes][0][0] = detail * i;
-		tess.texCoords[tess.numVertexes][0][1] = 0.0f;
-		tess.vertexColors[tess.numVertexes][0] = e->shaderRGBA[0];
-		tess.vertexColors[tess.numVertexes][1] = e->shaderRGBA[1];
-		tess.vertexColors[tess.numVertexes][2] = e->shaderRGBA[2];
-		tess.vertexColors[tess.numVertexes][3] = e->shaderRGBA[3];
-		tess.numVertexes++;
+		b = backEndData->dynamicGeometryBuilder.addVertex();
+		v = &backEndData->dynamicGeometryBuilder.vertexes[b];
+		VectorCopy( lower_points[i], v->position.m );
+		VectorCopy( normals[i], v->normal.m );
+		v->texCoord0[0] = detail * i;
+		v->texCoord0[1] = 0.0f;
+		v->vertexColor = vertexColor;
+		verts[vbase + 1] = b;
+
+		vbase += 2;
 	}
 
 	// last point has the same verts as the first, but does not share the same tex coords, so we have to duplicate it
- 	VectorCopy( upper_points[0], tess.xyz[tess.numVertexes] );
-	tess.texCoords[tess.numVertexes][0][0] = detail * i;
-	tess.texCoords[tess.numVertexes][0][1] = 1.0f;
-	tess.vertexColors[tess.numVertexes][0] = e->shaderRGBA[0];
-	tess.vertexColors[tess.numVertexes][1] = e->shaderRGBA[1];
-	tess.vertexColors[tess.numVertexes][2] = e->shaderRGBA[2];
-	tess.vertexColors[tess.numVertexes][3] = e->shaderRGBA[3];
-	tess.numVertexes++;
+	a = backEndData->dynamicGeometryBuilder.addVertex();
+	v = &backEndData->dynamicGeometryBuilder.vertexes[a];
+	VectorCopy( upper_points[0], v->position.m );
+	VectorCopy( normals[0], v->normal.m );
+	v->texCoord0[0] = detail * i;
+	v->texCoord0[1] = 1.0f;
+	v->vertexColor = vertexColor;
+	verts[vbase] = a;
 
- 	VectorCopy( lower_points[0], tess.xyz[tess.numVertexes] );
-	tess.texCoords[tess.numVertexes][0][0] = detail * i;
-	tess.texCoords[tess.numVertexes][0][1] = 0.0f;
-	tess.vertexColors[tess.numVertexes][0] = e->shaderRGBA[0];
-	tess.vertexColors[tess.numVertexes][1] = e->shaderRGBA[1];
-	tess.vertexColors[tess.numVertexes][2] = e->shaderRGBA[2];
-	tess.vertexColors[tess.numVertexes][3] = e->shaderRGBA[3];
-	tess.numVertexes++;
+	b = backEndData->dynamicGeometryBuilder.addVertex();
+	v = &backEndData->dynamicGeometryBuilder.vertexes[b];
+ 	VectorCopy( lower_points[0], v->position.m );
+	VectorCopy( normals[0], v->normal.m );
+	v->texCoord0[0] = detail * i;
+	v->texCoord0[1] = 0.0f;
+	v->vertexColor = vertexColor;
+	verts[vbase + 1] = b;
 
 	// glue the verts
+	vbase = 0;
 	for ( i = 0; i < segments; i++ )
 	{
-		tess.indexes[tess.numIndexes++] = vbase;
-		tess.indexes[tess.numIndexes++] = vbase + 1;
-		tess.indexes[tess.numIndexes++] = vbase + 2;
-
-		tess.indexes[tess.numIndexes++] = vbase + 2;
-		tess.indexes[tess.numIndexes++] = vbase + 1;
-		tess.indexes[tess.numIndexes++] = vbase + 3;
-
+		backEndData->dynamicGeometryBuilder.addTriangle( verts[vbase], verts[vbase + 1], verts[vbase + 2] );
+		backEndData->dynamicGeometryBuilder.addTriangle( verts[vbase + 2], verts[vbase + 1], verts[vbase + 3] );
 		vbase += 2;
 	}
 }
@@ -839,7 +834,6 @@ static void RB_SurfaceElectricity()
 	f_count = 3;
     DoBoltSeg( start, end, right, radius );
 }
-#endif
 
 /*
 =============
@@ -1733,22 +1727,18 @@ void RB_SurfaceEntity( surfaceType_t *surfType ) {
 	case RT_LINE:
 		RB_SurfaceLine();
 		break;
-#if 0
 	case RT_ELECTRICITY:
 		RB_SurfaceElectricity();
 		break;
-#endif
 	case RT_BEAM:
 		RB_SurfaceBeam();
 		break;
 	case RT_SABER_GLOW:
 		RB_SurfaceSaberGlow();
 		break;
-#if 0
 	case RT_CYLINDER:
 		RB_SurfaceCylinder();
 		break;
-#endif
 	case RT_LATHE:
 		RB_SurfaceLathe();
 		break;
@@ -1762,21 +1752,6 @@ void RB_SurfaceEntity( surfaceType_t *surfType ) {
 		break;
 	}
 	return;
-
-#if 0
-	draw = RB_DrawSurface();
-
-	draw->numVertexBuffers = 1;
-	draw->vertexBuffers[0] = e->vertexBuffer;
-
-	draw->vertexCount = e->vertexBuffer->numVertexes;
-	draw->vertexOffsets[0] = e->vertexBuffer->vertexOffset;
-
-	draw->indexCount = e->vertexBuffer->numIndexes;
-	draw->indexOffset = e->vertexBuffer->indexOffset;
-
-	draw->stateBits = GLS_DEFAULT;
-#endif
 }
 
 void RB_SurfaceBad( surfaceType_t *surfType ) {
