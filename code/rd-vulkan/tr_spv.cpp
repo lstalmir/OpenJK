@@ -366,16 +366,37 @@ pipelineState_t *SPV_GetShadePipeline( int stateBits ) {
 			break;
 		}
 
+		int alphaTest = stateBits & GLS_ATEST_BITS;
+		switch( alphaTest ) {
+		case GLS_ATEST_GT_0:
+			spec |= TR_SHADER_SPEC_ATEST_GT_0;
+			break;
+		case GLS_ATEST_LT_80:
+			spec |= TR_SHADER_SPEC_ATEST_LT_80;
+			break;
+		case GLS_ATEST_GE_80:
+			spec |= TR_SHADER_SPEC_ATEST_GE_80;
+			break;
+		case GLS_ATEST_GE_C0:
+			spec |= TR_SHADER_SPEC_ATEST_GE_C0;
+			break;
+		}
+
 		InitShadePipelineBuilder( &pipelineBuilder, spec );
 
 		// depth test
 		if( stateBits & GLS_DEPTHTEST_DISABLE ) {
 			pipelineBuilder.depthStencil.depthTestEnable = VK_FALSE;
-			pipelineBuilder.depthStencil.depthWriteEnable = VK_FALSE;
 		}
 		else {
 			pipelineBuilder.depthStencil.depthTestEnable = VK_TRUE;
+		}
+
+		if( stateBits & GLS_DEPTHMASK_TRUE ) {
 			pipelineBuilder.depthStencil.depthWriteEnable = VK_TRUE;
+		}
+		else {
+			pipelineBuilder.depthStencil.depthWriteEnable = VK_FALSE;
 		}
 
 		if( stateBits & GLS_DEPTHFUNC_EQUAL ) {

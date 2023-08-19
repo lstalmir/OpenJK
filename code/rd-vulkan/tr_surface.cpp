@@ -962,7 +962,7 @@ void RB_SurfaceTriangles( srfTriangles_t *srf ) {
 	draw->indexCount = srf->vertexBuffer->numIndexes;
 	draw->indexOffset = srf->vertexBuffer->indexOffset;
 
-	draw->stateBits = GLS_DEFAULT;
+	draw->stateBits = 0;
 }
 
 /*
@@ -1117,7 +1117,7 @@ void RB_SurfaceMesh( trMD3Surface_t *surface ) {
 	draw->indexCount = surface->vertexBuffer->numIndexes;
 	draw->indexOffset = surface->vertexBuffer->indexOffset;
 
-	draw->stateBits = GLS_DEFAULT | GLS_INPUT_MD3;
+	draw->stateBits = GLS_INPUT_MD3;
 }
 
 
@@ -1141,7 +1141,7 @@ void RB_SurfaceFace( srfSurfaceFace_t *surf ) {
 	draw->indexCount = surf->vertexBuffer->numIndexes;
 	draw->indexOffset = surf->vertexBuffer->indexOffset;
 
-	draw->stateBits = GLS_DEFAULT;
+	draw->stateBits = 0;
 }
 
 
@@ -1194,7 +1194,7 @@ void RB_SurfaceGrid( srfGridMesh_t *cv ) {
 	draw->indexCount = cv->vertexBuffer->numIndexes;
 	draw->indexOffset = cv->vertexBuffer->indexOffset;
 
-	draw->stateBits = GLS_DEFAULT;
+	draw->stateBits = 0;
 
 #if 0
 	int		i, j, k;
