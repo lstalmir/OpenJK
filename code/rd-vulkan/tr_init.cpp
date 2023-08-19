@@ -2025,13 +2025,14 @@ void RE_Shutdown( qboolean destroyWindow, qboolean restarting ) {
 		VK_Free( vkFreeDescriptorSets, vkState.descriptorPool, tr.commonDescriptorSet );
 		VK_Free( vkFreeDescriptorSets, vkState.descriptorPool, tr.samplerDescriptorSet );
 
-		R_DeleteBuffers();
+		R_DeleteBuffers( TAG_HUNKALLOC );
 		R_DeleteTransientTextures();
 
 		if( destroyWindow ) {
 			int i;
 
 			R_DeleteTextures(); // only do this for vid_restart now, not during things like map load
+			R_DeleteBuffers( TAG_ALL );
 
 			if( restarting ) {
 				SaveGhoul2InfoArray();

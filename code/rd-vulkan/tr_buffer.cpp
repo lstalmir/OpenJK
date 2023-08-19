@@ -340,15 +340,16 @@ void R_Buffers_DeleteBuffer( buffer_t *buffer ) {
 
 // called only at app startup, vid_restart, app-exit
 //
-void R_Buffers_Clear( void ) {
-	buffer_t *buffer;
-	//	int iNumImages =
-	R_Buffers_StartIteration();
-	while( ( buffer = R_Buffers_GetNextIteration() ) != NULL ) {
-		R_Buffers_DeleteBufferContents( buffer );
+void R_Buffers_Clear( memtag_t tag ) {
+	auto iter = AllocatedBuffers.begin();
+	while( iter != AllocatedBuffers.end() ) {
+        buffer_t* buffer = *iter;
+		if( tag == TAG_ALL || tag == buffer->memtag ) {
+			R_Buffers_DeleteBufferContents( buffer );
+			iter = AllocatedBuffers.erase( iter );
+		}
+		else iter++;
 	}
-
-	AllocatedBuffers.clear();
 }
 
 void RE_RegisterBuffers_Info_f( void ) {
@@ -676,14 +677,16 @@ R_DeleteBuffers
 */
 // (only gets called during vid_restart now (and app exit), not during map load)
 //
-void R_DeleteBuffers( void ) {
+void R_DeleteBuffers( memtag_t tag ) {
 	int i;
 
-	R_Buffers_Clear();
+	R_Buffers_Clear( tag );
 
-	// destroy all upload buffers
-	vkState.uploadBuffers = {};
-	for( i = 0; i < ARRAY_LEN( vkState.frameUploadBuffers ); ++i ) {
-		vkState.frameUploadBuffers[i].clear();
+	if( tag == TAG_ALL ) {
+		// destroy all upload buffers
+		vkState.uploadBuffers = {};
+		for( i = 0; i < ARRAY_LEN( vkState.frameUploadBuffers ); ++i ) {
+			vkState.frameUploadBuffers[ i ].clear();
+		}
 	}
 }

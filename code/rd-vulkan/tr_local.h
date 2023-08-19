@@ -1257,7 +1257,7 @@ void	 R_Images_DeleteTransientImage(image_t *pImage);
 
 int		 R_Buffers_StartIteration(void);
 buffer_t *R_Buffers_GetNextIteration(void);
-void	 R_Buffers_Clear(void);
+void	 R_Buffers_Clear( memtag_t tag = TAG_ALL );
 void	 R_Buffers_DeleteBuffer(buffer_t *pBuffer);
 
 
@@ -1591,7 +1591,7 @@ void    R_DeleteUploadTextures( void );
 void	R_DeleteTransientTextures( void );
 void	R_DeleteTextures( void );
 void	R_InitBuffers( void );
-void	R_DeleteBuffers( void );
+void	R_DeleteBuffers( memtag_t tag = TAG_ALL );
 float	R_SumOfUsedImages( qboolean bUseFormat );
 void	R_InitSkins( void );
 skin_t	*R_GetSkinByHandle( qhandle_t hSkin );
