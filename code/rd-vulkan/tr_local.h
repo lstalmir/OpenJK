@@ -150,6 +150,37 @@ typedef struct {
 } vertexBuffer_t;
 
 
+// a hashed viewport state
+typedef union viewportSize_t {
+	uint64_t		hash;
+	struct {
+		int16_t		x;
+		int16_t		y;
+		int16_t		width;
+		int16_t		height;
+	};
+	bool operator==( const viewportSize_t &vp ) const { return hash == vp.hash; }
+	bool operator!=( const viewportSize_t &vp ) const { return hash != vp.hash; }
+} viewportSize_t;
+
+typedef union depthRange_t {
+	uint64_t		hash;
+	struct {
+		float		minDepth;
+		float		maxDepth;
+	};
+	bool operator==( const depthRange_t &vp ) const { return hash == vp.hash; }
+	bool operator!=( const depthRange_t &vp ) const { return hash != vp.hash; }
+} depthRange_t;
+
+typedef struct {
+	viewportSize_t	viewportSize;
+	viewportSize_t	scissorSize;
+	depthRange_t	depthRange;
+	qboolean		valid;
+} viewportState_t;
+
+
 // a Vulkan pipeline layout handlw with additional info
 typedef struct {
 	VkPipelineLayout	handle;
@@ -165,6 +196,7 @@ typedef struct {
 	pipelineLayout_t	*layout;
 	int					stateBits;
 
+	viewportState_t		viewport;	// default viewport state set by the pipeline
 } pipelineState_t;
 
 
@@ -1106,35 +1138,6 @@ typedef struct {
 
 	int		msec;			// total msec for backend run
 } backEndCounters_t;
-
-typedef union viewportSize_t {
-	uint64_t	hash;
-	struct {
-		int16_t x;
-		int16_t y;
-		int16_t width;
-		int16_t height;
-	};
-	bool operator==( const viewportSize_t &vp ) const { return hash == vp.hash; }
-	bool operator!=( const viewportSize_t &vp ) const { return hash != vp.hash; }
-} viewportSize_t;
-
-typedef union depthRange_t {
-	uint64_t	hash;
-	struct {
-		float minDepth;
-		float maxDepth;
-	};
-	bool operator==( const depthRange_t &vp ) const { return hash == vp.hash; }
-	bool operator!=( const depthRange_t &vp ) const { return hash != vp.hash; }
-} depthRange_t;
-
-typedef struct {
-	viewportSize_t viewportSize;
-	viewportSize_t scissorSize;
-	depthRange_t depthRange;
-	qboolean valid;
-} viewportState_t;
 
 // all state modified by the back end is seperated
 // from the front end state

@@ -72,7 +72,7 @@ void R_SetPipelineState( pipelineState_t *pipeline ) {
 	vkCmdBindPipeline( backEndData->cmdbuf, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->handle );
 
 	// rebind the dynamic states
-	RB_InvalidateViewportState();
+	backEnd.currentViewportState = pipeline->viewport;
 	RB_SetViewportState();
 
 	backEndData->pipelineState = pipeline;

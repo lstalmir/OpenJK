@@ -424,6 +424,19 @@ void CPipelineBuilder::build( pipelineState_t *pipeline ) {
 
 	pipeline->layout = layout;
 	pipeline->stateBits = -1;
+
+	// save the default viewport state
+	pipeline->viewport.viewportSize.x = viewport.x;
+	pipeline->viewport.viewportSize.y = viewport.y;
+	pipeline->viewport.viewportSize.width = viewport.width;
+	pipeline->viewport.viewportSize.height = viewport.height;
+	pipeline->viewport.depthRange.minDepth = viewport.minDepth;
+	pipeline->viewport.depthRange.maxDepth = viewport.maxDepth;
+	pipeline->viewport.scissorSize.x = scissor.offset.x;
+	pipeline->viewport.scissorSize.y = scissor.offset.y;
+	pipeline->viewport.scissorSize.width = scissor.extent.width;
+	pipeline->viewport.scissorSize.height = scissor.extent.height;
+	pipeline->viewport.valid = qtrue;
 }
 
 CFrameBufferBuilder::CFrameBufferBuilder() {
