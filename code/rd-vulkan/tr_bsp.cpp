@@ -430,6 +430,7 @@ static void ParseFace( dsurface_t *ds, mapVert_t *verts, msurface_t *surf, int *
 			R_ColorShiftLightingBytes( verts[i].color[k], (byte *)&cv->points[i][VERTEX_COLOR + k] );
 		}
 		//for( k = 0; k < MAXLIGHTMAPS; k++ ) {
+		k = 0;
 			R_ColorShiftLightingBytes( verts[i].color[k], cvVertexes[i].vertexColor.m );
 		//}
 	}
