@@ -467,49 +467,77 @@ static void RB_Hyperspace( VkClearColorValue *clearColor ) {
 	backEnd.isHyperspace = qtrue;
 }
 
+void RB_SetViewportSize( const viewParms_t &view ) {
+	RB_SetViewportSize( view.viewportX, view.viewportY, view.viewportWidth, view.viewportHeight );
+}
 
-void SetViewportAndScissor( int depthRange ) {
-	VkViewport viewport;
-	VkRect2D scissor;
-	float minDepth, maxDepth;
-	int x, y;
+void RB_SetViewportSize( int x, int y, int w, int h ) {
+	int sx, sy;
+	sx = Q_max( 0, x );
+	sy = Q_max( 0, y );
 
+	// update viewport
+	backEnd.nextViewportState.viewportSize.x = x;
+	backEnd.nextViewportState.viewportSize.y = y;
+	backEnd.nextViewportState.viewportSize.width = w;
+	backEnd.nextViewportState.viewportSize.height = h;
+
+	// update scissor
+	backEnd.nextViewportState.scissorSize.x = sx;
+	backEnd.nextViewportState.scissorSize.y = sy;
+	backEnd.nextViewportState.scissorSize.width = Q_max( 0, w - ( sx - x ) );
+	backEnd.nextViewportState.scissorSize.height = Q_max( 0, h - ( sy - y ) );
+	backEnd.nextViewportState.valid = qtrue;
+}
+
+void RB_SetDepthRange( int depthRange ) {
 	switch( depthRange ) {
 	default:
 	case 0:
-		minDepth = 0;
-		maxDepth = 1;
-		break;
-
+		return RB_SetDepthRange( 0, 1 );
 	case 1:
-		minDepth = 0;
-		maxDepth = .3f;
-		break;
-
+		return RB_SetDepthRange( 0, 0.33f );
 	case 2:
-		minDepth = 0;
-		maxDepth = 0;
-		break;
+		return RB_SetDepthRange( 0, 0 );
 	}
+}
 
-	x = Q_max( 0, backEnd.viewParms.viewportX );
-	y = Q_max( 0, backEnd.viewParms.viewportY );
+void RB_SetDepthRange( float minDepth, float maxDepth ) {
+	backEnd.nextViewportState.depthRange.minDepth = minDepth;
+	backEnd.nextViewportState.depthRange.maxDepth = maxDepth;
+	backEnd.nextViewportState.valid = qtrue;
+}
 
-	// set the window clipping
-	viewport.x = x;
-	viewport.y = y;
-	viewport.width = backEnd.viewParms.viewportWidth;
-	viewport.height = backEnd.viewParms.viewportHeight;
-	viewport.minDepth = minDepth;
-	viewport.maxDepth = maxDepth;
-	vkCmdSetViewport( backEndData->cmdbuf, 0, 1, &viewport );
+void RB_InvalidateViewportState( void ) {
+	backEnd.currentViewportState.valid = qfalse;
+}
 
-	// set the scissor rect
-	scissor.offset.x = x;
-	scissor.offset.y = y;
-	scissor.extent.width = backEnd.viewParms.viewportWidth;
-	scissor.extent.height = backEnd.viewParms.viewportHeight;
-	vkCmdSetScissor( backEndData->cmdbuf, 0, 1, &scissor );
+void RB_SetViewportState( void ) {
+	// update viewport
+	if( ( backEnd.currentViewportState.valid == qfalse ) ||
+		( backEnd.nextViewportState.viewportSize != backEnd.currentViewportState.viewportSize ) ||
+		( backEnd.nextViewportState.depthRange != backEnd.currentViewportState.depthRange ) ) {
+		VkViewport vp;
+		vp.x = (float)backEnd.nextViewportState.viewportSize.x;
+		vp.y = (float)backEnd.nextViewportState.viewportSize.y;
+		vp.width = (float)backEnd.nextViewportState.viewportSize.width;
+		vp.height = (float)backEnd.nextViewportState.viewportSize.height;
+		vp.minDepth = (float)backEnd.nextViewportState.depthRange.minDepth;
+		vp.maxDepth = (float)backEnd.nextViewportState.depthRange.maxDepth;
+		vkCmdSetViewport( backEndData->cmdbuf, 0, 1, &vp );
+	}
+	// update scissor rect
+	if( ( backEnd.currentViewportState.valid == qfalse ) ||
+		( backEnd.nextViewportState.scissorSize != backEnd.currentViewportState.scissorSize ) ) {
+		VkRect2D scissor;
+		scissor.offset.x = backEnd.nextViewportState.scissorSize.x;
+		scissor.offset.y = backEnd.nextViewportState.scissorSize.y;
+		scissor.extent.width = backEnd.nextViewportState.scissorSize.width;
+		scissor.extent.height = backEnd.nextViewportState.scissorSize.height;
+		vkCmdSetScissor( backEndData->cmdbuf, 0, 1, &scissor );
+	}
+	backEnd.currentViewportState = backEnd.nextViewportState;
+	assert( backEnd.currentViewportState.valid == qtrue );
 }
 
 /*
@@ -728,8 +756,8 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 	oldSort = (unsigned int)-1;
 	depthRange = qfalse;
 
-	// set default viewport and scissor
-	SetViewportAndScissor( depthRange );
+	// set default depth range
+	RB_SetDepthRange( depthRange );
 
 	backEnd.pc.c_surfaces += numDrawSurfs;
 
@@ -856,7 +884,7 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 			// change depthrange if needed
 			//
 			if( oldDepthRange != depthRange ) {
-				SetViewportAndScissor( depthRange );
+				RB_SetDepthRange( depthRange );
 				oldDepthRange = depthRange;
 			}
 
@@ -864,7 +892,7 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 			memcpy( &backEnd.currentEntity->model.ori.modelMatrix, backEnd.ori.modelMatrix, sizeof( backEnd.ori.modelMatrix ) );
 			memcpy( &backEnd.currentEntity->model.lightDir, backEnd.currentEntity->lightDir, sizeof( backEnd.currentEntity->lightDir ) );
 			memcpy( &backEnd.currentEntity->model.ambientLight, backEnd.currentEntity->ambientLight, sizeof( backEnd.currentEntity->ambientLight ) );
-			memcpy( &backEnd.currentEntity->model.directedLight, backEnd.currentEntity->directedLight, sizeof( backEnd.currentEntity->directedLight) );
+			memcpy( &backEnd.currentEntity->model.directedLight, backEnd.currentEntity->directedLight, sizeof( backEnd.currentEntity->directedLight ) );
 			backEnd.currentEntity->model.ambientLightInt = backEnd.currentEntity->ambientLightInt;
 			backEnd.currentEntity->model.ori.origin.x = backEnd.ori.origin[0];
 			backEnd.currentEntity->model.ori.origin.y = backEnd.ori.origin[1];
@@ -909,7 +937,7 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 				R_TransformDlights( backEnd.refdef.num_dlights, backEnd.refdef.dlights, &backEnd.ori );
 			}
 
-			SetViewportAndScissor( pRender->depthRange );
+			RB_SetDepthRange( pRender->depthRange );
 
 			if( ( backEnd.currentEntity->e.renderfx & RF_DISTORTION ) &&
 				lastPostEnt != pRender->entNum ) { // do the capture now, we only need to do it once per ent
@@ -995,6 +1023,24 @@ RENDER BACK END FUNCTIONS
 */
 
 /*
+================
+RB_SetGL2D
+
+================
+*/
+static void RB_Set2D( void ) {
+	backEnd.projection2D = qtrue;
+
+	// set 2D virtual screen size
+	RB_SetViewportSize( 0, 0, glConfig.vidWidth, glConfig.vidHeight );
+	RB_SetDepthRange( 0 );
+
+	// set time for 2D shaders
+	backEnd.refdef.time = ri.Milliseconds();
+	backEnd.refdef.floatTime = backEnd.refdef.time * 0.001f;
+}
+
+/*
 =============
 RB_SetColor
 
@@ -1030,6 +1076,9 @@ const void *RB_StretchPic( const void *data ) {
 		RB_EndSurface();
 		backEnd.currentEntity = &backEnd.entity2D;
 		RB_BeginSurface( shader, 0 );
+	}
+	if( !backEnd.projection2D ) {
+		RB_Set2D();
 	}
 
 	backEndData->dynamicGeometryBuilder.checkOverflow( 4, 6 );
@@ -1095,6 +1144,9 @@ const void *RB_RotatePic( const void *data ) {
 		RB_EndSurface();
 		backEnd.currentEntity = &backEnd.entity2D;
 		RB_BeginSurface( shader, 0 );
+	}
+	if( !backEnd.projection2D ) {
+		RB_Set2D();
 	}
 
 	float angle = DEG2RAD( cmd->a );
@@ -1172,6 +1224,9 @@ const void *RB_RotatePic2( const void *data ) {
 			backEnd.currentEntity = &backEnd.entity2D;
 			RB_BeginSurface( shader, 0 );
 		}
+		if( !backEnd.projection2D ) {
+			RB_Set2D();
+		}
 
 		backEndData->dynamicGeometryBuilder.checkOverflow( 4, 6 );
 		backEndData->dynamicGeometryBuilder.setDrawStateBits( GLS_DEPTHTEST_DISABLE | GLS_CULL_NONE );
@@ -1236,24 +1291,22 @@ RB_ScissorPic
 */
 const void *RB_Scissor( const void *data ) {
 	const scissorCommand_t *cmd;
-	VkRect2D scissorRect;
 
 	cmd = (const scissorCommand_t *)data;
 
 	if( cmd->x >= 0 ) {
-		scissorRect.offset.x = cmd->x;
-		scissorRect.offset.y = glConfig.vidHeight - cmd->y - cmd->h;
-		scissorRect.extent.width = cmd->w;
-		scissorRect.extent.height = cmd->h;
+		backEnd.nextViewportState.scissorSize.x = cmd->x;
+		backEnd.nextViewportState.scissorSize.y = glConfig.vidHeight - cmd->y - cmd->h;
+		backEnd.nextViewportState.scissorSize.width = cmd->w;
+		backEnd.nextViewportState.scissorSize.height = cmd->h;
 	}
 	else {
-		scissorRect.offset.x = 0;
-		scissorRect.offset.y = 0;
-		scissorRect.extent.width = glConfig.vidWidth;
-		scissorRect.extent.height = glConfig.vidHeight;
+		backEnd.nextViewportState.scissorSize.x = 0;
+		backEnd.nextViewportState.scissorSize.y = 0;
+		backEnd.nextViewportState.scissorSize.width = glConfig.vidWidth;
+		backEnd.nextViewportState.scissorSize.height = glConfig.vidHeight;
 	}
-
-	vkCmdSetScissor( backEndData->cmdbuf, 0, 1, &scissorRect );
+	backEnd.nextViewportState.valid = qtrue;
 
 	return (const void *)( cmd + 1 );
 }
@@ -1274,6 +1327,7 @@ const void *RB_DrawSurfs( const void *data ) {
 
 	backEnd.refdef = cmd->refdef;
 	backEnd.viewParms = cmd->viewParms;
+	RB_SetViewportSize( backEnd.viewParms );
 
 	// update the viewParms buffer
 	memcpy( &backEnd.viewParms.shaderData.projectionMatrix, backEnd.viewParms.projectionMatrix, sizeof( backEnd.viewParms.projectionMatrix ) );
@@ -1301,11 +1355,9 @@ const void *RB_DrawSurfs( const void *data ) {
 		g_bRenderGlowingObjects = false;
 
 		// Resize the viewport to the blur texture size.
-		const int oldViewWidth = backEnd.viewParms.viewportWidth;
-		const int oldViewHeight = backEnd.viewParms.viewportHeight;
-		backEnd.viewParms.viewportWidth = r_DynamicGlowWidth->integer;
-		backEnd.viewParms.viewportHeight = r_DynamicGlowHeight->integer;
-		SetViewportAndScissor( 0 );
+		RB_SetDepthRange( 0 );
+		RB_SetViewportSize( 0, 0, r_DynamicGlowWidth->integer, r_DynamicGlowHeight->integer );
+		RB_SetViewportState();
 
 		// Blur the scene.
 		RB_BlurGlowTexture();

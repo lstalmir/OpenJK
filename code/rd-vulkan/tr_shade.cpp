@@ -71,6 +71,10 @@ void R_SetPipelineState( pipelineState_t *pipeline ) {
 	// bind the shader pipeline state
 	vkCmdBindPipeline( backEndData->cmdbuf, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline->handle );
 
+	// rebind the dynamic states
+	RB_InvalidateViewportState();
+	RB_SetViewportState();
+
 	backEndData->pipelineState = pipeline;
 }
 

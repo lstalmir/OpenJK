@@ -1107,6 +1107,35 @@ typedef struct {
 	int		msec;			// total msec for backend run
 } backEndCounters_t;
 
+typedef union viewportSize_t {
+	uint64_t	hash;
+	struct {
+		int16_t x;
+		int16_t y;
+		int16_t width;
+		int16_t height;
+	};
+	bool operator==( const viewportSize_t &vp ) const { return hash == vp.hash; }
+	bool operator!=( const viewportSize_t &vp ) const { return hash != vp.hash; }
+} viewportSize_t;
+
+typedef union depthRange_t {
+	uint64_t	hash;
+	struct {
+		float minDepth;
+		float maxDepth;
+	};
+	bool operator==( const depthRange_t &vp ) const { return hash == vp.hash; }
+	bool operator!=( const depthRange_t &vp ) const { return hash != vp.hash; }
+} depthRange_t;
+
+typedef struct {
+	viewportSize_t viewportSize;
+	viewportSize_t scissorSize;
+	depthRange_t depthRange;
+	qboolean valid;
+} viewportState_t;
+
 // all state modified by the back end is seperated
 // from the front end state
 typedef struct {
@@ -1122,7 +1151,17 @@ typedef struct {
 	tr_shader::byte4	color2D;
 	qboolean	vertexes2D;		// shader needs to be finished
 	trRefEntity_t	entity2D;	// currentEntity will point at this when doing 2D rendering
+
+	viewportState_t currentViewportState;
+	viewportState_t nextViewportState;
 } backEndState_t;
+
+void RB_SetViewportSize( const viewParms_t& view );
+void RB_SetViewportSize( int x, int y, int w, int h );
+void RB_SetDepthRange( int depthRange );
+void RB_SetDepthRange( float minDepth, float maxDepth );
+void RB_SetViewportState( void );
+void RB_InvalidateViewportState( void );
 
 /*
 ** trGlobals_t
