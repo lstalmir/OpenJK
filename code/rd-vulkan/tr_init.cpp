@@ -1086,6 +1086,11 @@ byte *RB_ReadPixels( int x, int y, int width, int height, size_t *offset, int *p
 	vmaGetAllocationInfo( vkState.allocator, tr.screenshotImage->allocation, &allocationInfo );
 	byte *mappedScreenshotImage = (byte *)allocationInfo.pMappedData;
 
+	// get layout of the first color subresource
+	subresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+	subresource.arrayLayer = 0;
+	subresource.mipLevel = 0;
+
 	// get the layout of the copied image
 	vkGetImageSubresourceLayout( vkState.device, tr.screenshotImage->tex, &subresource, &subresourceLayout );
 

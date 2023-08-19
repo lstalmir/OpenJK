@@ -111,8 +111,8 @@ static void R_DrawElements( shaderCommands_t *input, shaderStage_t *stage, int s
 
 		R_SetShadePipeline( state );
 
-		int input = state & GLS_INPUT_BITS;
-		if( ( input == GLS_INPUT_GLM ) || ( input == GLS_INPUT_GLA ) ) {
+		int inputState = state & GLS_INPUT_BITS;
+		if( ( inputState == GLS_INPUT_GLM ) || ( inputState == GLS_INPUT_GLA ) ) {
 			assert( draw->ghoul2BonesDescriptorSet );
 			R_BindDescriptorSet( TR_G2_BONES_SPACE, draw->ghoul2BonesDescriptorSet );
 		}

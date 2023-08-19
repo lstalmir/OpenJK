@@ -288,7 +288,6 @@ using tr_shader::texMod_t;
 using tr_shader::fog_t;
 using tr_shader::fogParms_t;
 using tr_shader::sunParms_t;
-using tr_shader::skyParms_t;
 
 typedef enum {
 	ACFF_NONE,
