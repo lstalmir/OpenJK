@@ -364,6 +364,7 @@ void RE_BeginFrame( stereoFrame_t stereoFrame ) {
 	tr.globals.floatTime = ri.Milliseconds() * 0.001f;
 
 	VK_BeginFrame();
+	R_DeleteUploadTextures();
 
 #if 0
 	//

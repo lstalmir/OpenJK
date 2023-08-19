@@ -68,10 +68,6 @@ if(BuildSPRdVulkan OR BuildJK2SPRdVulkan)
 	list(APPEND SPRDVulkanRendererIncludeDirectories ${MINIZIP_INCLUDE_DIRS})
 	list(APPEND SPRDVulkanRendererLibraries          ${MINIZIP_LIBRARIES})
 
-	# Transparently use our bundled compressonator.
-	list(APPEND SPRDVulkanRendererIncludeDirectories ${compressonator_INCLUDE_DIRS})
-	list(APPEND SPRDVulkanRendererLibraries          ${compressonator_LIBRARIES})
-
 	# Transparantly make use of all renderer directories
 	list(APPEND SPRDVulkanRendererIncludeDirectories "${SPDir}/rd-common")
 	list(APPEND SPRDVulkanRendererIncludeDirectories "${SPDir}/rd-vulkan")
@@ -194,16 +190,6 @@ if(BuildSPRdVulkan OR BuildJK2SPRdVulkan)
 		if(NOT MSVC)
 			# remove "lib" prefix for .so/.dylib files
 			set_target_properties(${ProjectName} PROPERTIES PREFIX "")
-		endif()
-
-		if(CMAKE_SIZEOF_VOID_P EQUAL 4)
-			set(SPRdVulkanExtraInstallFiles
-				${OpenJKLibDir}/compressonator/bin/x86/CMP_Core.dll
-				)
-		else()
-			set(SPRdVulkanExtraInstallFiles
-				${OpenJKLibDir}/compressonator/bin/x64/CMP_Core.dll
-				)
 		endif()
 
 		if(WIN32)

@@ -30,7 +30,6 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 #include "../rd-common/tr_common.h"
 #include <png.h>
 #include <map>
-#include <cmp_core.h>
 
 static byte s_intensitytable[256];
 static unsigned char s_gammatable[256];
@@ -694,6 +693,108 @@ mipmap:			whether to generate mipmaps
 
 ===============
 */
+static int colorcmp( int a, int b ) {
+	int asum = ( ( a >> 16 ) & 0xff ) + ( ( a >> 8 ) & 0xff ) + ( a & 0xff );
+	int bsum = ( ( b >> 16 ) & 0xff ) + ( ( b >> 8 ) & 0xff ) + ( b & 0xff );
+	return asum - bsum;
+}
+
+static void ReadBlockBC1( byte *block, const byte *pic, int rowstride, int hblocks, int yb, int xb ) {
+	for( int i = 0; i < 4; ++i )
+		memcpy( block + ( i * 16 ), pic + ( 4 * yb * hblocks + xb ) * 16 + ( 4 * i * rowstride ), 16 );
+}
+
+static float FindDistance( const byte *col1, const byte *col2 ) {
+	float d = 0;
+	for( int i = 0; i < 4; ++i ) {
+		float dc = ( (float)col1[i] - (float)col2[i] );
+		d += dc * dc;
+	}
+	return d;
+}
+
+static int FindMinDistance( const float *distances ) {
+	int minDistanceIndex = 0;
+	float minDistance = FLT_MAX;
+	for( int i = 0; i < 4; ++i ) {
+		if( minDistance > distances[i] ) {
+			minDistanceIndex = i;
+			minDistance = distances[i];
+		}
+	}
+	return minDistanceIndex;
+}
+
+static uint16_t EncodeColorR5G6B5( const byte *c ) {
+	return ( ( (uint16_t)c[0] >> 3 ) << 11 ) |
+		   ( ( (uint16_t)c[1] >> 2 ) << 5 ) |
+		   ( ( (uint16_t)c[2] >> 3 ) << 0 );
+}
+
+static void CompressBlockBC1( byte *dst, const byte *pic, int width, int hblocks, int vblocks, int xb, int yb ) {
+	byte block[64];
+	byte indices[16];
+	byte *b = dst + 8 * ( yb * hblocks + xb );
+
+	// copy block pixels to local array
+	ReadBlockBC1( block, pic, width, hblocks, yb, xb );
+
+	// find average, min and max pixel color in block
+	byte bmin[4] = { 0xff, 0xff, 0xff, 0xff };
+	byte bmax[4] = { 0, 0, 0, 0 };
+
+	for( int i = 0; i < 16; ++i ) {
+		bmin[0] = std::min( bmin[0], block[4 * i] );
+		bmin[1] = std::min( bmin[1], block[4 * i + 1] );
+		bmin[2] = std::min( bmin[2], block[4 * i + 2] );
+		bmin[3] = std::min( bmin[3], block[4 * i + 3] );
+
+		bmax[0] = std::max( bmax[0], block[4 * i] );
+		bmax[1] = std::max( bmax[1], block[4 * i + 1] );
+		bmax[2] = std::max( bmax[2], block[4 * i + 2] );
+		bmax[3] = std::max( bmax[3], block[4 * i + 3] );
+	}
+
+	// ensure c0 > c1
+	uint16_t c0_encoded = EncodeColorR5G6B5( bmin );
+	uint16_t c1_encoded = EncodeColorR5G6B5( bmax );
+	byte *c0 = bmin;
+	byte *c1 = bmax;
+	if( c0_encoded < c1_encoded ) {
+		std::swap( c0_encoded, c1_encoded );
+		std::swap( c0, c1 );
+	}
+
+	// find intermediate colors
+	byte c2[4];
+	byte c3[4];
+	for( int i = 0; i < 4; ++i ) {
+		c2[i] = ( c0[i] * 0.67 ) + ( c1[i] * 0.33 );
+		c3[i] = ( c0[i] * 0.33 ) + ( c1[i] * 0.67 );
+	}
+
+	// find indices to pixels
+	for( int i = 0; i < 16; ++i ) {
+		float dists[4];
+		dists[0] = FindDistance( block + ( 4 * i ), c0 );
+		dists[1] = FindDistance( block + ( 4 * i ), c1 );
+		dists[2] = FindDistance( block + ( 4 * i ), c2 );
+		dists[3] = FindDistance( block + ( 4 * i ), c3 );
+		indices[i] = FindMinDistance( dists );
+	}
+
+	// store min and max in first 4 bytes
+	( (uint16_t *)b )[0] = c0_encoded;
+	( (uint16_t *)b )[1] = c1_encoded;
+	b += 4;
+
+	// store indices
+	b[0] = ( indices[3] << 6 ) | ( indices[2] << 4 ) | ( indices[1] << 2 ) | indices[0];
+	b[1] = ( indices[7] << 6 ) | ( indices[6] << 4 ) | ( indices[5] << 2 ) | indices[4];
+	b[2] = ( indices[11] << 6 ) | ( indices[10] << 4 ) | ( indices[9] << 2 ) | indices[8];
+	b[3] = ( indices[15] << 6 ) | ( indices[14] << 4 ) | ( indices[13] << 2 ) | indices[12];
+}
+
 static bool VK_ConvertImage( byte *dst, const byte *pic, int width, int height, VkFormat internalFormat ) {
 	if( internalFormat == VK_FORMAT_BC1_RGB_UNORM_BLOCK ) {
 		// block conversion without alpha
@@ -703,13 +804,12 @@ static bool VK_ConvertImage( byte *dst, const byte *pic, int width, int height, 
 		int stride = width << 2;
 		for( int yb = 0; yb < hblocks; ++yb ) {
 			for( int xb = 0; xb < wblocks; ++xb ) {
-				byte *dstBlock = dst + ( ( ( yb * wblocks ) + xb ) << 3 );	// x 8 bytes/block
-				const byte *src = pic + ( ( ( yb * wblocks ) + xb ) << 6 ); // x 64 bytes/block
-				CompressBlockBC1( src, stride, dstBlock, NULL );
+				CompressBlockBC1( dst, pic, width, hblocks, wblocks, xb, yb );
 			}
 		}
 		return true;
 	}
+#if 0
 	else if( internalFormat == VK_FORMAT_BC3_UNORM_BLOCK ) {
 		// block conversion without alpha
 		const int wblocks = maximum( 1, ( width >> 2 ) );
@@ -725,6 +825,7 @@ static bool VK_ConvertImage( byte *dst, const byte *pic, int width, int height, 
 		}
 		return true;
 	}
+#endif
 	else {
 		assert( !VK_IsCompressed( internalFormat ) );
 		const int texelSize = VK_GetInternalFormatTexelSize( internalFormat );
@@ -753,14 +854,14 @@ VK_UploadImage
 
 ===============
 */
-void VK_UploadImage( image_t *image, const byte *pic, int width, int height, int mip, int layer ) {
+void VK_UploadImage( image_t *image, const byte *pic, const VkExtent2D &extent, const VkOffset2D &offset, int mip, int layer ) {
 	VkCommandBuffer cmdbuf;
 
 	VK_BeginUpload();
 
 	cmdbuf = VK_GetUploadCommandBuffer();
 
-	int requiredBufferSize = VK_GetRequiredImageUploadBufferSize( image->internalFormat, width, height );
+	int requiredBufferSize = VK_GetRequiredImageUploadBufferSize( image->internalFormat, extent.width, extent.height );
 	uploadBuffer_t *uploadBuffer = VK_GetUploadBuffer( requiredBufferSize );
 
 	assert( uploadBuffer );
@@ -768,14 +869,14 @@ void VK_UploadImage( image_t *image, const byte *pic, int width, int height, int
 
 	// copy or resample data as appropriate for first MIP level
 	VK_ConvertImage( ( (byte *)uploadBuffer->buffer->allocationInfo.pMappedData ) + uploadBuffer->offset,
-		pic, width, height, image->internalFormat );
+		pic, extent.width, extent.height, image->internalFormat );
 
 	// R_LightScaleTexture( (unsigned int *)pic, width, height, (qboolean)!mipmap );
 
 	// copy the data from the upload buffer to the image resource
 	VkBufferImageCopy uploadRegion = {};
-	uploadRegion.imageExtent.width = width;
-	uploadRegion.imageExtent.height = height;
+	uploadRegion.imageExtent.width = extent.width;
+	uploadRegion.imageExtent.height = extent.height;
 	uploadRegion.imageExtent.depth = 1;
 	uploadRegion.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
 	uploadRegion.imageSubresource.mipLevel = mip;
@@ -804,6 +905,14 @@ public:
 typedef std::map<const char *, image_t *, CStringComparator> AllocatedImages_t;
 AllocatedImages_t AllocatedImages;
 AllocatedImages_t::iterator itAllocatedImages;
+
+// temporary images used for resizing cube faces
+typedef struct {
+	image_t *image;
+	VkEvent event;
+} resizeImage_t;
+
+std::vector<resizeImage_t> CubeResizeImages;
 
 int giTextureBindNum = 1024; // will be set to this anyway at runtime, but wtf?
 
@@ -1155,8 +1264,14 @@ image_t *R_CreateImage( const char *name, const byte *pic, int width, int height
 		isLightmap = qtrue;
 	}
 
-	if( ( width & ( width - 1 ) ) || ( height & ( height - 1 ) ) ) {
-		Com_Error( ERR_FATAL, "R_CreateImage: %s dimensions (%i x %i) not power of 2!\n", name, width, height );
+	// images can be non-power of 2 on Vulkan
+	//if( ( width & ( width - 1 ) ) || ( height & ( height - 1 ) ) ) {
+	//	Com_Error( ERR_FATAL, "R_CreateImage: %s dimensions (%i x %i) not power of 2!\n", name, width, height );
+	//}
+
+	// disable texture compression
+	if( !r_ext_compressed_textures->value ) {
+		allowTC = qfalse;
 	}
 
 	image = R_FindImageFile_NoLoad( name, mipmap, allowPicmip, allowTC, wrapClampMode, false );
@@ -1177,7 +1292,8 @@ image_t *R_CreateImage( const char *name, const byte *pic, int width, int height
 		VK_IMAGE_TILING_OPTIMAL, false );
 
 	// upload the first mip
-	VK_UploadImage( image, pic, width, height, 0 );
+	VkExtent2D extent = { width, height };
+	VK_UploadImage( image, pic, extent );
 
 	if( mipmap ) {
 		int mipwidth = width;
@@ -1201,7 +1317,9 @@ image_t *R_CreateImage( const char *name, const byte *pic, int width, int height
 			if( mipheight < 1 )
 				mipheight = 1;
 
-			VK_UploadImage( image, pic, mipwidth, mipheight, miplevel );
+			VkExtent2D mipextent = { mipwidth, mipheight };
+			VkOffset2D mipoffset = { 0, 0 };
+			VK_UploadImage( image, pic, mipextent, mipoffset, miplevel );
 		}
 	}
 
@@ -1214,7 +1332,7 @@ image_t *R_CreateImage( const char *name, const byte *pic, int width, int height
 	return image;
 }
 
-image_t *R_CreateImageCube( const char *name, const byte *const *pics, int size,
+image_t *R_CreateImageCube( const char *name, const byte *const *pics, const int* sizes,
 	VkFormat format, qboolean mipmap, qboolean allowPicmip, qboolean allowTC, VkSamplerAddressMode wrapClampMode ) {
 	image_t *image;
 	qboolean isLightmap = qfalse;
@@ -1230,6 +1348,10 @@ image_t *R_CreateImageCube( const char *name, const byte *const *pics, int size,
 		isLightmap = qtrue;
 	}
 
+	int size = 0;
+	for( int i = 0; i < 6; ++i ) {
+		size = Q_max( size, sizes[i] );
+	}
 	if( ( size & ( size - 1 ) ) ) {
 		Com_Error( ERR_FATAL, "R_CreateImageCube: %s size (%i) not power of 2!\n", name, size );
 	}
@@ -1247,6 +1369,14 @@ image_t *R_CreateImageCube( const char *name, const byte *const *pics, int size,
 		height = size;
 		VK_AdjustTextureSize( (byte *)pics[i], &width, &height, allowPicmip );
 	}
+	int rescalew = 0;
+	int rescaleh = 0;
+	for( i = 0; i < 6; ++i ) {
+		if( sizes[i] < size ) {
+			rescalew += sizes[i];
+			rescaleh = Q_max( rescaleh, sizes[i] );
+		}
+	}
 
 	// image->imgfileSize=fileSize;
 
@@ -1255,33 +1385,100 @@ image_t *R_CreateImageCube( const char *name, const byte *const *pics, int size,
 		VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
 		VK_IMAGE_TILING_OPTIMAL, true );
 
-	for( i = 0; i < 6; ++i ) {
-		// upload the first mip
-		VK_UploadImage( image, pics[i], width, height, 0, i );
+	if( rescalew > 0 ) {
+		// rescale faces to match the cube image size
+		auto& resizeImage = CubeResizeImages.emplace_back();
+		char resizeImageName[MAX_QPATH];
+		Com_sprintf( resizeImageName, sizeof( resizeImageName ), "%s_resize", name );
 
-		if( mipmap ) {
-			int mipwidth = width;
-			int mipheight = height;
-			int miplevel = 0;
+		// create temporary image
+		resizeImage.image = R_CreateImage( resizeImageName, pics[0], rescalew, rescaleh, format, qfalse, qfalse, qfalse, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE );
 
-			// generate and upload the remaining mips
-			while( mipwidth > 1 || mipheight > 1 ) {
-				miplevel++;
+		// create an event that will be signaled when the cube image is resized
+		VkEventCreateInfo eventCreateInfo = {};
+		eventCreateInfo.sType = VK_STRUCTURE_TYPE_EVENT_CREATE_INFO;
 
-				R_MipMap( (byte *)pics[i], mipwidth, mipheight );
+		VkResult res = vkCreateEvent( vkState.device, &eventCreateInfo, nullptr, &resizeImage.event );
+		if( res != VK_SUCCESS ) {
+			Com_Error( ERR_DROP, "R_CreateImageCube: vkCreateEvent failed with code %d\n", res );
+		}
 
-				if( r_colorMipLevels->integer ) {
-					R_BlendOverTexture( (byte *)pics[i], mipwidth * mipheight, mipBlendColors[miplevel] );
+		uint32_t numBlits = 0;
+		VkImageBlit blits[6] = {};
+		VkOffset2D offset = { 0, 0 };
+		for( i = 0; i < 6; ++i ) {
+			if( sizes[i] == size ) {
+				// copy directly to the cube image
+				VkExtent2D extent = { size, size };
+				VK_UploadImage( image, pics[i], extent, { 0, 0 }, 0, i );
+				continue;
+			}
+
+			// copy to the temporary texture
+			VkExtent2D extent = { sizes[i], sizes[i] };
+			VK_UploadImage( resizeImage.image, pics[i], extent, offset );
+
+			// blit from temporary texture to the cube image
+			VkImageBlit& imageBlit = blits[numBlits++];
+			imageBlit.srcOffsets[0].x = offset.x;
+			imageBlit.srcOffsets[0].y = offset.y;
+			imageBlit.srcOffsets[1].x = offset.x + extent.width;
+			imageBlit.srcOffsets[1].y = offset.y + extent.height;
+			imageBlit.srcOffsets[1].z = 1;
+			imageBlit.srcSubresource.aspectMask = image->allAspectFlags;
+			imageBlit.srcSubresource.layerCount = 1;
+			imageBlit.dstOffsets[1].x = width;
+			imageBlit.dstOffsets[1].y = height;
+			imageBlit.dstOffsets[1].z = 1;
+			imageBlit.dstSubresource.aspectMask = image->allAspectFlags;
+			imageBlit.dstSubresource.layerCount = 1;
+			imageBlit.dstSubresource.baseArrayLayer = i;
+
+			offset.x += sizes[i];
+		}
+
+		// submit blit commands
+		VK_BeginUpload();
+		VkCommandBuffer cmd = VK_GetUploadCommandBuffer();
+		VK_SetImageLayout2( cmd, resizeImage.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_ACCESS_TRANSFER_READ_BIT );
+		VK_SetImageLayout2( cmd, image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_ACCESS_TRANSFER_WRITE_BIT );
+		vkCmdBlitImage( cmd, resizeImage.image->tex, resizeImage.image->layout, image->tex, image->layout, numBlits, blits, VK_FILTER_LINEAR );
+		VK_SetImageLayout2( cmd, image, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_ACCESS_SHADER_READ_BIT );
+		vkCmdSetEvent( cmd, resizeImage.event, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT );
+		VK_EndUpload();
+	}
+	else {
+		// copy faces directly to the cube image
+		for( i = 0; i < 6; ++i ) {
+			// upload the first mip
+			VkExtent2D extent = { width, height };
+			VK_UploadImage( image, pics[i], extent, { 0, 0 }, 0, i );
+
+			if( mipmap ) {
+				int mipwidth = width;
+				int mipheight = height;
+				int miplevel = 0;
+
+				// generate and upload the remaining mips
+				while( mipwidth > 1 || mipheight > 1 ) {
+					miplevel++;
+
+					R_MipMap( (byte *)pics[i], mipwidth, mipheight );
+
+					if( r_colorMipLevels->integer ) {
+						R_BlendOverTexture( (byte *)pics[i], mipwidth * mipheight, mipBlendColors[miplevel] );
+					}
+
+					mipwidth >>= 1;
+					mipheight >>= 1;
+					if( mipwidth < 1 )
+						mipwidth = 1;
+					if( mipheight < 1 )
+						mipheight = 1;
+
+					VkExtent2D mipextent = { mipwidth, mipheight };
+					VK_UploadImage( image, pics[i], mipextent, { 0, 0 }, miplevel, i );
 				}
-
-				mipwidth >>= 1;
-				mipheight >>= 1;
-				if( mipwidth < 1 )
-					mipwidth = 1;
-				if( mipheight < 1 )
-					mipheight = 1;
-
-				VK_UploadImage( image, pics[i], mipwidth, mipheight, miplevel, i );
 			}
 		}
 	}
@@ -1403,7 +1600,7 @@ Returns NULL if it fails, not a default image.
 */
 image_t *R_FindImageCubeFile( const char *name, qboolean mipmap, qboolean allowPicmip, qboolean allowTC, VkSamplerAddressMode wrapClampMode ) {
 	image_t *image;
-	int width, height, size;
+	int width, height, sizes[6];
 	byte *pics[6];
 	const char *suf[6] = { "rt", "lf", "up", "dn", "bk", "ft" };
 	char pathname[MAX_QPATH];
@@ -1421,22 +1618,19 @@ image_t *R_FindImageCubeFile( const char *name, qboolean mipmap, qboolean allowP
 	//
 	// load the pic from disk
 	//
-	size = 0;
 	for( i = 0; i < 6; i++ ) {
 		Com_sprintf( pathname, sizeof( pathname ), "%s_%s", name, suf[i] );
 		R_LoadImage( pathname, &pics[i], &width, &height );
 		if( !pics[i] ) {
 			Com_Error( ERR_DROP, "R_FindImageCubeFile: \"%s\" not found\n", pathname );
 		}
-		if( !size ) {
-			size = width;
-		}
-		if( ( size != width ) || ( size != height ) ) {
-			Com_Error( ERR_DROP, "R_FindImageCubeFile: \"%s\" is not square or has different dimensions than other cube faces\n", pathname );
+		sizes[i] = width;
+		if( ( sizes[i] != width ) || ( sizes[i] != height ) ) {
+			Com_Error( ERR_DROP, "R_FindImageCubeFile: \"%s\" is not square\n", pathname );
 		}
 	}
 
-	image = R_CreateImageCube( (char *)name, pics, size, VK_FORMAT_B8G8R8A8_UNORM, mipmap, allowPicmip, allowTC, wrapClampMode );
+	image = R_CreateImageCube( (char *)name, pics, sizes, VK_FORMAT_B8G8R8A8_UNORM, mipmap, allowPicmip, allowTC, wrapClampMode );
 	for( i = 0; i < 6; i++ ) {
 		R_Free( pics[i] );
 	}
@@ -1848,4 +2042,33 @@ R_DeleteTextures
 void R_DeleteTextures( void ) {
 
 	R_Images_Clear();
+}
+
+/*
+===============
+R_DeleteUploadTextures
+===============
+*/
+// called every frame
+//
+void R_DeleteUploadTextures( void ) {
+	auto iter = CubeResizeImages.begin();
+	while( iter != CubeResizeImages.end() ) {
+		resizeImage_t& im = *iter;
+
+		// check if event has been signaled or an error occured
+		VkResult res = vkGetEventStatus( vkState.device, im.event );
+		if( res == VK_EVENT_SET ) {
+			vkDestroyEvent( vkState.device, im.event, nullptr );
+			R_Images_DeleteImage( im.image );
+
+			iter = CubeResizeImages.erase( iter );
+			continue;
+		}
+
+		if( res != VK_EVENT_RESET ) {
+			Com_Error( ERR_DROP, "vkGetEventStatus returned %d\n", res );
+		}
+		iter++;
+	}
 }

@@ -1450,7 +1450,7 @@ void VK_EndFrame( void );
 void VK_TextureMode( const char *string );
 uploadBuffer_t *VK_GetUploadBuffer( int uploadSize );
 void VK_PrepareUploadBuffers( void );
-void VK_UploadImage( image_t *im, const byte *pic, int width, int height, int mip = 0, int layer = 0 );
+void VK_UploadImage( image_t *im, const byte *pic, const VkExtent2D &extent, const VkOffset2D &offset = { 0, 0 }, int mip = 0, int layer = 0 );
 void VK_UploadBuffer( buffer_t *buffer, const byte *data, int size, int offset );
 void *VK_BeginUploadBuffer( buffer_t *buffer, int size, int offset );
 void VK_EndUploadBuffer();
@@ -1563,7 +1563,7 @@ image_t		*R_FindImageFile( const char *name, qboolean mipmap, qboolean allowPicm
 image_t		*R_FindImageCubeFile( const char *name, qboolean mipmap, qboolean allowPicmip, qboolean allowTC, VkSamplerAddressMode wrapClampMode );
 
 image_t		*R_CreateImage( const char *name, const byte *pic, int width, int height, VkFormat format, qboolean mipmap, qboolean allowPicmip, qboolean allowTC, VkSamplerAddressMode wrapClampMode );
-image_t		*R_CreateImageCube( const char *name, const byte *const *pics, int size, VkFormat format, qboolean mipmap, qboolean allowPicmip, qboolean allowTC, VkSamplerAddressMode wrapClampMode );
+image_t		*R_CreateImageCube( const char *name, const byte *const *pics, const int* sizes, VkFormat format, qboolean mipmap, qboolean allowPicmip, qboolean allowTC, VkSamplerAddressMode wrapClampMode );
 image_t		*R_CreateTransientImage( const char *name, int width, int height, VkFormat format, VkSamplerAddressMode wrapClampMode );
 image_t		*R_CreateReadbackImage( const char *name, int width, int height, VkFormat format );
 
@@ -1587,6 +1587,7 @@ void	R_ScreenShotTGA_f( void );
 void	R_InitFogTable( void );
 float	R_FogFactor( float s, float t );
 void	R_InitImages( void );
+void    R_DeleteUploadTextures( void );
 void	R_DeleteTransientTextures( void );
 void	R_DeleteTextures( void );
 void	R_InitBuffers( void );

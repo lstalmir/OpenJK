@@ -62,7 +62,8 @@ static void RB_UploadCinematic( int cols, int rows, const byte *data, int &clien
 	}
 
 	if( dirty ) {
-		VK_UploadImage( image, data, cols, rows, 0 );
+		VkExtent2D extent = { cols, rows };
+		VK_UploadImage( image, data, extent, { 0, 0 }, 0 );
 	}
 }
 
