@@ -130,11 +130,12 @@ typedef struct {
 typedef struct {
 	frameBufferImage_t		images[TR_MAX_FRAMEBUFFER_IMAGES];
 	int						numImages;
-
-	int						depthBufferIndex;
-
+	
 	int						width;
 	int						height;
+
+	int						depthBufferIndex;
+	image_t					*depthBuffer;
 
 	VkRenderPass			renderPass;
 	VkFramebuffer			buf;
@@ -1101,6 +1102,8 @@ typedef struct {
 	VkSampler				linearClampSampler;
 	VkSampler				linearWrapSampler;
 
+	VkSampler				skyFogColorSampler;
+
 	VkDescriptorSetLayout	commonDescriptorSetLayout;
 	VkDescriptorSetLayout	samplerDescriptorSetLayout;
 	VkDescriptorSetLayout	shaderDescriptorSetLayout;
@@ -1113,6 +1116,7 @@ typedef struct {
 	pipelineLayout_t		ghoul2ShadePipelineLayout;
 
 	pipelineState_t			skyboxPipeline;
+	pipelineState_t			skyboxFogPipeline;
 	pipelineLayout_t		skyboxPipelineLayout;
 
 	// Debug pipelines
@@ -1154,6 +1158,7 @@ typedef struct {
 	qboolean	isHyperspace;
 	trRefEntity_t	*currentEntity;
 	qboolean	skyRenderedThisView;	// flag for drawing sun
+	image_t		*skyOuterbox;
 
 	qboolean	projection2D;	// if qtrue, drawstretchpic doesn't need to change modes
 	tr_shader::byte4	color2D;
@@ -1219,6 +1224,8 @@ typedef struct {
 	
 	// A rectangular texture representing the normally rendered scene.
 	frameBuffer_t			*sceneFrameBuffer;
+
+	frameBuffer_t			*skyFogFrameBuffer;
 	
 	// Image the glowing objects are rendered to. - AReis
 	frameBuffer_t			*glowFrameBuffer;
@@ -1423,6 +1430,8 @@ extern	cvar_t	*r_clear;						// force screen clear every frame
 
 extern	cvar_t	*r_shadows;						// controls shadows: 0 = none, 1 = blur, 2 = stencil, 3 = black planar projection
 extern	cvar_t	*r_flares;						// light flares
+
+extern	cvar_t	*r_atmosphere;
 
 extern	cvar_t	*r_intensity;
 
@@ -2003,6 +2012,7 @@ void R_InitSkyTexCoords( float cloudLayerHeight );
 void R_DrawSkyBox( shaderCommands_t *shader );
 void RB_DrawSun( void );
 void RB_ClipSkyPolygons( shaderCommands_t *shader );
+void RB_SkyFogFinish( void );
 
 /*
 ============================================================

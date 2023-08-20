@@ -114,6 +114,7 @@ cvar_t *r_vertexLight;
 cvar_t *r_shadows;
 cvar_t *r_shadowRange;
 cvar_t *r_flares;
+cvar_t *r_atmosphere;
 cvar_t *r_nobind;
 cvar_t *r_singleShader;
 cvar_t *r_colorMipLevels;
@@ -766,6 +767,19 @@ void InitVulkanDescriptorSetLayouts( void ) {
 	}
 	VK_SetDebugObjectName( vkState.pointClampSampler, VK_OBJECT_TYPE_SAMPLER, "pointClampSampler" );
 
+	samplerCreateInfo.minFilter = VK_FILTER_LINEAR;
+	samplerCreateInfo.magFilter = VK_FILTER_LINEAR;
+	samplerCreateInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+	samplerCreateInfo.anisotropyEnable = VK_FALSE;
+	samplerCreateInfo.maxAnisotropy = 1;
+	samplerCreateInfo.minLod = 8;
+
+	res = vkCreateSampler( vkState.device, &samplerCreateInfo, NULL, &vkState.skyFogColorSampler );
+	if (res != VK_SUCCESS) {
+		Com_Error( ERR_FATAL, "InitVulkan: failed to create sky fog color sampler (%d)\n", res );
+	}
+	VK_SetDebugObjectName( vkState.skyFogColorSampler, VK_OBJECT_TYPE_SAMPLER, "skyFogColorSampler" );
+
 	// common descriptor set layout
 	builder.reset();
 	builder.addBinding( VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER ); // tr
@@ -783,6 +797,7 @@ void InitVulkanDescriptorSetLayouts( void ) {
 	builder.addBinding( vkState.pointWrapSampler );
 	builder.addBinding( vkState.linearClampSampler );
 	builder.addBinding( vkState.linearWrapSampler );
+	builder.addBinding( vkState.skyFogColorSampler );
 	builder.build( &vkState.samplerDescriptorSetLayout );
 	VK_SetDebugObjectName( vkState.samplerDescriptorSetLayout, VK_OBJECT_TYPE_DESCRIPTOR_SET_LAYOUT, "samplerDescriptorSetLayout" );
 
@@ -1845,6 +1860,7 @@ void R_Register( void ) {
 	r_noportals = ri.Cvar_Get( "r_noportals", "0", CVAR_CHEAT );
 	r_shadows = ri.Cvar_Get( "cg_shadows", "1", 0 );
 	r_shadowRange = ri.Cvar_Get( "r_shadowRange", "1000", CVAR_ARCHIVE_ND );
+	r_atmosphere = ri.Cvar_Get( "r_atmosphere", "1", CVAR_CHEAT );
 
 	/*
 	Ghoul2 Insert Start
@@ -2043,6 +2059,9 @@ void RE_Shutdown( qboolean destroyWindow, qboolean restarting ) {
 			VK_Delete( vkDestroyPipelineLayout, vkState.shadePipelineLayout.handle );
 			VK_Delete( vkDestroyPipelineLayout, vkState.ghoul2ShadePipelineLayout.handle );
 
+			VK_Delete( vkDestroyPipelineLayout, vkState.skyboxPipelineLayout.handle );
+			VK_Delete( vkDestroyPipeline, vkState.skyboxPipeline.handle );
+
 			VK_Delete( vkDestroyPipelineLayout, vkState.wireframePipelineLayout.handle );
 			VK_Delete( vkDestroyPipeline, vkState.wireframePipeline.handle );
 			VK_Delete( vkDestroyPipeline, vkState.wireframeXRayPipeline.handle );
@@ -2065,6 +2084,7 @@ void RE_Shutdown( qboolean destroyWindow, qboolean restarting ) {
 			VK_Delete( vkDestroySampler, vkState.pointWrapSampler );
 			VK_Delete( vkDestroySampler, vkState.linearClampSampler );
 			VK_Delete( vkDestroySampler, vkState.linearWrapSampler );
+			VK_Delete( vkDestroySampler, vkState.skyFogColorSampler );
 
 			for( i = 0; i < vkState.imgcount; ++i ) {
 				VK_Delete( vkDestroyFence, vkState.fences[i] );

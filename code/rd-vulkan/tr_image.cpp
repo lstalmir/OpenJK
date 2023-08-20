@@ -1974,6 +1974,13 @@ static void R_CreateTransientImages( void ) {
 	frameBufferBuilder.addDepthStencilAttachment( VK_FORMAT_D24_UNORM_S8_UINT );
 	frameBufferBuilder.build( &tr.sceneFrameBuffer );
 
+	// Create sky fog image
+	frameBufferBuilder.reset();
+	frameBufferBuilder.width = glConfig.vidWidth;
+	frameBufferBuilder.height = glConfig.vidHeight;
+	frameBufferBuilder.addColorAttachment( tr.sceneFrameBuffer->images->i ); // color
+	frameBufferBuilder.build( &tr.skyFogFrameBuffer );
+
 #if 0
 	// Create the scene glow image
 	frameBufferBuilder.reset();

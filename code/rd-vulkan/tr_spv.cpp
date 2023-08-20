@@ -34,6 +34,7 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 #include "tr_shade_ghoul2_VS.h"
 #include "tr_skybox_VS.h"
 #include "tr_skybox_PS.h"
+#include "tr_skybox_fog_PS.h"
 
 #include <unordered_map>
 
@@ -276,8 +277,25 @@ void SPV_InitSkyboxShaders( void ) {
 	attachmentBlend.blendEnable = VK_FALSE;
 	attachmentBlend.colorWriteMask = 0xF;
 
-	// create the wireframe pipeline
+	// create the skybox pipeline
 	pipelineBuilder.build( &vkState.skyboxPipeline );
+
+	// override pixel shader for skybox fog pipeline
+	pipelineBuilder.setShader( VK_SHADER_STAGE_FRAGMENT_BIT, tr_skybox_fog_PS );
+	// disable depth test
+	pipelineBuilder.depthStencil.depthTestEnable = VK_FALSE;
+	pipelineBuilder.depthStencil.depthCompareOp = VK_COMPARE_OP_ALWAYS;
+	// blend the fog with color output
+	attachmentBlend.blendEnable = VK_TRUE;
+	attachmentBlend.colorBlendOp = VK_BLEND_OP_ADD;
+	attachmentBlend.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+	attachmentBlend.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+	attachmentBlend.alphaBlendOp = VK_BLEND_OP_ADD;
+	attachmentBlend.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+	attachmentBlend.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
+	// create the skybox fog pipeline
+	pipelineBuilder.pipelineCreateInfo.renderPass = tr.skyFogFrameBuffer->renderPass;
+	pipelineBuilder.build( &vkState.skyboxFogPipeline );
 }
 
 static void InitShadePipelineBuilder( CPipelineBuilder *builder, int spec ) {

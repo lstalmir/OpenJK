@@ -474,6 +474,13 @@ typedef bool qboolean32;
 	} sunParms_t;
 
 	typedef struct {
+		float atmosphereDensity;
+		float atmosphereDistance;
+		float atmosphereFalloff;
+		float __unused0;
+	} skyParms_t;
+
+	typedef struct {
 		float3 color;
 		float depthForOpaque;
 	} fogParms_t;
@@ -709,6 +716,7 @@ typedef bool qboolean32;
 		int sunSurfaceLight; // from the sky shader for this level
 		float3 __unused0;
 		sunParms_t sunParms;
+		skyParms_t skyParms;
 
 		int numFogs;
 		int numModels;

@@ -761,9 +761,9 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 	float originalTime;
 	trRefEntity_t *curEnt;
 	postRender_t *pRender;
-	frameBuffer_t *frameBuffer;
 	image_t *frameBufferImage;
 	bool didShadowPass = false;
+	bool didFogPass = false;
 
 	// save original time for entity shader offsets
 	originalTime = backEnd.refdef.floatTime;
@@ -866,6 +866,11 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 					RB_ShadowFinish();
 					didShadowPass = true;
 				}
+
+				if( !didFogPass && shader && shader->sort > SS_FOG ) {
+					RB_SkyFogFinish();
+					didFogPass = true;
+				}
 			}
 
 			if( shader && ( !oldShader || oldShader->sort != shader->sort ) ) {
@@ -945,10 +950,6 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 		RB_DistortionFill();
 	}
 
-	// get the frame buffer
-	frameBuffer = backEndData->frameBuffer;
-	frameBufferImage = frameBuffer->images[0].i;
-
 	// render distortion surfs (or anything else that needs to be post-rendered)
 	if( g_numPostRenders > 0 ) {
 		int lastPostEnt = -1;
@@ -997,6 +998,9 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 						cY = 0;
 					}
 
+					// get the frame buffer image
+					frameBufferImage = tr.sceneFrameBuffer->images[0].i;
+
 					// unbind the frame buffer to copy it to screenImage
 					R_BindFrameBuffer( NULL );
 
@@ -1017,7 +1021,7 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 					vkCmdCopyImage( backEndData->cmdbuf, frameBufferImage->tex, frameBufferImage->layout, tr.screenImage->tex, tr.screenImage->layout, 1, &imageCopy );
 
 					// rebind the frame buffer
-					R_BindFrameBuffer( frameBuffer );
+					R_BindFrameBuffer( tr.sceneFrameBuffer );
 
 					lastPostEnt = pRender->entNum;
 				}
@@ -1028,11 +1032,13 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 		}
 	}
 
-	R_BindFrameBuffer( NULL );
-
 #if 0
 	RB_DrawSun();
 #endif
+
+	// flush any pending surface draws
+	RB_EndSurface();
+
 	if( tr_stencilled && !tr_distortionPrePost ) { // draw in the stencil buffer's cutout
 		RB_DistortionFill();
 	}
@@ -1040,6 +1046,10 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 		// darken down any stencil shadows
 		RB_ShadowFinish();
 		didShadowPass = true;
+	}
+	if( !didFogPass ) {
+		RB_SkyFogFinish();
+		didFogPass = true;
 	}
 
 	// add light flares on lights that aren't obscured

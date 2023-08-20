@@ -32,6 +32,7 @@ SamplerState				tr_pointClampSampler : register( s0, TR_SAMPLERS_SPACE );
 SamplerState				tr_pointRepeatSampler : register( s1, TR_SAMPLERS_SPACE );
 SamplerState				tr_linearClampSampler : register( s2, TR_SAMPLERS_SPACE );
 SamplerState				tr_linearRepeatSampler : register( s3, TR_SAMPLERS_SPACE );
+SamplerState				tr_skyFogColorSampler : register( s4, TR_SAMPLERS_SPACE );
 
 // Shader globals space (2)
 cbuffer shaderStage : register( b0, TR_SHADER_SPACE ) {

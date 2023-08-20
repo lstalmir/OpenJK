@@ -611,6 +611,7 @@ void CFrameBufferBuilder::build( frameBuffer_t **frameBuffer ) {
 	}
 
 	fb->depthBufferIndex = depthBufferIndex;
+	fb->depthBuffer = ( depthBufferIndex != -1 ) ? fb->images[depthBufferIndex].i : NULL;
 
 	memcpy( fb->clearValues, clearValues, sizeof( clearValues ) );
 
