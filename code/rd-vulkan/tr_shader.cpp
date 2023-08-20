@@ -1794,6 +1794,7 @@ deformVertexes text[0-7]
 ===============
 */
 static void ParseDeform( const char **text ) {
+	TR_UNIMPLEMENTED_FUNCTION_WARNING();
 #if 0
 	char	*token;
 	tr_shader::deformStage_t	*ds;

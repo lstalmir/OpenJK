@@ -413,9 +413,9 @@ static void RE_KillDissolve( qboolean deleteResources ) {
 //
 // return = qtrue while still processing, for those interested...
 //
-qboolean RE_ProcessDissolve( void )
-{
-	#if 0
+qboolean RE_ProcessDissolve( void ) {
+	TR_UNIMPLEMENTED_FUNCTION_WARNING();
+#if 0
 	if (Dissolve.iStartTime)
 	{
 		if (Dissolve.bTouchNeeded)
@@ -465,7 +465,7 @@ qboolean RE_ProcessDissolve( void )
 			RE_KillDissolve( qfalse ); // resources can't be freed if the previous frames haven't been rendered yet
 		}
 	}
-	#endif
+#endif
 	RE_KillDissolve( qfalse );
 
 	return qfalse;
@@ -474,7 +474,7 @@ qboolean RE_ProcessDissolve( void )
 // return = qtrue(success) else fail, for those interested...
 //
 qboolean RE_InitDissolve( qboolean bForceCircularExtroWipe ) {
-//	ri.Printf( PRINT_ALL, "RE_InitDissolve()\n");
+	TR_UNIMPLEMENTED_FUNCTION_WARNING();
 	qboolean bReturn = qfalse;
 
 #if 0

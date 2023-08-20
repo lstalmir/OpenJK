@@ -48,6 +48,9 @@ typedef uint32_t trIndex_t;
 static constexpr VkIndexType g_scIndexType = VK_INDEX_TYPE_UINT32;
 #endif
 
+#define TR_UNIMPLEMENTED_FUNCTION_WARNING() \
+	ri.Printf( PRINT_WARNING, "skipping unimplemented function " __FUNCTION__ " (" __FILE__ ")\n" )
+
 
 // 13 bits
 // can't be increased without changing bit packing for drawsurfs

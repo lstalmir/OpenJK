@@ -215,6 +215,7 @@ static int R_DlightGrid( srfGridMesh_t *grid, int dlightBits ) {
 }
 
 static int R_DlightTrisurf( srfTriangles_t *surf, int dlightBits ) {
+	TR_UNIMPLEMENTED_FUNCTION_WARNING();
 	// FIXME: more dlight culling to trisurfs...
 	surf->dlightBits = dlightBits;
 	return dlightBits;

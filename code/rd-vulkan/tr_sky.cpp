@@ -302,9 +302,10 @@ RB_ClipSkyPolygons
 ================
 */
 void RB_ClipSkyPolygons( shaderCommands_t *input ) {
+	TR_UNIMPLEMENTED_FUNCTION_WARNING();
 #if 0
-	vec3_t		p[5];	// need one extra point for clipping
-	int			i, j;
+	vec3_t p[5]; // need one extra point for clipping
+	int i, j;
 
 	ClearSkyBox();
 
@@ -499,6 +500,7 @@ static void DrawSkyBox( shader_t *shader ) {
 }
 
 static void FillCloudySkySide( const int mins[2], const int maxs[2], qboolean addIndexes ) {
+	TR_UNIMPLEMENTED_FUNCTION_WARNING();
 #if 0
 	int s, t;
 	int vertexStart = tess.numVertexes;
