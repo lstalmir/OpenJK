@@ -168,9 +168,6 @@ void VK_BeginFrame( void ) {
 
 			// reset the dynamic vertex buffer for this frame
 			backEndData->dynamicGeometryBuilder.reset();
-
-			// upload the globals
-			VK_UploadBuffer( tr.globalsBuffer, (byte *)&tr.globals, sizeof( tr.globals ), 0 );
 		}
 	}
 }
@@ -187,6 +184,9 @@ void VK_EndFrame( void ) {
 
 	// upload any pending dynamic geometry data
 	backEndData->dynamicGeometryBuilder.uploadGeometry();
+
+	// upload the globals
+	VK_UploadBuffer( tr.globalsBuffer, (byte *)&tr.globals, sizeof( tr.globals ), 0 );
 
 	// get the current frame buffer
 	frameBuffer_t *frameBuffer = backEndData->frameBuffer;

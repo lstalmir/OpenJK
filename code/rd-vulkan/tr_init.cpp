@@ -1921,8 +1921,7 @@ static void R_InitFuncTables() {
 		VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
 		VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT );
 
-	// dynamically allocate tables to avoid stack overflow
-	funcTables = (tr_shader::trFuncTables_t *)ri.Malloc( funcTablesSize, TAG_TEMP_WORKSPACE, qfalse, sizeof( float ) );
+	funcTables = (tr_shader::trFuncTables_t *)VK_BeginUploadBuffer( tr.funcTablesBuffer, funcTablesSize, 0 );
 
 	//
 	// init function tables
@@ -1947,9 +1946,7 @@ static void R_InitFuncTables() {
 	}
 
 	// upload the data to the GPU
-	VK_UploadBuffer( tr.funcTablesBuffer, (const byte *)funcTables, funcTablesSize, 0 );
-
-	ri.Z_Free( funcTables );
+	VK_EndUploadBuffer();
 }
 
 /*
