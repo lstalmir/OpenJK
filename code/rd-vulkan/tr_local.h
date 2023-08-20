@@ -94,6 +94,8 @@ typedef struct image_s {
 	VkImageAspectFlags	allAspectFlags;
 	VkImageTiling		tiling;
 	VkImageUsageFlags	usage;
+	int					numMipMaps;
+	int					numLayers;
 
 	VkSamplerAddressMode wrapClampMode;
 

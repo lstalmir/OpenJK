@@ -588,6 +588,103 @@ static void R_MipMap( byte *in, int width, int height ) {
 	}
 }
 
+static void VK_GenerateMipMaps( image_t *im ) {
+	VkCommandBuffer cmdbuf;
+	VkImageBlit blit = {};
+	VkImageMemoryBarrier barriers[2] = {};
+	VkImageLayout srcLayout, dstLayout;
+	VkAccessFlags srcAccess, dstAccess;
+	int i, srcw, srch, dstw, dsth;
+
+	// check if there are at least 2 mips (1 is always present per spec)
+	if( im->numMipMaps == 1 )
+		return;
+
+	VK_BeginUpload();
+	cmdbuf = VK_GetUploadCommandBuffer();
+
+	// initial states
+	srcLayout = im->layout;
+	dstLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+	srcAccess = im->access;
+	dstAccess = 0;
+
+	// assume the first mip is already uploaded (or queued for upload)
+	// blit the first mip to the remaining levels
+	srcw = im->width;
+	srch = im->height;
+	for( i = 1; i < im->numMipMaps; ++i ) {
+		// copy to the next mip
+		dstw = Q_max( 1, srcw >> 1 );
+		dsth = Q_max( 1, srch >> 1 );
+
+		blit.srcOffsets[1].x = srcw;
+		blit.srcOffsets[1].y = srch;
+		blit.srcOffsets[1].z = 1;
+		blit.srcSubresource.aspectMask = im->allAspectFlags;
+		blit.srcSubresource.layerCount = im->numLayers;
+		blit.srcSubresource.mipLevel = i - 1;
+
+		blit.dstOffsets[1].x = dstw;
+		blit.dstOffsets[1].y = dsth;
+		blit.dstOffsets[1].z = 1;
+		blit.dstSubresource.aspectMask = im->allAspectFlags;
+		blit.dstSubresource.layerCount = im->numLayers;
+		blit.dstSubresource.mipLevel = i;
+
+		// layout transitions
+		barriers[0].image = im->tex;
+		barriers[0].oldLayout = srcLayout;
+		barriers[0].newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+		barriers[0].srcAccessMask = srcAccess;
+		barriers[0].dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+		barriers[0].subresourceRange.aspectMask = im->allAspectFlags;
+		barriers[0].subresourceRange.baseMipLevel = i - 1;
+		barriers[0].subresourceRange.layerCount = im->numLayers;
+		barriers[0].subresourceRange.levelCount = 1;
+
+		barriers[1].image = im->tex;
+		barriers[1].oldLayout = dstLayout;
+		barriers[1].newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+		barriers[1].srcAccessMask = dstAccess;
+		barriers[1].dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+		barriers[1].subresourceRange.aspectMask = im->allAspectFlags;
+		barriers[1].subresourceRange.baseMipLevel = i;
+		barriers[1].subresourceRange.layerCount = im->numLayers;
+		barriers[1].subresourceRange.levelCount = 1;
+
+		vkCmdPipelineBarrier( cmdbuf, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+			VK_DEPENDENCY_BY_REGION_BIT, 0, nullptr, 0, nullptr, 2, barriers );
+
+		vkCmdBlitImage( cmdbuf, im->tex, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, im->tex, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blit, VK_FILTER_LINEAR );
+
+		// update states for the next blit
+		srcLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+		srcAccess = VK_ACCESS_TRANSFER_WRITE_BIT;
+		srcw = dstw;
+		srch = dsth;
+	}
+
+	// final transition
+	barriers[0].oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+	barriers[0].newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+	barriers[0].srcAccessMask = VK_ACCESS_TRANSFER_READ_BIT;
+	barriers[0].dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+	barriers[0].subresourceRange.baseMipLevel = 0;
+	barriers[0].subresourceRange.levelCount = im->numMipMaps - 1;
+
+	barriers[1].oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+	barriers[1].newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+	barriers[1].srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+	barriers[1].dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+	barriers[1].subresourceRange.baseMipLevel = im->numMipMaps - 1;
+	barriers[1].subresourceRange.levelCount = 1;
+
+	vkCmdPipelineBarrier( cmdbuf, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
+		VK_DEPENDENCY_BY_REGION_BIT, 0, nullptr, 0, nullptr, 2, barriers );
+
+	VK_EndUpload();
+}
 
 /*
 ==================
@@ -1204,6 +1301,9 @@ static void VK_AllocImageContents( image_t *image ) {
 			descriptorSetWriter.flush();
 		}
 	}
+
+	image->numMipMaps = imageCreateInfo.mipLevels;
+	image->numLayers = imageCreateInfo.arrayLayers;
 }
 
 // initializes the image object
@@ -1332,7 +1432,7 @@ image_t *R_CreateImage( const char *name, const byte *pic, int width, int height
 	return image;
 }
 
-image_t *R_CreateImageCube( const char *name, const byte *const *pics, const int* sizes,
+image_t *R_CreateImageCube( const char *name, const byte *const *pics, const int *sizes,
 	VkFormat format, qboolean mipmap, qboolean allowPicmip, qboolean allowTC, VkSamplerAddressMode wrapClampMode ) {
 	image_t *image;
 	qboolean isLightmap = qfalse;
@@ -1387,7 +1487,7 @@ image_t *R_CreateImageCube( const char *name, const byte *const *pics, const int
 
 	if( rescalew > 0 ) {
 		// rescale faces to match the cube image size
-		auto& resizeImage = CubeResizeImages.emplace_back();
+		auto &resizeImage = CubeResizeImages.emplace_back();
 		char resizeImageName[MAX_QPATH];
 		Com_sprintf( resizeImageName, sizeof( resizeImageName ), "%s_resize", name );
 
@@ -1419,7 +1519,7 @@ image_t *R_CreateImageCube( const char *name, const byte *const *pics, const int
 			VK_UploadImage( resizeImage.image, pics[i], extent, offset );
 
 			// blit from temporary texture to the cube image
-			VkImageBlit& imageBlit = blits[numBlits++];
+			VkImageBlit &imageBlit = blits[numBlits++];
 			imageBlit.srcOffsets[0].x = offset.x;
 			imageBlit.srcOffsets[0].y = offset.y;
 			imageBlit.srcOffsets[1].x = offset.x + extent.width;
@@ -1446,6 +1546,11 @@ image_t *R_CreateImageCube( const char *name, const byte *const *pics, const int
 		VK_SetImageLayout2( cmd, image, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_ACCESS_SHADER_READ_BIT );
 		vkCmdSetEvent( cmd, resizeImage.event, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT );
 		VK_EndUpload();
+
+		// generate mips
+		if( mipmap ) {
+			VK_GenerateMipMaps( image );
+		}
 	}
 	else {
 		// copy faces directly to the cube image
@@ -2054,7 +2159,7 @@ R_DeleteUploadTextures
 void R_DeleteUploadTextures( void ) {
 	auto iter = CubeResizeImages.begin();
 	while( iter != CubeResizeImages.end() ) {
-		resizeImage_t& im = *iter;
+		resizeImage_t &im = *iter;
 
 		// check if event has been signaled or an error occured
 		VkResult res = vkGetEventStatus( vkState.device, im.event );
