@@ -492,7 +492,7 @@ static void DrawSkyBox( shader_t *shader ) {
 			}
 		}
 
-		DrawSkySide( shader->sky->cppData.outerbox[i],
+		DrawSkySide( &shader->sky->outerbox[i],
 			         sky_mins_subd,
 					 sky_maxs_subd );
 	}
@@ -808,7 +808,7 @@ void RB_StageIteratorSky( void ) {
 
 
 	// back to normal depth range
-	qglDepthRange( 0.0, 1.0 );
+	RB_SetDepthRange( 0.0, 1.0 );
 
 	// note that sky was drawn so we will draw a sun later
 	backEnd.skyRenderedThisView = qtrue;
