@@ -724,6 +724,31 @@ typedef struct
 static postRender_t g_postRenders[MAX_POST_RENDERS];
 static int g_numPostRenders = 0;
 
+static const char *g_debugShaderSortNames[] = {
+	"SS_BAD",
+	"SS_PORTAL",
+	"SS_ENVIRONMENT",
+	"SS_OPAQUE",
+	"SS_DECAL",
+	"SS_SEE_THROUGH",
+	"SS_BANNER",
+	"SS_INSIDE",
+	"SS_MID_INSIDE",
+	"SS_MIDDLE",
+	"SS_MID_OUTSIDE",
+	"SS_OUTSIDE",
+	"SS_FOG",
+	"SS_UNDERWATER",
+	"SS_BLEND0",
+	"SS_BLEND1",
+	"SS_BLEND2",
+	"SS_BLEND3",
+	"SS_BLEND6",
+	"SS_STENCIL_SHADOW",
+	"SS_ALMOST_NEAREST",
+	"SS_NEAREST"
+};
+
 void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 	shader_t *shader, *oldShader;
 	int fogNum, oldFogNum;
@@ -833,10 +858,18 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 			if( oldShader != NULL ) {
 				RB_EndSurface();
 
+				if( !shader || oldShader->sort != shader->sort ) {
+					RB_EndDebugRegion();
+				}
+
 				if( !didShadowPass && shader && shader->sort > SS_BANNER ) {
 					RB_ShadowFinish();
 					didShadowPass = true;
 				}
+			}
+
+			if( shader && ( !oldShader || oldShader->sort != shader->sort ) ) {
+				RB_BeginDebugRegion( g_debugShaderSortNames[(int)shader->sort] );
 			}
 
 			RB_BeginSurface( shader, fogNum );

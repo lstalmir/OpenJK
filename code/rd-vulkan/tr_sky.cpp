@@ -769,6 +769,8 @@ void RB_StageIteratorSky( void ) {
 		return;
 	}
 
+	RB_BeginDebugRegion( __FUNCTION__ );
+
 	// go through all the polygons and project them onto
 	// the sky box to see which blocks on each side need
 	// to be drawn
@@ -809,6 +811,7 @@ void RB_StageIteratorSky( void ) {
 
 	// back to normal depth range
 	RB_SetDepthRange( 0.0, 1.0 );
+	RB_EndDebugRegion();
 
 	// note that sky was drawn so we will draw a sun later
 	backEnd.skyRenderedThisView = qtrue;

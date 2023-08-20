@@ -1426,12 +1426,13 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input ) {
 /*
 ** RB_StageIteratorGeneric
 */
-void RB_StageIteratorGeneric( void )
-{
+void RB_StageIteratorGeneric( void ) {
 	shaderCommands_t *input;
 	int stage;
 
 	input = &tess;
+
+	RB_BeginDebugRegion( __FUNCTION__ );
 
 #if 0
 	RB_DeformTessGeometry();
@@ -1502,6 +1503,8 @@ void RB_StageIteratorGeneric( void )
 		qglDisable(GL_FOG);
 	}
 #endif
+
+	RB_EndDebugRegion();
 }
 
 
@@ -1577,6 +1580,8 @@ void RB_EndSurface( void ) {
 		}
 	}
 
+	RB_BeginDebugRegion( input->shader->name );
+
 	//
 	// call off to shader specific tess end function
 	//
@@ -1599,5 +1604,6 @@ void RB_EndSurface( void ) {
 	// clear shader so we can tell we don't have any unclosed surfaces
 	tess.numDraws = 0;
 
+	RB_EndDebugRegion();
 	GLimp_LogComment( "----------\n" );
 }
