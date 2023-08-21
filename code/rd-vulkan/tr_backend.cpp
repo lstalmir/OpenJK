@@ -764,6 +764,7 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 	image_t *frameBufferImage;
 	bool didShadowPass = false;
 	bool didFogPass = false;
+	bool didAntiAliasing = false;
 
 	// save original time for entity shader offsets
 	originalTime = backEnd.refdef.floatTime;
@@ -870,6 +871,11 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 				if( !didFogPass && shader && shader->sort > SS_FOG ) {
 					RB_SkyFogFinish();
 					didFogPass = true;
+				}
+
+				if( !didAntiAliasing && shader && shader->sort > SS_BLEND0 ) {
+					RB_DrawAntialiasing();
+					didAntiAliasing = true;
 				}
 			}
 
@@ -1050,6 +1056,10 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 	if( !didFogPass ) {
 		RB_SkyFogFinish();
 		didFogPass = true;
+	}
+	if( !didAntiAliasing ) {
+		RB_DrawAntialiasing();
+		didAntiAliasing = true;
 	}
 
 	// add light flares on lights that aren't obscured
@@ -1375,6 +1385,8 @@ const void *RB_DrawSurfs( const void *data ) {
 	// update the viewParms buffer
 	memcpy( &backEnd.viewParms.shaderData.projectionMatrix, backEnd.viewParms.projectionMatrix, sizeof( backEnd.viewParms.projectionMatrix ) );
 	memcpy( &backEnd.viewParms.shaderData.world.modelMatrix, backEnd.viewParms.world.modelMatrix, sizeof( backEnd.viewParms.world.modelMatrix ) );
+	memcpy( &backEnd.viewParms.shaderData.ori.axis, backEnd.viewParms.ori.axis, sizeof( backEnd.viewParms.ori.axis ) );
+	memcpy( &backEnd.viewParms.shaderData.ori.modelMatrix, backEnd.viewParms.ori.modelMatrix, sizeof( backEnd.viewParms.ori.modelMatrix ) );
 	memcpy( &backEnd.viewParms.shaderData.ori.viewOrigin, backEnd.viewParms.ori.viewOrigin, sizeof( backEnd.viewParms.ori.viewOrigin ) );
 	VK_UploadBuffer( backEnd.viewParms.buffer, (byte *)&backEnd.viewParms.shaderData, sizeof( backEnd.viewParms.shaderData ), 0 );
 

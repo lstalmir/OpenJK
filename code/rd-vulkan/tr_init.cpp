@@ -2056,6 +2056,9 @@ void RE_Shutdown( qboolean destroyWindow, qboolean restarting ) {
 				SaveGhoul2InfoArray();
 			}
 
+			VK_Delete( vkDestroyPipelineLayout, vkState.antialiasingPipelineLayout.handle );
+			VK_Delete( vkDestroyPipeline, vkState.antialiasingPipeline.handle );
+
 			VK_Delete( vkDestroyPipelineLayout, vkState.shadePipelineLayout.handle );
 			VK_Delete( vkDestroyPipelineLayout, vkState.ghoul2ShadePipelineLayout.handle );
 

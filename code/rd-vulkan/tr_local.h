@@ -1131,6 +1131,10 @@ typedef struct {
 	pipelineState_t			glowCombinePipeline;
 	pipelineLayout_t		glowCombinePipelineLayout;
 
+	// Anti-aliasing
+	pipelineState_t			antialiasingPipeline;
+	pipelineLayout_t		antialiasingPipelineLayout;
+
 } vkstate_t;
 
 
@@ -1227,6 +1231,8 @@ typedef struct {
 
 	frameBuffer_t			*skyFogFrameBuffer;
 	
+	frameBuffer_t			*antialiasingFrameBuffer;
+
 	// Image the glowing objects are rendered to. - AReis
 	frameBuffer_t			*glowFrameBuffer;
 
@@ -1678,6 +1684,7 @@ void			SPV_InitPipelineCache( void );
 void			SPV_InitGlowShaders( void );
 void			SPV_InitWireframeShaders( void );
 void			SPV_InitSkyboxShaders( void );
+void			SPV_InitAntialiasingShaders( void );
 pipelineState_t *SPV_GetShadePipeline( int stateBits );
 
 void			R_SetPipelineState( pipelineState_t *pipeline );
@@ -2013,6 +2020,16 @@ void R_DrawSkyBox( shaderCommands_t *shader );
 void RB_DrawSun( void );
 void RB_ClipSkyPolygons( shaderCommands_t *shader );
 void RB_SkyFogFinish( void );
+
+/*
+============================================================
+
+POST PROCESSING
+
+============================================================
+*/
+
+void RB_DrawAntialiasing( void );
 
 /*
 ============================================================

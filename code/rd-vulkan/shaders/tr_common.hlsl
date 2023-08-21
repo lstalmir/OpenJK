@@ -89,7 +89,7 @@ void VS_FullScreenQuad( uint vindex, out float4 position, out float2 texcoord ) 
 	};
 	float2 v = vertices[vindex];
 	position = float4( v, 0, 1 );
-	texcoord = ( v + 1 ) / 4;
+	texcoord = ( v + 1 ) / 2;
 }
 
 float3 ProjectPointOnPlane( float3 p, float3 normal ) {

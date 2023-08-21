@@ -1981,6 +1981,13 @@ static void R_CreateTransientImages( void ) {
 	frameBufferBuilder.addColorAttachment( tr.sceneFrameBuffer->images->i ); // color
 	frameBufferBuilder.build( &tr.skyFogFrameBuffer );
 
+	// Create antialiasing image
+	frameBufferBuilder.reset();
+	frameBufferBuilder.width = glConfig.vidWidth;
+	frameBufferBuilder.height = glConfig.vidHeight;
+	frameBufferBuilder.addColorAttachment( tr.sceneFrameBuffer->images->i->internalFormat );
+	frameBufferBuilder.build( &tr.antialiasingFrameBuffer );
+
 #if 0
 	// Create the scene glow image
 	frameBufferBuilder.reset();
@@ -2136,6 +2143,8 @@ void R_DeleteTransientTextures( void ) {
 
 	R_DeleteFrameBuffer( tr.sceneFrameBuffer );
 	R_DeleteFrameBuffer( tr.postProcessFrameBuffer );
+
+	R_DeleteFrameBuffer( tr.antialiasingFrameBuffer );
 
 	// free the dynamic glow resources
 	if( r_DynamicGlow && r_DynamicGlow->integer ) {

@@ -681,3 +681,38 @@ qboolean RE_InitDissolve( qboolean bForceCircularExtroWipe ) {
 
 	return bReturn;
 }
+
+/*
+=============
+RB_DrawAntialiasing
+=============
+*/
+void RB_DrawAntialiasing( void ) {
+	image_t *sourceBuffer = tr.sceneFrameBuffer->images[0].i;
+	frameBuffer_t *outputBuffer = tr.antialiasingFrameBuffer;
+
+	R_BindFrameBuffer( NULL );
+	RB_BeginDebugRegion( __FUNCTION__ );
+
+	// source image layout transition
+	VK_SetImageLayout( sourceBuffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_ACCESS_SHADER_READ_BIT );
+
+	R_BindFrameBuffer( outputBuffer );
+	RB_SetViewportSize( 0, 0, outputBuffer->width, outputBuffer->height );
+	R_SetPipelineState( &vkState.antialiasingPipeline );
+	R_BindDescriptorSet( TR_GLOBALS_SPACE, tr.commonDescriptorSet );
+	R_BindDescriptorSet( TR_SAMPLERS_SPACE, tr.samplerDescriptorSet );
+	VK_BindImage( sourceBuffer );
+
+	// draw full screen quad (geometry is generated in vertex shader)
+	vkCmdDraw( backEndData->cmdbuf, 3, 1, 0, 0 );
+
+	R_BindFrameBuffer( NULL );
+
+	// copy antialiased output to the scene buffer
+	VK_SetImageLayout( tr.antialiasingFrameBuffer->images->i, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_ACCESS_TRANSFER_READ_BIT );
+	VK_SetImageLayout( sourceBuffer, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_ACCESS_TRANSFER_WRITE_BIT );
+	VK_CopyImage( sourceBuffer, outputBuffer->images->i );
+	
+	RB_EndDebugRegion();
+}

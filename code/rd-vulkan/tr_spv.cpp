@@ -35,6 +35,8 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 #include "tr_skybox_VS.h"
 #include "tr_skybox_PS.h"
 #include "tr_skybox_fog_PS.h"
+#include "tr_fxaa_VS.h"
+#include "tr_fxaa_PS.h"
 
 #include <unordered_map>
 
@@ -296,6 +298,45 @@ void SPV_InitSkyboxShaders( void ) {
 	// create the skybox fog pipeline
 	pipelineBuilder.pipelineCreateInfo.renderPass = tr.skyFogFrameBuffer->renderPass;
 	pipelineBuilder.build( &vkState.skyboxFogPipeline );
+}
+
+void SPV_InitAntialiasingShaders( void ) {
+	if( vkState.antialiasingPipeline.handle )
+		return;
+
+	CPipelineLayoutBuilder pipelineLayoutBuilder;
+	CPipelineBuilder pipelineBuilder;
+
+	// create the pipeline layout
+	pipelineLayoutBuilder.build( &vkState.antialiasingPipelineLayout );
+	VK_SetDebugObjectName( vkState.antialiasingPipelineLayout.handle, VK_OBJECT_TYPE_PIPELINE_LAYOUT, "tr.antialiasingPipelineLayout" );
+
+	// create the TAA pipeline
+	pipelineBuilder.layout = &vkState.antialiasingPipelineLayout;
+	pipelineBuilder.pipelineCreateInfo.renderPass = tr.antialiasingFrameBuffer->renderPass;
+	pipelineBuilder.pipelineCreateInfo.subpass = 0;
+
+	// setup the pipeline shader stages
+	pipelineBuilder.setShader( VK_SHADER_STAGE_VERTEX_BIT, tr_fxaa_VS );
+	pipelineBuilder.setShader( VK_SHADER_STAGE_FRAGMENT_BIT, tr_fxaa_PS );
+
+	// setup the rasterizer
+	pipelineBuilder.rasterization.cullMode = VK_CULL_MODE_NONE;
+
+	// setup the depth state
+	pipelineBuilder.depthStencil.depthTestEnable = VK_FALSE;
+	pipelineBuilder.depthStencil.depthWriteEnable = VK_FALSE;
+	pipelineBuilder.depthStencil.depthCompareOp = VK_COMPARE_OP_ALWAYS;
+
+	// setup the color blend state
+	VkPipelineColorBlendAttachmentState attachmentBlend = {};
+	attachmentBlend.blendEnable = VK_FALSE;
+	attachmentBlend.colorWriteMask = 0xF;
+	pipelineBuilder.colorBlend.attachmentCount = 1;
+	pipelineBuilder.colorBlend.pAttachments = &attachmentBlend;
+
+	// create the TAA pipeline
+	pipelineBuilder.build( &vkState.antialiasingPipeline );
 }
 
 static void InitShadePipelineBuilder( CPipelineBuilder *builder, int spec ) {

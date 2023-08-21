@@ -3833,6 +3833,7 @@ static void CreateInternalShaders( void ) {
 	SPV_InitGlowShaders();
 	SPV_InitWireframeShaders();
 	SPV_InitSkyboxShaders();
+	SPV_InitAntialiasingShaders();
 
 	tr.numShaders = 0;
 	tr.iNumDeniedShaders = 0;
