@@ -688,6 +688,11 @@ RB_DrawAntialiasing
 =============
 */
 void RB_DrawAntialiasing( void ) {
+	if( r_antialiasing && !r_antialiasing->integer ) {
+		// antialiasing disabled
+		return;
+	}
+
 	image_t *sourceBuffer = tr.sceneFrameBuffer->images[0].i;
 	frameBuffer_t *outputBuffer = tr.antialiasingFrameBuffer;
 

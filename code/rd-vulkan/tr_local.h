@@ -1438,6 +1438,7 @@ extern	cvar_t	*r_shadows;						// controls shadows: 0 = none, 1 = blur, 2 = sten
 extern	cvar_t	*r_flares;						// light flares
 
 extern	cvar_t	*r_atmosphere;
+extern  cvar_t	*r_antialiasing;
 
 extern	cvar_t	*r_intensity;
 

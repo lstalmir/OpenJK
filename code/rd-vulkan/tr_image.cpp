@@ -2144,7 +2144,10 @@ void R_DeleteTransientTextures( void ) {
 	R_DeleteFrameBuffer( tr.sceneFrameBuffer );
 	R_DeleteFrameBuffer( tr.postProcessFrameBuffer );
 
-	R_DeleteFrameBuffer( tr.antialiasingFrameBuffer );
+	// free the antialiasing resources
+	if( !r_antialiasing || r_antialiasing->integer ) {
+		R_DeleteFrameBuffer( tr.antialiasingFrameBuffer );
+	}
 
 	// free the dynamic glow resources
 	if( r_DynamicGlow && r_DynamicGlow->integer ) {

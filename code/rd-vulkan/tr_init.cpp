@@ -115,6 +115,7 @@ cvar_t *r_shadows;
 cvar_t *r_shadowRange;
 cvar_t *r_flares;
 cvar_t *r_atmosphere;
+cvar_t *r_antialiasing;
 cvar_t *r_nobind;
 cvar_t *r_singleShader;
 cvar_t *r_colorMipLevels;
@@ -1861,6 +1862,7 @@ void R_Register( void ) {
 	r_shadows = ri.Cvar_Get( "cg_shadows", "1", 0 );
 	r_shadowRange = ri.Cvar_Get( "r_shadowRange", "1000", CVAR_ARCHIVE_ND );
 	r_atmosphere = ri.Cvar_Get( "r_atmosphere", "1", CVAR_CHEAT );
+	r_antialiasing = ri.Cvar_Get( "r_antialiasing", "1", CVAR_ARCHIVE );
 
 	/*
 	Ghoul2 Insert Start

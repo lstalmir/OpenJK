@@ -301,8 +301,14 @@ void SPV_InitSkyboxShaders( void ) {
 }
 
 void SPV_InitAntialiasingShaders( void ) {
-	if( vkState.antialiasingPipeline.handle )
+	if( r_antialiasing && !r_antialiasing->integer ) {
+		// antialiasing disabled
 		return;
+	}
+
+	if( vkState.antialiasingPipeline.handle ) {
+		return;
+	}
 
 	CPipelineLayoutBuilder pipelineLayoutBuilder;
 	CPipelineBuilder pipelineBuilder;
