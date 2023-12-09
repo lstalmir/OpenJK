@@ -1010,7 +1010,7 @@ static void RB_SurfaceBeam( void )
 		VectorAdd( start_points[i], direction, end_points[i] );
 	}
 
-	VK_BindImage( tr.whiteImage );
+	VK_BindImage( tres.whiteImage );
 
 	backEndData->dynamicGeometryBuilder.checkOverflow( 4 * NUM_BEAM_SEGS, 6 * NUM_BEAM_SEGS );
 	backEndData->dynamicGeometryBuilder.setDrawStateBits( GLS_SRCBLEND_ONE | GLS_DSTBLEND_ONE );

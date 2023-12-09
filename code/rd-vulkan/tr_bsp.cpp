@@ -179,7 +179,7 @@ static void R_LoadLightmaps( lump_t *l, const char *psMapName, world_t &worldDat
 	int count;
 
 	if( &worldData == &s_worldData ) {
-		tr.numLightmaps = 0;
+		tres.numLightmaps = 0;
 	}
 
 	len = l->filelen;
@@ -192,9 +192,9 @@ static void R_LoadLightmaps( lump_t *l, const char *psMapName, world_t &worldDat
 	R_IssuePendingRenderCommands(); //
 
 	// create all the lightmaps
-	worldData.startLightMapIndex = tr.numLightmaps;
+	worldData.startLightMapIndex = tres.numLightmaps;
 	count = len / ( LIGHTMAP_SIZE * LIGHTMAP_SIZE * 3 );
-	tr.numLightmaps += count;
+	tres.numLightmaps += count;
 
 	// if we are in r_vertexLight mode, we don't need the lightmaps at all
 	if( r_vertexLight->integer ) {
@@ -242,7 +242,7 @@ static void R_LoadLightmaps( lump_t *l, const char *psMapName, world_t &worldDat
 				image[j * 4 + 3] = 255;
 			}
 		}
-		tr.lightmaps[worldData.startLightMapIndex + i] = R_CreateImage(
+		tres.lightmaps[worldData.startLightMapIndex + i] = R_CreateImage(
 			va( "$%s/lightmap%d", sMapName, worldData.startLightMapIndex + i ),
 			image, LIGHTMAP_SIZE, LIGHTMAP_SIZE, VK_FORMAT_B8G8R8A8_UNORM, qfalse, qfalse,
 			(qboolean)( r_ext_compressed_lightmaps->integer != 0 ),
@@ -344,7 +344,7 @@ static shader_t *ShaderForShaderNum( int shaderNum, const int *lightmapNum, cons
 
 	// if the shader had errors, just use default shader
 	if( shader->defaultShader ) {
-		return tr.defaultShader;
+		return tres.defaultShader;
 	}
 
 	return shader;
@@ -378,7 +378,7 @@ static void ParseFace( dsurface_t *ds, mapVert_t *verts, msurface_t *surf, int *
 	// get shader value
 	surf->shader = ShaderForShaderNum( ds->shaderNum, lightmapNum, ds->lightmapStyles, ds->vertexStyles, worldData );
 	if( r_singleShader->integer && !surf->shader->sky ) {
-		surf->shader = tr.defaultShader;
+		surf->shader = tres.defaultShader;
 	}
 
 	numPoints = LittleLong( ds->numVerts );
@@ -483,7 +483,7 @@ static void ParseMesh( dsurface_t *ds, mapVert_t *verts, msurface_t *surf, world
 	// get shader value
 	surf->shader = ShaderForShaderNum( ds->shaderNum, lightmapNum, ds->lightmapStyles, ds->vertexStyles, worldData );
 	if( r_singleShader->integer && !surf->shader->sky ) {
-		surf->shader = tr.defaultShader;
+		surf->shader = tres.defaultShader;
 	}
 
 	// we may have a nodraw surface, because they might still need to
@@ -605,7 +605,7 @@ static void ParseTriSurf( dsurface_t *ds, mapVert_t *verts, msurface_t *surf, in
 	// get shader
 	surf->shader = ShaderForShaderNum( ds->shaderNum, lightmapsVertex, ds->lightmapStyles, ds->vertexStyles, worldData );
 	if( r_singleShader->integer && !surf->shader->sky ) {
-		surf->shader = tr.defaultShader;
+		surf->shader = tres.defaultShader;
 	}
 
 	numVerts = LittleLong( ds->numVerts );
@@ -702,7 +702,7 @@ static void ParseFlare( dsurface_t *ds, mapVert_t *verts, msurface_t *surf, int 
 	// get shader
 	surf->shader = ShaderForShaderNum( ds->shaderNum, lightmaps, ds->lightmapStyles, ds->vertexStyles, worldData );
 	if( r_singleShader->integer && !surf->shader->sky ) {
-		surf->shader = tr.defaultShader;
+		surf->shader = tres.defaultShader;
 	}
 
 	flare = (srfFlare_t *)R_Hunk_Alloc( sizeof( *flare ), qtrue );
@@ -1512,14 +1512,14 @@ void RE_LoadWorldMap_Actual( const char *name, world_t &worldData, int index ) {
 
 	if( worldData.fogsBuffer ) {
 		// update the fogs buffer
-		CDescriptorSetWriter writer( tr.commonDescriptorSet );
+		CDescriptorSetWriter writer( tres.commonDescriptorSet );
 		writer.writeBuffer( 4, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, worldData.fogsBuffer );
 		writer.flush();
 	}
 	else {
 		// restore the original fogs buffer
-		CDescriptorSetWriter writer( tr.commonDescriptorSet );
-		writer.writeBuffer( 4, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, tr.fogsBuffer );
+		CDescriptorSetWriter writer( tres.commonDescriptorSet );
+		writer.writeBuffer( 4, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, tres.fogsBuffer );
 		writer.flush();
 	}
 

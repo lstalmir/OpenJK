@@ -141,7 +141,7 @@ void SPV_InitGlowShaders( void ) {
 
 	// create the pipeline
 	pipelineBuilder.layout = &vkState.glowBlurPipelineLayout;
-	pipelineBuilder.pipelineCreateInfo.renderPass = tr.postProcessFrameBuffer->renderPass;
+	pipelineBuilder.pipelineCreateInfo.renderPass = tres.postProcessFrameBuffer->renderPass;
 	pipelineBuilder.pipelineCreateInfo.subpass = 0;
 
 #if 0
@@ -207,7 +207,7 @@ void SPV_InitWireframeShaders( void ) {
 
 	// create the wireframe pipeline
 	pipelineBuilder.layout = &vkState.wireframePipelineLayout;
-	pipelineBuilder.pipelineCreateInfo.renderPass = tr.sceneFrameBuffer->renderPass;
+	pipelineBuilder.pipelineCreateInfo.renderPass = tres.sceneFrameBuffer->renderPass;
 	pipelineBuilder.pipelineCreateInfo.subpass = 0;
 
 	// setup the vertex input
@@ -254,7 +254,7 @@ void SPV_InitSkyboxShaders( void ) {
 
 	// create the skybox pipeline
 	pipelineBuilder.layout = &vkState.skyboxPipelineLayout;
-	pipelineBuilder.pipelineCreateInfo.renderPass = tr.sceneFrameBuffer->renderPass;
+	pipelineBuilder.pipelineCreateInfo.renderPass = tres.sceneFrameBuffer->renderPass;
 	pipelineBuilder.pipelineCreateInfo.subpass = 0;
 
 	// setup the vertex input
@@ -296,7 +296,7 @@ void SPV_InitSkyboxShaders( void ) {
 	attachmentBlend.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
 	attachmentBlend.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
 	// create the skybox fog pipeline
-	pipelineBuilder.pipelineCreateInfo.renderPass = tr.skyFogFrameBuffer->renderPass;
+	pipelineBuilder.pipelineCreateInfo.renderPass = tres.skyFogFrameBuffer->renderPass;
 	pipelineBuilder.build( &vkState.skyboxFogPipeline );
 }
 
@@ -319,7 +319,7 @@ void SPV_InitAntialiasingShaders( void ) {
 
 	// create the TAA pipeline
 	pipelineBuilder.layout = &vkState.antialiasingPipelineLayout;
-	pipelineBuilder.pipelineCreateInfo.renderPass = tr.antialiasingFrameBuffer->renderPass;
+	pipelineBuilder.pipelineCreateInfo.renderPass = tres.antialiasingFrameBuffer->renderPass;
 	pipelineBuilder.pipelineCreateInfo.subpass = 0;
 
 	// setup the pipeline shader stages
@@ -347,7 +347,7 @@ void SPV_InitAntialiasingShaders( void ) {
 
 static void InitShadePipelineBuilder( CPipelineBuilder *builder, int spec ) {
 	builder->layout = &vkState.shadePipelineLayout;
-	builder->pipelineCreateInfo.renderPass = tr.sceneFrameBuffer->renderPass;
+	builder->pipelineCreateInfo.renderPass = tres.sceneFrameBuffer->renderPass;
 	builder->pipelineCreateInfo.subpass = 0;
 
 	// set specialization constants

@@ -1624,7 +1624,7 @@ void G2_TraceModels(CGhoul2Info_v &ghoul2, vec3_t rayStart, vec3_t rayEnd, CColl
 		}
 
 		// figure out the custom skin thing
-		if ( g.mSkin > 0 && g.mSkin < tr.numSkins )
+		if ( g.mSkin > 0 && g.mSkin < tres.numSkins )
 		{
 			skin = R_GetSkinByHandle( g.mSkin );
 		}

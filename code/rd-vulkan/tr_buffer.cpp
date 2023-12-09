@@ -482,11 +482,11 @@ static void R_CreateSkybox( void ) {
 	trIndex_t *indexes;
 
 	// allocate a vertex buffer
-	tr.skyboxVertexBuffer = R_CreateVertexBuffer( 24, 36 );
+	tres.skyboxVertexBuffer = R_CreateVertexBuffer( 24, 36 );
 
-	byte *uploadData = (byte *)VK_BeginUploadBuffer( &tr.skyboxVertexBuffer->b, tr.skyboxVertexBuffer->b.size, 0 );
-	vertexes = (tr_shader::vertex_t *)( uploadData + tr.skyboxVertexBuffer->vertexOffset );
-	indexes = (trIndex_t *)( uploadData + tr.skyboxVertexBuffer->indexOffset );
+	byte *uploadData = (byte *)VK_BeginUploadBuffer( &tres.skyboxVertexBuffer->b, tres.skyboxVertexBuffer->b.size, 0 );
+	vertexes = (tr_shader::vertex_t *)( uploadData + tres.skyboxVertexBuffer->vertexOffset );
+	indexes = (trIndex_t *)( uploadData + tres.skyboxVertexBuffer->indexOffset );
 
 	// left face (-X)
 	vertexes[0].position = { -1, -1, -1, 1 };
@@ -625,14 +625,14 @@ void R_CreateBuiltinBuffers( void ) {
 	tr_shader::fog_t fog;
 
 	// allocate a buffer for global parameters
-	tr.globalsBuffer = R_CreateBuffer( sizeof( tr.globals ), VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, 0 );
+	tres.globalsBuffer = R_CreateBuffer( sizeof( tr.globals ), VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, 0 );
 
 	// allocate a buffer with an identity fog
-	tr.fogsBuffer = R_CreateBuffer( sizeof( fog ),
+	tres.fogsBuffer = R_CreateBuffer( sizeof( fog ),
 		VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT, 0 );
 
 	memset( &fog, 0, sizeof( fog ) );
-	VK_UploadBuffer( tr.fogsBuffer, (byte *)&fog, sizeof( fog ), 0 );
+	VK_UploadBuffer( tres.fogsBuffer, (byte *)&fog, sizeof( fog ), 0 );
 
 	// initialize a dynamic geometry buffer
 	backEndData->dynamicGeometryBuilder.init();

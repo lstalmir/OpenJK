@@ -32,7 +32,7 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 
 
 static void RB_UploadCinematic( int cols, int rows, const byte *data, int &client, qboolean dirty ) {
-	image_t *image = tr.scratchImage[client];
+	image_t *image = tres.scratchImage[client];
 
 	// if the scratchImage isn't in the format we want, specify it as a new texture
 	if( cols != image->width || rows != image->height ) {
@@ -44,10 +44,10 @@ static void RB_UploadCinematic( int cols, int rows, const byte *data, int &clien
 
 			image = NULL;
 			for( i = 0; i < NUM_SCRATCH_IMAGES; ++i ) {
-				if( ( cols == tr.scratchImage[i]->width ) &&
-					( rows == tr.scratchImage[i]->height ) &&
-					( tr.scratchImage[i]->iLastFrameUsedOn > tr.frameCount - vkState.imgcount ) ) {
-					image = tr.scratchImage[i];
+				if( ( cols == tres.scratchImage[i]->width ) &&
+					( rows == tres.scratchImage[i]->height ) &&
+					( tres.scratchImage[i]->iLastFrameUsedOn > tr.frameCount - vkState.imgcount ) ) {
+					image = tres.scratchImage[i];
 					client = i;
 					break;
 				}
@@ -93,7 +93,7 @@ void RE_StretchRaw( int x, int y, int w, int h, int cols, int rows, const byte *
 
 	frameBuffer = backEndData->frameBuffer;
 	if( !frameBuffer ) {
-		frameBuffer = tr.sceneFrameBuffer;
+		frameBuffer = tres.sceneFrameBuffer;
 	}
 
 	frameBufferImage = frameBuffer->images[0].i;
@@ -107,7 +107,7 @@ void RE_StretchRaw( int x, int y, int w, int h, int cols, int rows, const byte *
 	}
 
 	RB_UploadCinematic( cols, rows, data, iClient, bDirty );
-	scratchImage = tr.scratchImage[iClient];
+	scratchImage = tres.scratchImage[iClient];
 
 	VK_SetImageLayout( scratchImage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_ACCESS_TRANSFER_READ_BIT );
 	VK_SetImageLayout( frameBufferImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_ACCESS_TRANSFER_WRITE_BIT );
@@ -693,8 +693,8 @@ void RB_DrawAntialiasing( void ) {
 		return;
 	}
 
-	image_t *sourceBuffer = tr.sceneFrameBuffer->images[0].i;
-	frameBuffer_t *outputBuffer = tr.antialiasingFrameBuffer;
+	image_t *sourceBuffer = tres.sceneFrameBuffer->images[0].i;
+	frameBuffer_t *outputBuffer = tres.antialiasingFrameBuffer;
 
 	R_BindFrameBuffer( NULL );
 	RB_BeginDebugRegion( __FUNCTION__ );
@@ -705,8 +705,8 @@ void RB_DrawAntialiasing( void ) {
 	R_BindFrameBuffer( outputBuffer );
 	RB_SetViewportSize( 0, 0, outputBuffer->width, outputBuffer->height );
 	R_SetPipelineState( &vkState.antialiasingPipeline );
-	R_BindDescriptorSet( TR_GLOBALS_SPACE, tr.commonDescriptorSet );
-	R_BindDescriptorSet( TR_SAMPLERS_SPACE, tr.samplerDescriptorSet );
+	R_BindDescriptorSet( TR_GLOBALS_SPACE, tres.commonDescriptorSet );
+	R_BindDescriptorSet( TR_SAMPLERS_SPACE, tres.samplerDescriptorSet );
 	VK_BindImage( sourceBuffer );
 
 	// draw full screen quad (geometry is generated in vertex shader)
@@ -715,7 +715,7 @@ void RB_DrawAntialiasing( void ) {
 	R_BindFrameBuffer( NULL );
 
 	// copy antialiased output to the scene buffer
-	VK_SetImageLayout( tr.antialiasingFrameBuffer->images->i, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_ACCESS_TRANSFER_READ_BIT );
+	VK_SetImageLayout( tres.antialiasingFrameBuffer->images->i, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_ACCESS_TRANSFER_READ_BIT );
 	VK_SetImageLayout( sourceBuffer, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_ACCESS_TRANSFER_WRITE_BIT );
 	VK_CopyImage( sourceBuffer, outputBuffer->images->i );
 	

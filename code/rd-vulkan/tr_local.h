@@ -1180,6 +1180,8 @@ void RB_SetDepthRange( float minDepth, float maxDepth );
 void RB_SetViewportState( void );
 void RB_InvalidateViewportState( void );
 
+#define NUM_SCRATCH_IMAGES 16
+
 /*
 ** trGlobals_t
 **
@@ -1188,8 +1190,6 @@ void RB_InvalidateViewportState( void );
 ** but may read fields that aren't dynamically modified
 ** by the frontend.
 */
-#define NUM_SCRATCH_IMAGES 16
-
 typedef struct {
 	qboolean				registered;		// cleared at shutdown, set at beginRegistration
 
@@ -1207,6 +1207,43 @@ typedef struct {
 
 	const byte				*externalVisData;	// from RE_SetWorldVisData, shared with CM_Load
 
+	trRefEntity_t			*currentEntity;
+	trRefEntity_t			worldEntity;		// point currentEntity at this when rendering world
+	int						currentEntityNum;
+	unsigned				shiftedEntityNum;	// currentEntityNum << QSORT_REFENTITYNUM_SHIFT (possible with high bit set for RF_ALPHA_FADE)
+	model_t					*currentModel;
+
+	viewParms_t				viewParms;
+
+	float					identityLight;		// 1.0 / ( 1 << overbrightBits )
+	int						identityLightByte;	// identityLight * 255
+	int						overbrightBits;		// r_overbrightBits->integer, but set to 0 if no hw gamma
+
+	orientationr_t			ori;					// for current entity
+
+	trRefdef_t				refdef;
+
+	int						viewCluster;
+
+	sunParms_t				sunParms;
+	int						sunSurfaceLight;	// from the sky shader for this level
+
+
+	frontEndCounters_t		pc;
+	int						frontEndMsec;		// not in pc due to clearing issue
+
+	float					rangedFog;
+	float					distanceCull;
+	
+	tr_shader::trGlobals_t	globals;
+} trGlobals_t;
+
+/*
+** trResources_t
+**
+** Resources that need explicit cleanup during re-init.
+*/
+typedef struct {
 	image_t					*defaultImage;
 	image_t					*scratchImage[NUM_SCRATCH_IMAGES];
 	image_t					*fogImage;
@@ -1249,37 +1286,8 @@ typedef struct {
 	int						numLightmaps;
 	image_t					*lightmaps[MAX_LIGHTMAPS];
 
-	trRefEntity_t			*currentEntity;
-	trRefEntity_t			worldEntity;		// point currentEntity at this when rendering world
-	int						currentEntityNum;
-	unsigned				shiftedEntityNum;	// currentEntityNum << QSORT_REFENTITYNUM_SHIFT (possible with high bit set for RF_ALPHA_FADE)
-	model_t					*currentModel;
-
-	viewParms_t				viewParms;
-
-	float					identityLight;		// 1.0 / ( 1 << overbrightBits )
-	int						identityLightByte;	// identityLight * 255
-	int						overbrightBits;		// r_overbrightBits->integer, but set to 0 if no hw gamma
-
-	orientationr_t			ori;					// for current entity
-
-	trRefdef_t				refdef;
-
-	int						viewCluster;
-
-	sunParms_t				sunParms;
-	int						sunSurfaceLight;	// from the sky shader for this level
-
-
-	frontEndCounters_t		pc;
-	int						frontEndMsec;		// not in pc due to clearing issue
-
-	float					rangedFog;
-	float					distanceCull;
-
 	// GPU-visible buffer with data stored in this strucutre
 	buffer_t				*globalsBuffer;
-	tr_shader::trGlobals_t	globals;
 
 	buffer_t				*funcTablesBuffer;
 
@@ -1305,7 +1313,7 @@ typedef struct {
 
 	int						numSkins;
 	skin_t					*skins[MAX_SKINS];
-} trGlobals_t;
+} trResources_t;
 
 int		 R_Images_StartIteration(void);
 image_t *R_Images_GetNextIteration(void);
@@ -1321,10 +1329,11 @@ void	 R_Buffers_DeleteBuffer(buffer_t *pBuffer);
 
 
 extern backEndState_t	backEnd;
-extern trGlobals_t	tr;
-extern glconfig_t	glConfig;		// outside of TR since it shouldn't be cleared during ref re-init
-extern vkstate_t	vkState;		// outside of TR since it shouldn't be cleared during ref re-init
-extern window_t		window;
+extern trGlobals_t		tr;
+extern trResources_t	tres;
+extern glconfig_t		glConfig;		// outside of TR since it shouldn't be cleared during ref re-init
+extern vkstate_t		vkState;		// outside of TR since it shouldn't be cleared during ref re-init
+extern window_t			window;
 
 
 //
@@ -1602,7 +1611,7 @@ void		RE_SetWorldVisData( const byte *vis );
 qhandle_t	RE_RegisterModel( const char *name );
 qhandle_t	RE_RegisterSkin( const char *name );
 int			RE_GetAnimationCFG(const char *psCFGFilename, char *psDest, int iDestSize);
-void		RE_Shutdown( qboolean destroyWindow );
+void		RE_Shutdown( qboolean destroyWindow, qboolean restarting );
 
 void		RE_RegisterMedia_LevelLoadBegin(const char *psMapName, ForceReload_e eForceReload, qboolean bAllowScreenDissolve);
 void		RE_RegisterMedia_LevelLoadEnd(void);

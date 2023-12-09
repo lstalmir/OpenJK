@@ -836,18 +836,18 @@ void InitVulkanDescriptorSets( void ) {
 	CDescriptorSetWriter writer( VK_NULL_HANDLE );
 
 	// common descriptor set
-	VK_AllocateDescriptorSet( vkState.commonDescriptorSetLayout, &tr.commonDescriptorSet );
+	VK_AllocateDescriptorSet( vkState.commonDescriptorSetLayout, &tres.commonDescriptorSet );
 
-	writer.reset( tr.commonDescriptorSet );
-	writer.writeBuffer( 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, tr.globalsBuffer );
-	writer.writeBuffer( 1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, tr.funcTablesBuffer );
-	writer.writeBuffer( 4, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, tr.fogsBuffer );
-	writer.writeImage( 5, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, tr.noiseImage );
+	writer.reset( tres.commonDescriptorSet );
+	writer.writeBuffer( 0, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, tres.globalsBuffer );
+	writer.writeBuffer( 1, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, tres.funcTablesBuffer );
+	writer.writeBuffer( 4, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, tres.fogsBuffer );
+	writer.writeImage( 5, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE, tres.noiseImage );
 	writer.flush();
 
 	// samplers descriptor set
-	VK_AllocateDescriptorSet( vkState.samplerDescriptorSetLayout, &tr.samplerDescriptorSet );
-	VK_SetDebugObjectName( tr.samplerDescriptorSet, VK_OBJECT_TYPE_DESCRIPTOR_SET, "tr.samplerDescriptorSet" );
+	VK_AllocateDescriptorSet( vkState.samplerDescriptorSetLayout, &tres.samplerDescriptorSet );
+	VK_SetDebugObjectName( tres.samplerDescriptorSet, VK_OBJECT_TYPE_DESCRIPTOR_SET, "tres.samplerDescriptorSet" );
 
 	// 2D entity model descriptor set
 	VK_AllocateDescriptorSet( vkState.modelDescriptorSetLayout, &backEnd.entity2D.modelDescriptorSet );
@@ -1099,7 +1099,7 @@ byte *RB_ReadPixels( int x, int y, int width, int height, size_t *offset, int *p
 	byte *buffer;
 	int linelen, padlinelen, srcOffset, dstOffset;
 
-	vmaGetAllocationInfo( vkState.allocator, tr.screenshotImage->allocation, &allocationInfo );
+	vmaGetAllocationInfo( vkState.allocator, tres.screenshotImage->allocation, &allocationInfo );
 	byte *mappedScreenshotImage = (byte *)allocationInfo.pMappedData;
 
 	// get layout of the first color subresource
@@ -1108,7 +1108,7 @@ byte *RB_ReadPixels( int x, int y, int width, int height, size_t *offset, int *p
 	subresource.mipLevel = 0;
 
 	// get the layout of the copied image
-	vkGetImageSubresourceLayout( vkState.device, tr.screenshotImage->tex, &subresource, &subresourceLayout );
+	vkGetImageSubresourceLayout( vkState.device, tres.screenshotImage->tex, &subresource, &subresourceLayout );
 
 	linelen = width * 3;
 	padlinelen = PAD( linelen, 4 );
@@ -1935,11 +1935,11 @@ static void R_InitFuncTables() {
 	funcTablesSize = sizeof( tr_shader::trFuncTables_t );
 
 	// create a buffer for the function tables
-	tr.funcTablesBuffer = R_CreateBuffer( funcTablesSize,
+	tres.funcTablesBuffer = R_CreateBuffer( funcTablesSize,
 		VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
 		VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT );
 
-	funcTables = (tr_shader::trFuncTables_t *)VK_BeginUploadBuffer( tr.funcTablesBuffer, funcTablesSize, 0 );
+	funcTables = (tr_shader::trFuncTables_t *)VK_BeginUploadBuffer( tres.funcTablesBuffer, funcTablesSize, 0 );
 
 	//
 	// init function tables
@@ -1976,8 +1976,10 @@ extern void R_InitWorldEffects();
 void R_Init( void ) {
 	int i;
 
-	// ri.Printf( PRINT_ALL, "----- R_Init -----\n" );
+	ri.Printf( PRINT_ALL, "----- R_Init -----\n" );
+	ri.Printf( PRINT_ALL, " tr.registered = %d\n", tr.registered );
 
+	RE_Shutdown( qfalse, qfalse );
 	ShaderEntryPtrs_Clear();
 
 	// clear all our internal state
@@ -2022,7 +2024,7 @@ void R_Init( void ) {
 	VK_EndFrame();
 	VK_BeginFrame();
 
-	// ri.Printf( PRINT_ALL, "----- finished R_Init -----\n" );
+	ri.Printf( PRINT_ALL, "----- finished R_Init -----\n" );
 }
 
 /*
@@ -2042,8 +2044,8 @@ void RE_Shutdown( qboolean destroyWindow, qboolean restarting ) {
 		R_IssuePendingRenderCommands();
 		vkDeviceWaitIdle( vkState.device );
 
-		VK_Free( vkFreeDescriptorSets, vkState.descriptorPool, tr.commonDescriptorSet );
-		VK_Free( vkFreeDescriptorSets, vkState.descriptorPool, tr.samplerDescriptorSet );
+		VK_Free( vkFreeDescriptorSets, vkState.descriptorPool, tres.commonDescriptorSet );
+		VK_Free( vkFreeDescriptorSets, vkState.descriptorPool, tres.samplerDescriptorSet );
 
 		R_DeleteBuffers( TAG_HUNKALLOC );
 		R_DeleteTransientTextures();
@@ -2194,9 +2196,9 @@ void RE_SetRangedFog( float dist ) {
 
 // bool inServer = false;
 void RE_SVModelInit( void ) {
-	tr.numModels = 0;
-	tr.numShaders = 0;
-	tr.numSkins = 0;
+	tres.numModels = 0;
+	tres.numShaders = 0;
+	tres.numSkins = 0;
 
 	InitVulkanDescriptorSetLayouts();
 

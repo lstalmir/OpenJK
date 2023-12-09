@@ -164,7 +164,7 @@ shader_t *R_FindShaderByName( const char *name ) {
 	shader_t	*sh;
 
 	if ( (name==NULL) || (name[0] == 0) ) {  // bk001205
-		return tr.defaultShader;
+		return tres.defaultShader;
 	}
 
 	COM_StripExtension( name, strippedName, sizeof(strippedName) );
@@ -185,7 +185,7 @@ shader_t *R_FindShaderByName( const char *name ) {
 		}
 	}
 
-	return tr.defaultShader;
+	return tres.defaultShader;
 }
 
 /*
@@ -1231,19 +1231,19 @@ static qboolean ParseStage( shaderStage_t *stage, const char **text )
 
 			if ( !Q_stricmp( token, "$whiteimage" ) )
 			{
-				stage->bundle[0].image = tr.whiteImage;
+				stage->bundle[0].image = tres.whiteImage;
 				continue;
 			}
 			else if ( !Q_stricmp( token, "$lightmap" ) )
 			{
 				stage->shaderData.bundle[0].isLightmap = true;
 				if ( shader.lightmapIndex[0] < 0 ) {
-					stage->bundle[0].image = tr.whiteImage;
+					stage->bundle[0].image = tres.whiteImage;
 #ifndef FINAL_BUILD
 					//ri.Printf( PRINT_WARNING, "WARNING: $lightmap requested but none available '%s'\n", shader.name );
 #endif
 				} else {
-					stage->bundle[0].image = tr.lightmaps[shader.lightmapIndex[0]];
+					stage->bundle[0].image = tres.lightmaps[shader.lightmapIndex[0]];
 				}
 				continue;
 			}
@@ -1344,7 +1344,7 @@ static qboolean ParseStage( shaderStage_t *stage, const char **text )
 			stage->bundle[0].videoMapHandle = ri.CIN_PlayCinematic( token, 0, 0, 256, 256, ( CIN_loop | CIN_silent | CIN_shader ), NULL );
 			if( stage->bundle[0].videoMapHandle != -1 ) {
 				stage->bundle[0].isVideoMap = true;
-				stage->bundle[0].image = tr.scratchImage[stage->bundle[0].videoMapHandle];
+				stage->bundle[0].image = tres.scratchImage[stage->bundle[0].videoMapHandle];
 			}
 		}
 		//
@@ -2749,15 +2749,15 @@ static void SortNewShader( void ) {
 	float	sort;
 	shader_t	*newShader;
 
-	newShader = tr.shaders[ tr.numShaders - 1 ];
+	newShader = tres.shaders[tres.numShaders - 1];
 	sort = newShader->sort;
 
-	for ( i = tr.numShaders - 2 ; i >= 0 ; i-- ) {
-		if ( tr.sortedShaders[ i ]->sort <= sort ) {
+	for( i = tres.numShaders - 2; i >= 0; i-- ) {
+		if( tres.sortedShaders[i]->sort <= sort ) {
 			break;
 		}
-		tr.sortedShaders[i+1] = tr.sortedShaders[i];
-		tr.sortedShaders[i+1]->sortedIndex++;
+		tres.sortedShaders[i + 1] = tres.sortedShaders[i];
+		tres.sortedShaders[i + 1]->sortedIndex++;
 	}
 
 	// Arnout: fix rendercommandlist
@@ -2765,7 +2765,7 @@ static void SortNewShader( void ) {
 	//FixRenderCommandList( i+1 );
 
 	newShader->sortedIndex = i+1;
-	tr.sortedShaders[i+1] = newShader;
+	tres.sortedShaders[i + 1] = newShader;
 }
 
 
@@ -2779,10 +2779,10 @@ static shader_t *GeneratePermanentShader( void ) {
 	int			i, b;
 	int			size;
 
-	if ( tr.numShaders == MAX_SHADERS ) {
-		tr.iNumDeniedShaders++;
-		ri.Printf( PRINT_WARNING, "WARNING: GeneratePermanentShader - MAX_SHADERS (%d) hit (overflowed by %d)\n", MAX_SHADERS, tr.iNumDeniedShaders);
-		return tr.defaultShader;
+	if( tres.numShaders == MAX_SHADERS ) {
+		tres.iNumDeniedShaders++;
+		ri.Printf( PRINT_WARNING, "WARNING: GeneratePermanentShader - MAX_SHADERS (%d) hit (overflowed by %d)\n", MAX_SHADERS, tres.iNumDeniedShaders );
+		return tres.defaultShader;
 	}
 
 	newShader = (shader_t *)R_Hunk_Alloc( sizeof( shader_t ), qtrue );
@@ -2795,13 +2795,13 @@ static shader_t *GeneratePermanentShader( void ) {
 		newShader->fogPass = FP_LE;
 	}
 
-	tr.shaders[ tr.numShaders ] = newShader;
-	newShader->index = tr.numShaders;
+	tres.shaders[tres.numShaders] = newShader;
+	newShader->index = tres.numShaders;
 
-	tr.sortedShaders[ tr.numShaders ] = newShader;
-	newShader->sortedIndex = tr.numShaders;
+	tres.sortedShaders[tres.numShaders] = newShader;
+	newShader->sortedIndex = tres.numShaders;
 
-	tr.numShaders++;
+	tres.numShaders++;
 
 	size = newShader->numUnfoggedPasses ? newShader->numUnfoggedPasses * sizeof( stages[0] ) : sizeof( stages[0] );
 	newShader->stages = (shaderStage_t *) R_Hunk_Alloc( size, qtrue );
@@ -3026,7 +3026,7 @@ static shader_t *FinishShader( void ) {
 				stages[lmStage+i+1] = stages[lmStage];
 				if (shader.lightmapIndex[i+1] == LIGHTMAP_BY_VERTEX)
 				{
-					stages[lmStage + i + 1].bundle[0].image = tr.whiteImage;
+					stages[lmStage + i + 1].bundle[0].image = tres.whiteImage;
 				}
 				else if (shader.lightmapIndex[i+1] < 0)
 				{
@@ -3034,7 +3034,7 @@ static shader_t *FinishShader( void ) {
 				}
 				else
 				{
-					stages[lmStage+i+1].bundle[0].image = tr.lightmaps[shader.lightmapIndex[i+1]];
+					stages[lmStage + i + 1].bundle[0].image = tres.lightmaps[shader.lightmapIndex[i + 1]];
 					stages[lmStage+i+1].shaderData.bundle[0].tcGen = (texCoordGen_t)(texCoordGen_t::TCGEN_LIGHTMAP+i+1);
 				}
 				stages[lmStage + i + 1].shaderData.rgbGen = colorGen_t::CGEN_LIGHTMAPSTYLE;
@@ -3373,7 +3373,7 @@ static inline const int *R_FindLightmap( const int *lightmapIndex )
 		return lightmapIndex;
 
 	// does this lightmap already exist?
-	if( *lightmapIndex < tr.numLightmaps && tr.lightmaps[ *lightmapIndex ] != NULL )
+	if( *lightmapIndex < tres.numLightmaps && tres.lightmaps[*lightmapIndex] != NULL )
 		return lightmapIndex;
 
 	// bail if no world dir
@@ -3394,9 +3394,9 @@ static inline const int *R_FindLightmap( const int *lightmapIndex )
 	}
 
 	// add it to the lightmap list
-	if( *lightmapIndex >= tr.numLightmaps )
-		tr.numLightmaps = *lightmapIndex + 1;
-	tr.lightmaps[ *lightmapIndex ] = image;
+	if( *lightmapIndex >= tres.numLightmaps )
+		tres.numLightmaps = *lightmapIndex + 1;
+	tres.lightmaps[*lightmapIndex] = image;
 	return lightmapIndex;
 }
 
@@ -3436,10 +3436,10 @@ shader_t *R_FindShader( const char *name, const int *lightmapIndex, const byte *
 
 	if ( strlen( name ) >= MAX_QPATH ) {
 		Com_Printf( S_COLOR_RED"Shader name exceeds MAX_QPATH! %s\n",name );
-		return tr.defaultShader;
+		return tres.defaultShader;
 	}
 	if ( name[0] == 0 ) {
-		return tr.defaultShader;
+		return tres.defaultShader;
 	}
 
 	// use (fullbright) vertex lighting if the bsp file doesn't have
@@ -3536,7 +3536,7 @@ shader_t *R_FindShader( const char *name, const int *lightmapIndex, const byte *
 			  GLS_DSTBLEND_ONE_MINUS_SRC_ALPHA;
 	} else if ( shader.lightmapIndex[0] == LIGHTMAP_WHITEIMAGE ) {
 		// fullbright level
-		stages[0].bundle[0].image = tr.whiteImage;
+		stages[0].bundle[0].image = tres.whiteImage;
 		stages[0].active = true;
 		stages[0].shaderData.rgbGen = colorGen_t::CGEN_IDENTITY_LIGHTING;
 		stages[0].stateBits = GLS_DEFAULT;
@@ -3547,7 +3547,7 @@ shader_t *R_FindShader( const char *name, const int *lightmapIndex, const byte *
 		stages[1].stateBits |= GLS_SRCBLEND_DST_COLOR | GLS_DSTBLEND_ZERO;
 	} else {
 		// two pass lightmap
-		stages[0].bundle[0].image = tr.lightmaps[shader.lightmapIndex[0]];
+		stages[0].bundle[0].image = tres.lightmaps[shader.lightmapIndex[0]];
 		stages[0].shaderData.bundle[0].isLightmap = true;
 		stages[0].active = true;
 		stages[0].shaderData.rgbGen = colorGen_t::CGEN_IDENTITY; // lightmaps are scaled on creation
@@ -3628,15 +3628,15 @@ it and returns a valid (possibly default) shader_t to be used internally.
 ====================
 */
 shader_t *R_GetShaderByHandle( qhandle_t hShader ) {
-	if ( hShader < 0 ) {
+	if( hShader < 0 ) {
 		ri.Printf( PRINT_WARNING, "R_GetShaderByHandle: out of range hShader '%d'\n", hShader );
-		return tr.defaultShader;
+		return tres.defaultShader;
 	}
-	if ( hShader >= tr.numShaders ) {
+	if( hShader >= tres.numShaders ) {
 		ri.Printf( PRINT_WARNING, "R_GetShaderByHandle: out of range hShader '%d'\n", hShader );
-		return tr.defaultShader;
+		return tres.defaultShader;
 	}
-	return tr.shaders[hShader];
+	return tres.shaders[hShader];
 }
 
 /*
@@ -3655,11 +3655,11 @@ void	R_ShaderList_f (void) {
 	ri.Printf (PRINT_ALL, "-----------------------\n");
 
 	count = 0;
-	for ( i = 0 ; i < tr.numShaders ; i++ ) {
+	for( i = 0; i < tres.numShaders; i++ ) {
 		if ( ri.Cmd_Argc() > 1 ) {
-			shader = tr.sortedShaders[i];
+			shader = tres.sortedShaders[i];
 		} else {
-			shader = tr.shaders[i];
+			shader = tres.shaders[i];
 		}
 
 		ri.Printf( PRINT_ALL, "%i ", shader->numUnfoggedPasses );
@@ -3835,8 +3835,8 @@ static void CreateInternalShaders( void ) {
 	SPV_InitSkyboxShaders();
 	SPV_InitAntialiasingShaders();
 
-	tr.numShaders = 0;
-	tr.iNumDeniedShaders = 0;
+	tres.numShaders = 0;
+	tres.iNumDeniedShaders = 0;
 
 	// init the default shader
 	memset( &shader, 0, sizeof( shader ) );
@@ -3849,28 +3849,28 @@ static void CreateInternalShaders( void ) {
 	for ( int i = 0 ; i < MAX_SHADER_STAGES ; i++ ) {
 		memcpy( stages[i].shaderData.bundle[0].texMods, texMods[i], sizeof( texMods[i] ) );
 	}
-	stages[0].bundle[0].image = tr.defaultImage;
+	stages[0].bundle[0].image = tres.defaultImage;
 	stages[0].active = true;
 	stages[0].stateBits = GLS_DEFAULT;
-	tr.defaultShader = FinishShader();
+	tres.defaultShader = FinishShader();
 
 	// shadow shader is just a marker
 	Q_strncpyz( shader.name, "<stencil shadow>", sizeof( shader.name ) );
 	shader.sort = SS_BANNER; //SS_STENCIL_SHADOW;
-	tr.shadowShader = FinishShader();
+	tres.shadowShader = FinishShader();
 
 	// distortion shader is just a marker
 	Q_strncpyz( shader.name, "internal_distortion", sizeof( shader.name ) );
 	shader.sort = SS_BLEND0;
 	shader.defaultShader = false;
-	tr.distortionShader = FinishShader();
+	tres.distortionShader = FinishShader();
 	shader.defaultShader = true;
 }
 
 static void CreateExternalShaders( void ) {
-	tr.projectionShadowShader = R_FindShader( "projectionShadow", lightmapsNone, stylesDefault, qtrue, 0 );
-	tr.projectionShadowShader->sort = SS_STENCIL_SHADOW;
-	tr.sunShader = R_FindShader( "sun", lightmapsVertex, stylesDefault, qtrue, 0 );
+	tres.projectionShadowShader = R_FindShader( "projectionShadow", lightmapsNone, stylesDefault, qtrue, 0 );
+	tres.projectionShadowShader->sort = SS_STENCIL_SHADOW;
+	tres.sunShader = R_FindShader( "sun", lightmapsVertex, stylesDefault, qtrue, 0 );
 }
 
 /*

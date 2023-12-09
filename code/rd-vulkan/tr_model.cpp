@@ -391,7 +391,7 @@ void RE_RegisterMedia_LevelLoadBegin(const char *psMapName, ForceReload_e eForce
 {
 	gbAllowScreenDissolve = bAllowScreenDissolve;
 
-	tr.numBSPModels = 0;
+	tres.numBSPModels = 0;
 
 	// for development purposes we may want to ditch certain media just before loading a map...
 	//
@@ -469,11 +469,11 @@ model_t	*R_GetModelByHandle( qhandle_t index ) {
 	model_t		*mod;
 
 	// out of range gets the defualt model
-	if ( index < 1 || index >= tr.numModels ) {
-		return tr.models[0];
+	if ( index < 1 || index >= tres.numModels ) {
+		return tres.models[0];
 	}
 
-	mod = tr.models[index];
+	mod = tres.models[index];
 
 	return mod;
 }
@@ -486,14 +486,14 @@ model_t	*R_GetModelByHandle( qhandle_t index ) {
 model_t *R_AllocModel( void ) {
 	model_t		*mod;
 
-	if ( tr.numModels == MAX_MOD_KNOWN ) {
+	if ( tres.numModels == MAX_MOD_KNOWN ) {
 		return NULL;
 	}
 
-	mod = (model_t*) R_Hunk_Alloc( sizeof( *tr.models[tr.numModels] ), qtrue );
-	mod->index= tr.numModels;
-	tr.models[tr.numModels] = mod;
-	tr.numModels++;
+	mod = (model_t*) R_Hunk_Alloc( sizeof( *tres.models[tres.numModels] ), qtrue );
+	mod->index= tres.numModels;
+	tres.models[tres.numModels] = mod;
+	tres.numModels++;
 
 	return mod;
 }
@@ -603,7 +603,7 @@ Ghoul2 Insert Start
 	//_
 	for (mh=mhHashTable[hash]; mh; mh=mh->next) {
 		if (Q_stricmp(mh->name, name) == 0) {
-			if (tr.models[mh->handle]->type == MOD_BAD)
+			if (tres.models[mh->handle]->type == MOD_BAD)
 			{
 				return 0;
 			}
@@ -619,11 +619,11 @@ Ghoul2 Insert End
 	{
 		char		temp[MAX_QPATH];
 
-		tr.numBSPModels++;
+		tres.numBSPModels++;
 #ifndef DEDICATED
-		RE_LoadWorldMap_Actual(va("maps/%s.bsp", name + 1), tr.bspModels[tr.numBSPModels - 1], tr.numBSPModels);	//this calls R_LoadSubmodels which will put them into the Hash
+		RE_LoadWorldMap_Actual(va("maps/%s.bsp", name + 1), tres.bspModels[tres.numBSPModels - 1], tres.numBSPModels);	//this calls R_LoadSubmodels which will put them into the Hash
 #endif
-		Com_sprintf(temp, MAX_QPATH, "*%d-0", tr.numBSPModels);
+		Com_sprintf(temp, MAX_QPATH, "*%d-0", tres.numBSPModels);
 		hash = generateHashValue(temp, FILE_HASH_SIZE);
 		for (mh=mhHashTable[hash]; mh; mh=mh->next)
 		{
@@ -1108,7 +1108,7 @@ void R_ModelInit( void )
 	model_t		*mod;
 
 	// leave a space for NULL model
-	tr.numModels = 0;
+	tres.numModels = 0;
 /*
 Ghoul2 Insert Start
 */
@@ -1136,8 +1136,8 @@ void R_Modellist_f( void ) {
 	int		lods;
 
 	total = 0;
-	for ( i = 1 ; i < tr.numModels; i++ ) {
-		mod = tr.models[i];
+	for ( i = 1 ; i < tres.numModels; i++ ) {
+		mod = tres.models[i];
 		switch (mod->type)
 		{
 			default:

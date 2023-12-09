@@ -380,14 +380,14 @@ void R_AddMD3Surfaces( trRefEntity_t *ent ) {
 
 		if ( ent->e.customShader ) {// a little more efficient
 			shader = main_shader;
-		} else if ( ent->e.customSkin > 0 && ent->e.customSkin < tr.numSkins ) {
+		} else if ( ent->e.customSkin > 0 && ent->e.customSkin < tres.numSkins ) {
 			skin_t *skin;
 			int		j;
 
 			skin = R_GetSkinByHandle( ent->e.customSkin );
 
 			// match the surface name to something in the skin file
-			shader = tr.defaultShader;
+			shader = tres.defaultShader;
 			for ( j = 0 ; j < skin->numSurfaces ; j++ ) {
 				// the names have both been lowercased
 				if ( !strcmp( skin->surfaces[j]->name, surface->name ) ) {
@@ -396,11 +396,11 @@ void R_AddMD3Surfaces( trRefEntity_t *ent ) {
 				}
 			}
 		} else if ( surface->numShaders <= 0 ) {
-			shader = tr.defaultShader;
+			shader = tres.defaultShader;
 		} else {
 			md3Shader = surface->shaders;
 			md3Shader += ent->e.skinNum % surface->numShaders;
-			shader = tr.shaders[ md3Shader->shaderIndex ];
+			shader = tres.shaders[md3Shader->shaderIndex];
 		}
 
 		// we will add shadows even if the main object isn't visible in the view
@@ -412,7 +412,7 @@ void R_AddMD3Surfaces( trRefEntity_t *ent ) {
 			&& (ent->e.renderfx & RF_SHADOW_PLANE )
 			&& !(ent->e.renderfx & ( RF_NOSHADOW | RF_DEPTHHACK ) )
 			&& shader->sort == SS_OPAQUE ) {
-			R_AddDrawSurf( (surfaceType_t *)surface, tr.shadowShader, 0, qfalse );
+			R_AddDrawSurf( (surfaceType_t *)surface, tres.shadowShader, 0, qfalse );
 		}
 
 		// projection shadows work fine with personal models
@@ -420,7 +420,7 @@ void R_AddMD3Surfaces( trRefEntity_t *ent ) {
 			&& fogNum == 0
 			&& (ent->e.renderfx & RF_SHADOW_PLANE )
 			&& shader->sort == SS_OPAQUE ) {
-			R_AddDrawSurf( (surfaceType_t *)surface, tr.projectionShadowShader, 0, qfalse );
+			R_AddDrawSurf( (surfaceType_t *)surface, tres.projectionShadowShader, 0, qfalse );
 		}
 
 		// don't add third_person objects if not viewing through a portal

@@ -164,7 +164,7 @@ void VK_BeginFrame( void ) {
 		}
 
 		if( tr.registered ) {
-			R_ClearFrameBuffer( tr.sceneFrameBuffer );
+			R_ClearFrameBuffer( tres.sceneFrameBuffer );
 
 			// reset the dynamic vertex buffer for this frame
 			backEndData->dynamicGeometryBuilder.reset();
@@ -186,23 +186,23 @@ void VK_EndFrame( void ) {
 	backEndData->dynamicGeometryBuilder.uploadGeometry();
 
 	// upload the globals
-	VK_UploadBuffer( tr.globalsBuffer, (byte *)&tr.globals, sizeof( tr.globals ), 0 );
+	VK_UploadBuffer( tres.globalsBuffer, (byte *)&tr.globals, sizeof( tr.globals ), 0 );
 
 	// get the current frame buffer
 	frameBuffer_t *frameBuffer = backEndData->frameBuffer;
 	R_BindFrameBuffer( NULL );
 
-	image_t *renderedImage = tr.sceneFrameBuffer->images[0].i;
+	image_t *renderedImage = tres.sceneFrameBuffer->images[0].i;
 	if( frameBuffer ) {
 		renderedImage = frameBuffer->images[0].i;
 	}
 
 	// copy rendered image to swapchain image
 	VK_SetImageLayout( renderedImage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_ACCESS_TRANSFER_READ_BIT );
-	VK_SetImageLayout( tr.screenshotImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_ACCESS_TRANSFER_WRITE_BIT );
+	VK_SetImageLayout( tres.screenshotImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_ACCESS_TRANSFER_WRITE_BIT );
 	VK_SetImageLayout( backEndData->image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_ACCESS_TRANSFER_WRITE_BIT );
 
-	VK_CopyImage( tr.screenshotImage, renderedImage );
+	VK_CopyImage( tres.screenshotImage, renderedImage );
 	VK_CopyImage( backEndData->image, renderedImage );
 
 	// transition the swapchain image to presentable layout
@@ -549,12 +549,12 @@ to actually render the visible surfaces for this view
 =================
 */
 static void RB_BeginDrawingView( void ) {
-	frameBuffer_t *frameBuffer = tr.sceneFrameBuffer;
+	frameBuffer_t *frameBuffer = tres.sceneFrameBuffer;
 	frameBuffer->clearValues[1].depthStencil.depth = 0.f;
 	frameBuffer->clearValues[1].depthStencil.stencil = 0;
 
 	if( g_bRenderGlowingObjects ) {
-		frameBuffer = tr.glowFrameBuffer;
+		frameBuffer = tres.glowFrameBuffer;
 	}
 
 	// we will need to change the projection matrix before drawing
@@ -1005,13 +1005,13 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 					}
 
 					// get the frame buffer image
-					frameBufferImage = tr.sceneFrameBuffer->images[0].i;
+					frameBufferImage = tres.sceneFrameBuffer->images[0].i;
 
 					// unbind the frame buffer to copy it to screenImage
 					R_BindFrameBuffer( NULL );
 
 					VK_SetImageLayout( frameBufferImage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_ACCESS_TRANSFER_READ_BIT );
-					VK_SetImageLayout( tr.screenImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_ACCESS_TRANSFER_WRITE_BIT );
+					VK_SetImageLayout( tres.screenImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_ACCESS_TRANSFER_WRITE_BIT );
 
 					// now copy a portion of the screen to this texture
 					imageCopy.extent.width = rad;
@@ -1024,10 +1024,10 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 					imageCopy.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
 					imageCopy.dstSubresource.layerCount = 1;
 
-					vkCmdCopyImage( backEndData->cmdbuf, frameBufferImage->tex, frameBufferImage->layout, tr.screenImage->tex, tr.screenImage->layout, 1, &imageCopy );
+					vkCmdCopyImage( backEndData->cmdbuf, frameBufferImage->tex, frameBufferImage->layout, tres.screenImage->tex, tres.screenImage->layout, 1, &imageCopy );
 
 					// rebind the frame buffer
-					R_BindFrameBuffer( tr.sceneFrameBuffer );
+					R_BindFrameBuffer( tres.sceneFrameBuffer );
 
 					lastPostEnt = pRender->entNum;
 				}
@@ -1720,7 +1720,7 @@ void RB_ExecuteRenderCommands( const void *data ) {
 extern bool g_bTextureRectangleHack;
 
 static inline void RB_BlurGlowTexture() {
-	image_t *glow = tr.glowFrameBuffer->images[0].i;
+	image_t *glow = tres.glowFrameBuffer->images[0].i;
 
 	/////////////////////////////////////////////////////////
 	// Setup vertex and pixel programs.
@@ -1736,7 +1736,7 @@ static inline void RB_BlurGlowTexture() {
 	VK_SetImageLayout( glow, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_ACCESS_SHADER_READ_BIT );
 
 	// begin the post-process render pass
-	R_BindFrameBuffer( tr.glowBlurFrameBuffer );
+	R_BindFrameBuffer( tres.glowBlurFrameBuffer );
 	R_SetPipelineState( &vkState.glowBlurPipeline );
 
 	VK_BindImage( glow );
@@ -1811,14 +1811,14 @@ static inline void RB_BlurGlowTexture() {
 
 // Draw the glow blur over the screen additively.
 static inline void RB_DrawGlowOverlay() {
-	image_t *glow = tr.glowBlurFrameBuffer->images[0].i;
+	image_t *glow = tres.glowBlurFrameBuffer->images[0].i;
 
 	// end the glow blur render pass before transitioning the blurred image to shader read-only layout
 	R_BindFrameBuffer( NULL );
 	VK_SetImageLayout( glow, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_ACCESS_SHADER_READ_BIT );
 
 	// additively render the glow texture
-	R_BindFrameBuffer( tr.postProcessFrameBuffer );
+	R_BindFrameBuffer( tres.postProcessFrameBuffer );
 	R_SetPipelineState( &vkState.glowCombinePipeline );
 
 	VK_BindImage( glow );

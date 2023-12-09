@@ -42,11 +42,11 @@ static void RB_DrawSky( void ) {
 
 	// make sure there is a framebuffer bound
 	if( !backEndData->frameBuffer ) {
-		R_BindFrameBuffer( tr.sceneFrameBuffer );
+		R_BindFrameBuffer( tres.sceneFrameBuffer );
 	}
 
-	R_BindDescriptorSet( TR_GLOBALS_SPACE, tr.commonDescriptorSet );
-	R_BindDescriptorSet( TR_SAMPLERS_SPACE, tr.samplerDescriptorSet );
+	R_BindDescriptorSet( TR_GLOBALS_SPACE, tres.commonDescriptorSet );
+	R_BindDescriptorSet( TR_SAMPLERS_SPACE, tres.samplerDescriptorSet );
 
 	if( backEnd.viewParms.descriptorSet ) {
 		R_BindDescriptorSet( TR_VIEW_SPACE, backEnd.viewParms.descriptorSet );
@@ -57,16 +57,16 @@ static void RB_DrawSky( void ) {
 
 	VK_BindImage( backEnd.skyOuterbox, 0 );
 
-	vertexBuffer = tr.skyboxVertexBuffer->b.buf;
-	vertexOffset = (VkDeviceSize)tr.skyboxVertexBuffer->vertexOffset;
-	indexOffset = (VkDeviceSize)tr.skyboxVertexBuffer->indexOffset;
+	vertexBuffer = tres.skyboxVertexBuffer->b.buf;
+	vertexOffset = (VkDeviceSize)tres.skyboxVertexBuffer->vertexOffset;
+	indexOffset = (VkDeviceSize)tres.skyboxVertexBuffer->indexOffset;
 
 	// bind vertex buffers
 	vkCmdBindVertexBuffers( backEndData->cmdbuf, 0, 1, &vertexBuffer, &vertexOffset );
 	vkCmdBindIndexBuffer( backEndData->cmdbuf, vertexBuffer, indexOffset, g_scIndexType );
 
 	// draw
-	vkCmdDrawIndexed( backEndData->cmdbuf, tr.skyboxVertexBuffer->numIndexes, 1, 0, 0, 0 );
+	vkCmdDrawIndexed( backEndData->cmdbuf, tres.skyboxVertexBuffer->numIndexes, 1, 0, 0, 0 );
 }
 
 
@@ -752,11 +752,11 @@ void RB_SkyFogFinish( void ) {
 	RB_BeginDebugRegion( __FUNCTION__ );
 	R_BindFrameBuffer( NULL );
 
-	VK_SetImageLayout( tr.sceneFrameBuffer->depthBuffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_ACCESS_SHADER_READ_BIT );
+	VK_SetImageLayout( tres.sceneFrameBuffer->depthBuffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_ACCESS_SHADER_READ_BIT );
 
-	R_BindFrameBuffer( tr.skyFogFrameBuffer );
+	R_BindFrameBuffer( tres.skyFogFrameBuffer );
 	R_SetPipelineState( &vkState.skyboxFogPipeline );
-	VK_BindImage( tr.sceneFrameBuffer->depthBuffer, 1 );
+	VK_BindImage( tres.sceneFrameBuffer->depthBuffer, 1 );
 
 	RB_DrawSky();
 

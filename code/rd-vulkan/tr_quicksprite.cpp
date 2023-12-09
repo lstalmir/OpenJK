@@ -138,7 +138,7 @@ void CQuickSpriteSystem::Flush(void)
 		//
 		// render the fog pass
 		//
-		VK_BindImage( tr.fogImage );
+		VK_BindImage( tres.fogImage );
 #if 0
 		GL_State( GLS_SRCBLEND_SRC_ALPHA | GLS_DSTBLEND_ONE_MINUS_SRC_ALPHA | GLS_DEPTHFUNC_EQUAL );
 

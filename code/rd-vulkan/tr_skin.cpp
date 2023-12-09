@@ -279,9 +279,8 @@ qhandle_t RE_RegisterIndividualSkin( const char *name , qhandle_t hSkin)
 		return 0;
 	}
 
-	assert (tr.skins[hSkin]);	//should already be setup, but might be an 3part append
-
-	skin = tr.skins[hSkin];
+	assert( tres.skins[hSkin] ); // should already be setup, but might be an 3part append
+	skin = tres.skins[hSkin];
 
 	text_p = text;
 	while ( text_p && *text_p ) {
@@ -356,7 +355,7 @@ qhandle_t RE_RegisterSkin( const char *name) {
 		//return 1;	// cope with Ghoul2's calling-the-renderer-before-its-even-started hackery, must be any NZ amount here to trigger configstring setting
 //	}
 
-	if (!tr.numSkins)
+	if( !tres.numSkins )
 	{
 		R_InitSkins(); //make sure we have numSkins set to at least one.
 	}
@@ -372,8 +371,8 @@ qhandle_t RE_RegisterSkin( const char *name) {
 	}
 
 	// see if the skin is already loaded
-	for ( hSkin = 1; hSkin < tr.numSkins ; hSkin++ ) {
-		skin = tr.skins[hSkin];
+	for( hSkin = 1; hSkin < tres.numSkins; hSkin++ ) {
+		skin = tres.skins[hSkin];
 		if ( !Q_stricmp( skin->name, name ) ) {
 			if( skin->numSurfaces == 0 ) {
 				return 0;		// default skin
@@ -382,14 +381,14 @@ qhandle_t RE_RegisterSkin( const char *name) {
 		}
 	}
 
-	if ( tr.numSkins == MAX_SKINS )	{
+	if( tres.numSkins == MAX_SKINS ) {
 		ri.Printf( PRINT_WARNING, "WARNING: RE_RegisterSkin( '%s' ) MAX_SKINS hit\n", name );
 		return 0;
 	}
 	// allocate a new skin
-	tr.numSkins++;
+	tres.numSkins++;
 	skin = (skin_t*) R_Hunk_Alloc( sizeof( skin_t ), qtrue );
-	tr.skins[hSkin] = skin;
+	tres.skins[hSkin] = skin;
 	Q_strncpyz( skin->name, name, sizeof( skin->name ) );	//always make one so it won't search for it again
 
 	// If not a .skin file, load as a single shader	- then return
@@ -440,14 +439,14 @@ R_InitSkins
 void	R_InitSkins( void ) {
 	skin_t		*skin;
 
-	tr.numSkins = 1;
+	tres.numSkins = 1;
 
 	// make the default skin have all default shaders
-	skin = tr.skins[0] = (skin_t*) R_Hunk_Alloc( sizeof( skin_t ), qtrue );
+	skin = tres.skins[0] = (skin_t *)R_Hunk_Alloc( sizeof( skin_t ), qtrue );
 	Q_strncpyz( skin->name, "<default skin>", sizeof( skin->name )  );
 	skin->numSurfaces = 1;
 	skin->surfaces[0] = (skinSurface_t *) R_Hunk_Alloc( sizeof( *skin->surfaces[0] ), qtrue );
-	skin->surfaces[0]->shader = tr.defaultShader;
+	skin->surfaces[0]->shader = tres.defaultShader;
 }
 
 /*
@@ -456,10 +455,10 @@ R_GetSkinByHandle
 ===============
 */
 skin_t	*R_GetSkinByHandle( qhandle_t hSkin ) {
-	if ( hSkin < 1 || hSkin >= tr.numSkins ) {
-		return tr.skins[0];
+	if( hSkin < 1 || hSkin >= tres.numSkins ) {
+		return tres.skins[0];
 	}
-	return tr.skins[ hSkin ];
+	return tres.skins[hSkin];
 }
 
 /*
@@ -473,8 +472,8 @@ void	R_SkinList_f (void) {
 
 	ri.Printf (PRINT_ALL, "------------------\n");
 
-	for ( i = 0 ; i < tr.numSkins ; i++ ) {
-		skin = tr.skins[i];
+	for( i = 0; i < tres.numSkins; i++ ) {
+		skin = tres.skins[i];
 		ri.Printf( PRINT_ALL, "%3i:%s\n", i, skin->name );
 		for ( j = 0 ; j < skin->numSurfaces ; j++ ) {
 			ri.Printf( PRINT_ALL, "       %s = %s\n",

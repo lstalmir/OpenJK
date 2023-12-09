@@ -88,11 +88,11 @@ static void R_DrawElements( shaderCommands_t *input, shaderStage_t *stage, int s
 
 	// make sure there is a framebuffer bound
 	if( !backEndData->frameBuffer ) {
-		R_BindFrameBuffer( tr.sceneFrameBuffer );
+		R_BindFrameBuffer( tres.sceneFrameBuffer );
 	}
 
-	R_BindDescriptorSet( TR_GLOBALS_SPACE, tr.commonDescriptorSet );
-	R_BindDescriptorSet( TR_SAMPLERS_SPACE, tr.samplerDescriptorSet );
+	R_BindDescriptorSet( TR_GLOBALS_SPACE, tres.commonDescriptorSet );
+	R_BindDescriptorSet( TR_SAMPLERS_SPACE, tres.samplerDescriptorSet );
 	R_BindDescriptorSet( TR_SHADER_SPACE, stage->descriptorSet );
 	R_BindDescriptorSet( TR_MODEL_SPACE, backEnd.currentEntity->modelDescriptorSet );
 
@@ -162,7 +162,7 @@ void R_BindAnimatedImage( const textureBundle_t *bundle, int loc = 0 ) {
 
 	if ((r_fullbright->integer || tr.refdef.doLAGoggles || (tr.refdef.rdflags & RDF_doFullbright) ) && bundle->isLightmap)
 	{
-		VK_BindImage( tr.whiteImage, loc );
+		VK_BindImage( tres.whiteImage, loc );
 		return;
 	}
 
@@ -1368,7 +1368,7 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input ) {
 			//
 			// set state
 			//
-			if (tess.shader == tr.distortionShader &&
+			if (tess.shader == tres.distortionShader &&
 				glConfig.stencilBits >= 4)
 			{ //draw it to the stencil buffer!
 				tr_stencilled = true;
@@ -1397,13 +1397,13 @@ static void RB_IterateStagesGeneric( shaderCommands_t *input ) {
 			//
 			// bind images
 			//
-			if( ( tess.shader == tr.distortionShader ) ||
+			if( ( tess.shader == tres.distortionShader ) ||
 				( backEnd.currentEntity && ( backEnd.currentEntity->e.renderfx & RF_DISTORTION ) ) ) { // special distortion effect -rww
 				// tr.screenImage should have been set for this specific entity before we got in here.
-				VK_BindImage( tr.screenImage );
+				VK_BindImage( tres.screenImage );
 			}
 			else if( pStage->bundle[0].vertexLightmap && ( r_vertexLight->integer ) && r_lightmap->integer ) {
-				VK_BindImage( tr.whiteImage );
+				VK_BindImage( tres.whiteImage );
 			}
 			else {
 				R_BindAnimatedImage( &pStage->bundle[0] );
@@ -1523,7 +1523,7 @@ void RB_EndSurface( void ) {
 		return;
 	}
 
-	if ( tess.shader == tr.shadowShader ) {
+	if ( tess.shader == tres.shadowShader ) {
 		RB_ShadowTessEnd();
 		return;
 	}

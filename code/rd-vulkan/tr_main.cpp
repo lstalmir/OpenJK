@@ -33,6 +33,7 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 #endif
 
 trGlobals_t		tr;
+trResources_t   tres;
 
 static float	s_flipMatrix[16] = {
 	// convert from our coordinate system (looking down X)
@@ -1189,7 +1190,7 @@ R_DecomposeSort
 void R_DecomposeSort( unsigned sort, int *entityNum, shader_t **shader,
 					 int *fogNum, int *dlightMap ) {
 	*fogNum = ( sort >> QSORT_FOGNUM_SHIFT ) & 31;
-	*shader = tr.sortedShaders[ ( sort >> QSORT_SHADERNUM_SHIFT ) & (MAX_SHADERS-1) ];
+	*shader = tres.sortedShaders[( sort >> QSORT_SHADERNUM_SHIFT ) & ( MAX_SHADERS - 1 )];
 	*entityNum = ( sort >> QSORT_REFENTITYNUM_SHIFT ) & REFENTITYNUM_MASK;
 	*dlightMap = sort & 3;
 }
@@ -1319,7 +1320,7 @@ void R_AddEntitySurfaces (void) {
 
 			tr.currentModel = R_GetModelByHandle( ent->e.hModel );
 			if (!tr.currentModel) {
-				R_AddDrawSurf( &entitySurface, tr.defaultShader, 0, 0 );
+				R_AddDrawSurf( &entitySurface, tres.defaultShader, 0, 0 );
 			} else {
 				switch ( tr.currentModel->type ) {
 				case MOD_MESH:
@@ -1350,7 +1351,7 @@ Ghoul2 Insert Start
   						break;
   					}
 
-					R_AddDrawSurf( &entitySurface, tr.defaultShader, 0, false );
+					R_AddDrawSurf( &entitySurface, tres.defaultShader, 0, false );
 					break;
 /*
 Ghoul2 Insert End
@@ -1438,7 +1439,7 @@ void R_DebugGraphics( void ) {
 	// the render thread can't make callbacks to the main thread
 	R_IssuePendingRenderCommands(); //
 
-	VK_BindImage( tr.whiteImage );
+	VK_BindImage( tres.whiteImage );
 	ri.CM_DrawDebugSurface( R_DebugPolygon );
 }
 

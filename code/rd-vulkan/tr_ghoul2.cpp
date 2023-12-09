@@ -2352,7 +2352,7 @@ void RenderSurfaces(CRenderSurface &RS)
 				newSurf->surfaceData = surface;
 			}
 			newSurf->boneCache = RS.boneCache;
-			R_AddDrawSurf( (surfaceType_t *)newSurf, tr.shadowShader, 0, qfalse );
+			R_AddDrawSurf( (surfaceType_t *)newSurf, tres.shadowShader, 0, qfalse );
 		}
 
 		// projection shadows work fine with personal models
@@ -2365,7 +2365,7 @@ void RenderSurfaces(CRenderSurface &RS)
 			CRenderableSurface *newSurf = AllocRS();
 			newSurf->surfaceData = surface;
 			newSurf->boneCache = RS.boneCache;
-			R_AddDrawSurf( (surfaceType_t *)newSurf, tr.projectionShadowShader, 0, qfalse );
+			R_AddDrawSurf( (surfaceType_t *)newSurf, tres.projectionShadowShader, 0, qfalse );
 		}
 
 		// don't add third_person objects if not viewing through a portal
@@ -2685,7 +2685,7 @@ void R_AddGhoulSurfaces( trRefEntity_t *ent ) {
 				{
 					skin = R_GetSkinByHandle(ent->e.customSkin );
 				}
-				else if ( ghoul2[i].mSkin > 0 && ghoul2[i].mSkin < tr.numSkins )
+				else if ( ghoul2[i].mSkin > 0 && ghoul2[i].mSkin < tres.numSkins )
 				{
 					skin = R_GetSkinByHandle( ghoul2[i].mSkin );
 				}

@@ -1606,8 +1606,7 @@ image_t *R_CreateTransientImage( const char *name, int width, int height, VkForm
 		Com_Error( ERR_DROP, "R_CreateTransientImage: \"%s\" is too long\n", name );
 	}
 
-	// transient images are not cached and should be allocated from hunk
-	image = (image_t *)R_Hunk_Alloc( sizeof( image_t ), qtrue );
+	image = (image_t *)R_Malloc( sizeof( image_t ), TAG_IMAGE_T, qtrue );
 
 	// set the usage flags based on the format of the image
 	usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT;
@@ -1628,8 +1627,7 @@ image_t *R_CreateReadbackImage( const char *name, int width, int height, VkForma
 		Com_Error( ERR_DROP, "R_CreateReadbackImage: \"%s\" is too long\n", name );
 	}
 
-	// readback images are not cached and should be allocated from hunk
-	image = (image_t *)R_Hunk_Alloc( sizeof( image_t ), qtrue );
+	image = (image_t *)R_Malloc( sizeof( image_t ), TAG_IMAGE_T, qtrue );
 
 	VK_InitImage( image, name, width, height, format, qfalse, qfalse,
 		VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE,
@@ -1778,7 +1776,7 @@ static void R_CreateDlightImage( void ) {
 			data[y][x][3] = 255;
 		}
 	}
-	tr.dlightImage = R_CreateImage( "*dlight", (byte *)data, DLIGHT_SIZE, DLIGHT_SIZE, VK_FORMAT_B8G8R8A8_UNORM, qfalse, qfalse, qfalse, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE );
+	tres.dlightImage = R_CreateImage( "*dlight", (byte *)data, DLIGHT_SIZE, DLIGHT_SIZE, VK_FORMAT_B8G8R8A8_UNORM, qfalse, qfalse, qfalse, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE );
 #else
 	int width, height;
 	byte *pic;
@@ -1867,7 +1865,7 @@ static void R_CreateFogImage( void ) {
 		}
 	}
 
-	tr.fogImage = R_CreateImage( "*fog", (byte *)data, FOG_S, FOG_T, VK_FORMAT_B8G8R8A8_UNORM, qfalse, qfalse, qfalse, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE );
+	tres.fogImage = R_CreateImage( "*fog", (byte *)data, FOG_S, FOG_T, VK_FORMAT_B8G8R8A8_UNORM, qfalse, qfalse, qfalse, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE );
 	R_Free( data );
 }
 
@@ -1904,7 +1902,7 @@ static void R_CreateDefaultImage( void ) {
 				data[x][DEFAULT_SIZE - 1][2] =
 					data[x][DEFAULT_SIZE - 1][3] = 255;
 	}
-	tr.defaultImage = R_CreateImage( "*default", (byte *)data, DEFAULT_SIZE, DEFAULT_SIZE, VK_FORMAT_B8G8R8A8_UNORM, qtrue, qfalse, qtrue, VK_SAMPLER_ADDRESS_MODE_REPEAT );
+	tres.defaultImage = R_CreateImage( "*default", (byte *)data, DEFAULT_SIZE, DEFAULT_SIZE, VK_FORMAT_B8G8R8A8_UNORM, qtrue, qfalse, qtrue, VK_SAMPLER_ADDRESS_MODE_REPEAT );
 }
 
 /*
@@ -1923,7 +1921,7 @@ void R_CreateBuiltinImages( void ) {
 	// we use a solid white image instead of disabling texturing
 	memset( data, 255, sizeof( data ) );
 
-	tr.whiteImage = R_CreateImage( "*white", (byte *)data, 8, 8, VK_FORMAT_B8G8R8A8_UNORM, qfalse, qfalse, qtrue, VK_SAMPLER_ADDRESS_MODE_REPEAT );
+	tres.whiteImage = R_CreateImage( "*white", (byte *)data, 8, 8, VK_FORMAT_B8G8R8A8_UNORM, qfalse, qfalse, qtrue, VK_SAMPLER_ADDRESS_MODE_REPEAT );
 
 	int randSeed = 0;
 	for( x = 0; x < DEFAULT_SIZE; ++x ) {
@@ -1934,7 +1932,7 @@ void R_CreateBuiltinImages( void ) {
 		}
 	}
 
-	tr.noiseImage = R_CreateImage( "*noise", (byte *)data, DEFAULT_SIZE, DEFAULT_SIZE, VK_FORMAT_B8G8R8A8_UNORM, qfalse, qfalse, qfalse, VK_SAMPLER_ADDRESS_MODE_REPEAT );
+	tres.noiseImage = R_CreateImage( "*noise", (byte *)data, DEFAULT_SIZE, DEFAULT_SIZE, VK_FORMAT_B8G8R8A8_UNORM, qfalse, qfalse, qfalse, VK_SAMPLER_ADDRESS_MODE_REPEAT );
 
 	// with overbright bits active, we need an image which is some fraction of full color,
 	// for default lightmaps, etc
@@ -1947,12 +1945,12 @@ void R_CreateBuiltinImages( void ) {
 		}
 	}
 
-	tr.identityLightImage = R_CreateImage( "*identityLight", (byte *)data, 8, 8, VK_FORMAT_B8G8R8A8_UNORM, qfalse, qfalse, qtrue, VK_SAMPLER_ADDRESS_MODE_REPEAT );
+	tres.identityLightImage = R_CreateImage( "*identityLight", (byte *)data, 8, 8, VK_FORMAT_B8G8R8A8_UNORM, qfalse, qfalse, qtrue, VK_SAMPLER_ADDRESS_MODE_REPEAT );
 
 	// scratchimage is usually used for cinematic drawing
 	for( x = 0; x < NUM_SCRATCH_IMAGES; x++ ) {
 		// scratchimage is usually used for cinematic drawing
-		tr.scratchImage[x] = R_CreateImage( va( "*scratch%d", x ), (byte *)data, DEFAULT_SIZE, DEFAULT_SIZE, VK_FORMAT_B8G8R8A8_UNORM, qfalse, qfalse, qfalse, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE );
+		tres.scratchImage[x] = R_CreateImage( va( "*scratch%d", x ), (byte *)data, DEFAULT_SIZE, DEFAULT_SIZE, VK_FORMAT_B8G8R8A8_UNORM, qfalse, qfalse, qfalse, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE );
 	}
 
 	R_CreateDlightImage();
@@ -1972,21 +1970,21 @@ static void R_CreateTransientImages( void ) {
 	frameBufferBuilder.height = glConfig.vidHeight;
 	frameBufferBuilder.addColorAttachment( VK_FORMAT_B8G8R8A8_UNORM );
 	frameBufferBuilder.addDepthStencilAttachment( VK_FORMAT_D24_UNORM_S8_UINT );
-	frameBufferBuilder.build( &tr.sceneFrameBuffer );
+	frameBufferBuilder.build( &tres.sceneFrameBuffer );
 
 	// Create sky fog image
 	frameBufferBuilder.reset();
 	frameBufferBuilder.width = glConfig.vidWidth;
 	frameBufferBuilder.height = glConfig.vidHeight;
-	frameBufferBuilder.addColorAttachment( tr.sceneFrameBuffer->images->i ); // color
-	frameBufferBuilder.build( &tr.skyFogFrameBuffer );
+	frameBufferBuilder.addColorAttachment( tres.sceneFrameBuffer->images->i ); // color
+	frameBufferBuilder.build( &tres.skyFogFrameBuffer );
 
 	// Create antialiasing image
 	frameBufferBuilder.reset();
 	frameBufferBuilder.width = glConfig.vidWidth;
 	frameBufferBuilder.height = glConfig.vidHeight;
-	frameBufferBuilder.addColorAttachment( tr.sceneFrameBuffer->images->i->internalFormat );
-	frameBufferBuilder.build( &tr.antialiasingFrameBuffer );
+	frameBufferBuilder.addColorAttachment( tres.sceneFrameBuffer->images->i->internalFormat );
+	frameBufferBuilder.build( &tres.antialiasingFrameBuffer );
 
 #if 0
 	// Create the scene glow image
@@ -2011,21 +2009,21 @@ static void R_CreateTransientImages( void ) {
 	frameBufferBuilder.build( &tr.glowBlurFrameBuffer );
 #endif
 
-	frameBufferBuilder.build( &tr.postProcessFrameBuffer );
+	frameBufferBuilder.build( &tres.postProcessFrameBuffer );
 
 	// create a temporary image for distortion effect
-	tr.screenImage = R_CreateTransientImage( "*screen", glConfig.vidWidth, glConfig.vidHeight, VK_FORMAT_B8G8R8A8_UNORM, VK_SAMPLER_ADDRESS_MODE_REPEAT );
+	tres.screenImage = R_CreateTransientImage( "*screen", glConfig.vidWidth, glConfig.vidHeight, VK_FORMAT_B8G8R8A8_UNORM, VK_SAMPLER_ADDRESS_MODE_REPEAT );
 
 	// create a buffer for screen shots
-	if( !tr.screenshotImage ||
-		tr.screenshotImage->width != glConfig.vidWidth ||
-		tr.screenshotImage->height != glConfig.vidHeight ) {
+	if( !tres.screenshotImage ||
+		tres.screenshotImage->width != glConfig.vidWidth ||
+		tres.screenshotImage->height != glConfig.vidHeight ) {
 
-		if( tr.screenshotImage ) {
-			R_Images_DeleteImage( tr.screenshotImage );
+		if( tres.screenshotImage ) {
+			R_Images_DeleteTransientImage( tres.screenshotImage );
 		}
 
-		tr.screenshotImage = R_CreateReadbackImage(
+		tres.screenshotImage = R_CreateReadbackImage(
 			"*screenshotImage",
 			glConfig.vidWidth,
 			glConfig.vidHeight,
@@ -2138,21 +2136,31 @@ R_DeleteTransientTextures
 */
 void R_DeleteTransientTextures( void ) {
 
-	R_Images_DeleteImageContents( tr.screenImage );
-	R_Images_DeleteImageContents( tr.screenshotImage );
+	R_Images_DeleteImageContents( tres.screenImage );
+	tres.screenImage = NULL;
 
-	R_DeleteFrameBuffer( tr.sceneFrameBuffer );
-	R_DeleteFrameBuffer( tr.postProcessFrameBuffer );
+	R_Images_DeleteImageContents( tres.screenshotImage );
+	tres.screenshotImage = NULL;
+
+	R_DeleteFrameBuffer( tres.sceneFrameBuffer );
+	tres.sceneFrameBuffer = NULL;
+
+	R_DeleteFrameBuffer( tres.postProcessFrameBuffer );
+	tres.postProcessFrameBuffer = NULL;
 
 	// free the antialiasing resources
 	if( !r_antialiasing || r_antialiasing->integer ) {
-		R_DeleteFrameBuffer( tr.antialiasingFrameBuffer );
+		R_DeleteFrameBuffer( tres.antialiasingFrameBuffer );
+		tres.antialiasingFrameBuffer = NULL;
 	}
 
 	// free the dynamic glow resources
 	if( r_DynamicGlow && r_DynamicGlow->integer ) {
-		R_DeleteFrameBuffer( tr.glowBlurFrameBuffer );
-		R_DeleteFrameBuffer( tr.glowFrameBuffer );
+		R_DeleteFrameBuffer( tres.glowBlurFrameBuffer );
+		tres.glowBlurFrameBuffer = NULL;
+
+		R_DeleteFrameBuffer( tres.glowFrameBuffer );
+		tres.glowFrameBuffer = NULL;
 	}
 }
 
