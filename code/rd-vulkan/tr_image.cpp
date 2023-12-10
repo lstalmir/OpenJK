@@ -34,9 +34,6 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 static byte s_intensitytable[256];
 static unsigned char s_gammatable[256];
 
-#define FILE_HASH_SIZE 1024 // actually, the shader code needs this (from another module, great).
-// static	image_t*		hashTable[FILE_HASH_SIZE];
-
 /*
 ** R_GammaCorrect
 */
@@ -86,28 +83,7 @@ long generateHashValue( const char *fname ) {
 		hash += (long)( letter ) * ( i + 119 );
 		i++;
 	}
-	hash &= ( FILE_HASH_SIZE - 1 );
 	return hash;
-}
-
-// makeup a nice clean, consistant name to query for and file under, for map<> usage...
-//
-char *GenerateImageMappingName( const char *name ) {
-	static char sName[MAX_QPATH];
-	int i = 0;
-	char letter;
-
-	while( name[i] != '\0' && i < MAX_QPATH - 1 ) {
-		letter = tolower( name[i] );
-		if( letter == '.' )
-			break; // don't include extension
-		if( letter == '\\' )
-			letter = '/'; // damn path names
-		sName[i++] = letter;
-	}
-	sName[i] = 0;
-
-	return &sName[0];
 }
 
 /*
@@ -994,12 +970,7 @@ void VK_UploadImage( image_t *image, const byte *pic, const VkExtent2D &extent, 
 	uploadBuffer->offset += requiredBufferSize;
 }
 
-class CStringComparator {
-public:
-	bool operator()( const char *s1, const char *s2 ) const { return ( Q_stricmp( s1, s2 ) < 0 ); }
-};
-
-typedef std::map<const char *, image_t *, CStringComparator> AllocatedImages_t;
+typedef std::map<name_t, image_t *> AllocatedImages_t;
 AllocatedImages_t AllocatedImages;
 AllocatedImages_t::iterator itAllocatedImages;
 
@@ -1059,12 +1030,9 @@ static void R_Images_DeleteImageContents( image_t *pImage ) {
 void R_Images_DeleteLightMaps( void ) {
 	for( AllocatedImages_t::iterator itImage = AllocatedImages.begin(); itImage != AllocatedImages.end(); /* empty */ ) {
 		image_t *pImage = ( *itImage ).second;
-
-		if( pImage->imgName[0] == '$' /*&& strstr(pImage->imgName,"lightmap")*/ ) // loose check, but should be ok
-		{
+		if( pImage->lightmap ) {
 			R_Images_DeleteImageContents( pImage );
-
-			AllocatedImages.erase( itImage++ );
+			itImage = AllocatedImages.erase( itImage );
 		}
 		else {
 			++itImage;
@@ -1087,6 +1055,7 @@ void R_Images_DeleteImage( image_t *pImage ) {
 // special function for images not stored in AllocatedImages...
 //
 void R_Images_DeleteTransientImage( image_t *pImage ) {
+	assert( pImage->transient );
 
 	// transient images are not stored in AllocatedImages, so just delete the contents
 	// also works for images created via R_CreateReadbackImage
@@ -1137,7 +1106,7 @@ qboolean RE_RegisterImages_LevelLoadEnd( void ) {
 		image_t *pImage = ( *itImage ).second;
 
 		// don't un-register system shaders (*fog, *dlight, *white, *default), but DO de-register lightmaps ("$<mapname>/lightmap%d")
-		if( pImage->imgName[0] != '*' ) {
+		if( !pImage->transient ) {
 			// image used on this level?
 			//
 			if( pImage->iLastLevelUsedOn != RE_RegisterMedia_GetLevel() ) { // nope, so dump it...
@@ -1172,31 +1141,29 @@ static image_t *R_FindImageFile_NoLoad( const char *name, qboolean mipmap, qbool
 		return NULL;
 	}
 
-	char *pName = GenerateImageMappingName( name );
-
 	//
 	// see if the image is already loaded
 	//
-	AllocatedImages_t::iterator itAllocatedImage = AllocatedImages.find( pName );
+	AllocatedImages_t::iterator itAllocatedImage = AllocatedImages.find( name );
 	if( itAllocatedImage != AllocatedImages.end() ) {
 		image_t *pImage = ( *itAllocatedImage ).second;
 
 		// cube images should not be mixed with typical 2D images
 		if( pImage->cube != cube ) {
-			ri.Printf( PRINT_WARNING, "WARNING: reused image %s with mixed cube parm\n", pName );
+			ri.Printf( PRINT_WARNING, "WARNING: reused image %s with mixed cube parm\n", name );
 		}
 
 		// the white image can be used with any set of parms, but other mismatches are errors...
 		//
-		if( strcmp( pName, "*white" ) ) {
+		if( strcmp( name, "*white" ) ) {
 			if( pImage->mipmap != !!mipmap ) {
-				ri.Printf( PRINT_WARNING, "WARNING: reused image %s with mixed mipmap parm\n", pName );
+				ri.Printf( PRINT_WARNING, "WARNING: reused image %s with mixed mipmap parm\n", name );
 			}
 			if( pImage->allowPicmip != !!allowPicmip ) {
-				ri.Printf( PRINT_WARNING, "WARNING: reused image %s with mixed allowPicmip parm\n", pName );
+				ri.Printf( PRINT_WARNING, "WARNING: reused image %s with mixed allowPicmip parm\n", name );
 			}
 			if( pImage->wrapClampMode != wrapClampMode ) {
-				ri.Printf( PRINT_WARNING, "WARNING: reused image %s with mixed wrapClampMode parm\n", pName );
+				ri.Printf( PRINT_WARNING, "WARNING: reused image %s with mixed wrapClampMode parm\n", name );
 			}
 		}
 
@@ -1265,8 +1232,8 @@ static void VK_AllocImageContents( image_t *image ) {
 		Com_Error( ERR_FATAL, "VK_InitImage: failed to create VkImage object (%d)\n", res );
 	}
 
-	VK_SetDebugObjectName( image->tex, VK_OBJECT_TYPE_IMAGE, image->imgName );
-	vmaSetAllocationName( vkState.allocator, image->allocation, image->imgName );
+	tr_dbg( VK_SetDebugObjectName( image->tex, VK_OBJECT_TYPE_IMAGE, image->imgName.c_str ) );
+	tr_dbg( vmaSetAllocationName( vkState.allocator, image->allocation, image->imgName.c_str ) );
 
 	if( image->usage & ( VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT ) ) {
 		VkImageViewCreateInfo imageViewCreateInfo = {};
@@ -1285,14 +1252,14 @@ static void VK_AllocImageContents( image_t *image ) {
 			Com_Error( ERR_FATAL, "VK_InitImage: failed to create VkImageView object (%d)\n", res );
 		}
 
-		VK_SetDebugObjectName( image->texview, VK_OBJECT_TYPE_IMAGE_VIEW, image->imgName );
+		tr_dbg( VK_SetDebugObjectName( image->texview, VK_OBJECT_TYPE_IMAGE_VIEW, image->imgName.c_str ) );
 
 		if( image->usage & ( VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT ) ) {
 
 			if( !image->descriptorSet ) {
 				// allocate a descriptor set for the texture
 				VK_AllocateDescriptorSet( vkState.textureDescriptorSetLayout, &image->descriptorSet );
-				VK_SetDebugObjectName( image->descriptorSet, VK_OBJECT_TYPE_DESCRIPTOR_SET, image->imgName );
+				tr_dbg( VK_SetDebugObjectName( image->descriptorSet, VK_OBJECT_TYPE_DESCRIPTOR_SET, image->imgName.c_str ) );
 			}
 
 			CDescriptorSetWriter descriptorSetWriter( image->descriptorSet );
@@ -1318,7 +1285,10 @@ static void VK_InitImage( image_t *image, const char *name, int width, int heigh
 	image->mipmap = !!mipmap;
 	image->allowPicmip = !!allowPicmip;
 
-	Q_strncpyz( image->imgName, name, sizeof( image->imgName ) );
+	assert( name );
+	image->imgName = name;
+	image->lightmap = ( name[0] == '$' );
+	image->transient = ( name[0] == '*' );
 
 	image->width = width;
 	image->height = height;
@@ -2144,6 +2114,9 @@ void R_DeleteTransientTextures( void ) {
 
 	R_DeleteFrameBuffer( tres.sceneFrameBuffer );
 	tres.sceneFrameBuffer = NULL;
+
+	R_DeleteFrameBuffer( tres.skyFogFrameBuffer );
+	tres.skyFogFrameBuffer = NULL;
 
 	R_DeleteFrameBuffer( tres.postProcessFrameBuffer );
 	tres.postProcessFrameBuffer = NULL;

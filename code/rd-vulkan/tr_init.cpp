@@ -936,7 +936,7 @@ void VK_InitSwapchain( void ) {
 			img->allAspectFlags = VK_IMAGE_ASPECT_COLOR_BIT;
 
 			// assign a debug name for the image
-			sprintf( img->imgName, "<swapchainImage[%d]>", i );
+			img->imgName = va( "<swapchainImage[%d]>", i );
 
 			// create an image view
 			imageViewCreateInfo.image = images[i];

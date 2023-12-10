@@ -51,6 +51,12 @@ static constexpr VkIndexType g_scIndexType = VK_INDEX_TYPE_UINT32;
 #define TR_UNIMPLEMENTED_FUNCTION_WARNING() \
 	ri.Printf( PRINT_WARNING, "skipping unimplemented function " __FUNCTION__ " (" __FILE__ ")\n" )
 
+#ifndef NDEBUG
+// expression that is evaluated only in debug builds
+#	define tr_dbg( expr ) expr
+#else
+#	define tr_dbg( expr )
+#endif
 
 // 13 bits
 // can't be increased without changing bit packing for drawsurfs
@@ -58,6 +64,55 @@ static constexpr VkIndexType g_scIndexType = VK_INDEX_TYPE_UINT32;
 #define SHADERNUM_BITS	13
 #define MAX_SHADERS		(1<<SHADERNUM_BITS)
 
+long generateHashValue( const char * );
+
+typedef struct name_s {
+	tr_dbg( char c_str[MAX_QPATH]; )
+	long hash;
+
+#ifdef __cplusplus
+	inline name_s() noexcept {
+		tr_dbg( c_str[0] = 0 );
+		hash = 0;
+	}
+
+	inline name_s( const char *name ) {
+		tr_dbg( Q_strncpyz( c_str, name, MAX_QPATH ) );
+		hash = generateHashValue( c_str );
+	}
+
+	inline name_s( const name_s &name ) {
+		tr_dbg( Q_strncpyz( c_str, name.c_str, MAX_QPATH ) );
+		hash = name.hash;
+	}
+
+	inline name_s( name_s &&name ) noexcept {
+		tr_dbg( Q_strncpyz( c_str, name.c_str, MAX_QPATH ) );
+		hash = name.hash;
+	}
+
+	inline name_s &operator=( const name_s &name ) {
+		tr_dbg( Q_strncpyz( c_str, name.c_str, MAX_QPATH ) );
+		hash = name.hash;
+		return *this;
+	}
+
+	inline name_s &operator=( name_s &&name ) noexcept {
+		tr_dbg( Q_strncpyz( c_str, name.c_str, MAX_QPATH ) );
+		hash = name.hash;
+		return *this;
+	}
+
+	inline bool operator==( const name_s &name ) const noexcept {
+		tr_dbg( assert( ( hash == name.hash ) == ( Q_stricmp( c_str, name.c_str ) ) ); );
+		return hash == name.hash;
+	}
+
+	inline bool operator<( const name_s &name ) const noexcept {
+		return hash < name.hash;
+	}
+#endif
+} name_t;
 
 typedef struct dlight_s {
 	vec3_t	origin;
@@ -82,7 +137,7 @@ typedef struct buffer_s {
 } buffer_t;
 
 typedef struct image_s {
-	char				imgName[MAX_QPATH];		// game path, including extension
+	name_t				imgName;				// game path, including extension
 	int					frameUsed;				// for texture usage in frame statistics
 	word				width, height;			// source image
 	
@@ -106,6 +161,8 @@ typedef struct image_s {
 	VkAccessFlags		access;
 
 	bool				cube;
+	bool				lightmap;
+	bool				transient;
 
 	bool				mipmap;
 

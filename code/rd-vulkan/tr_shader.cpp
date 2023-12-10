@@ -170,6 +170,7 @@ shader_t *R_FindShaderByName( const char *name ) {
 	COM_StripExtension( name, strippedName, sizeof(strippedName) );
 
 	hash = generateHashValue(strippedName);
+	hash &= FILE_HASH_SIZE - 1;
 
 	//
 	// see if the shader is already loaded
@@ -2822,7 +2823,7 @@ static shader_t *GeneratePermanentShader( void ) {
 
 	SortNewShader();
 
-	const int hash = generateHashValue(newShader->name);
+	const int hash = generateHashValue(newShader->name) & (FILE_HASH_SIZE - 1);
 	newShader->next = sh_hashTable[hash];
 	sh_hashTable[hash] = newShader;
 
@@ -3453,6 +3454,7 @@ shader_t *R_FindShader( const char *name, const int *lightmapIndex, const byte *
 	COM_StripExtension( name, strippedName, sizeof(strippedName) );
 
 	hash = generateHashValue(strippedName);
+	hash &= FILE_HASH_SIZE - 1;
 
 	//
 	// see if the shader is already loaded
