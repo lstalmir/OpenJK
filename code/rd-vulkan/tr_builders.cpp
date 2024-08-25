@@ -448,6 +448,12 @@ void CFrameBufferBuilder::reset() {
 	height = 0;
 	attachmentCount = 0;
 	depthBufferIndex = -1;
+	Q_strncpyz( name, "unnamedFrameBuffer", MAX_QPATH );
+}
+
+void CFrameBufferBuilder::setName( const char *name ) {
+	assert( strlen( name ) < MAX_QPATH );
+	Q_strncpyz( this->name, name, MAX_QPATH );
 }
 
 void CFrameBufferBuilder::addColorAttachment( VkFormat format, bool clear, const VkClearColorValue &clearValue ) {
@@ -589,7 +595,7 @@ void CFrameBufferBuilder::build( frameBuffer_t **frameBuffer ) {
 
 	res = vkCreateRenderPass( vkState.device, &renderPassCreateInfo, NULL, &fb->renderPass );
 	if( res != VK_SUCCESS ) {
-		Com_Error( ERR_FATAL, "CFrameBufferBuilder: failed to create VkRenderPass (%d)\n", res );
+		Com_Error( ERR_FATAL, "CFrameBufferBuilder: failed to create VkRenderPass %s (%d)\n", name, res );
 	}
 
 	// create the frame buffer images
@@ -604,7 +610,7 @@ void CFrameBufferBuilder::build( frameBuffer_t **frameBuffer ) {
 		}
 		else {
 			fb->images[i].external = false;
-			fb->images[i].i = R_CreateTransientImage( "*frameBufferImage", width, height, attachmentDescriptions[i].format, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE );
+			fb->images[i].i = R_CreateTransientImage( va( "*%s[%d]", name, i ), width, height, attachmentDescriptions[i].format, VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE );
 		}
 		fb->images[i].layout = attachmentDescriptions[i].initialLayout;
 		framebufferAttachments[i] = fb->images[i].i->texview;
@@ -626,7 +632,7 @@ void CFrameBufferBuilder::build( frameBuffer_t **frameBuffer ) {
 
 	res = vkCreateFramebuffer( vkState.device, &framebufferCreateInfo, NULL, &fb->buf );
 	if( res != VK_SUCCESS ) {
-		Com_Error( ERR_FATAL, "CFrameBufferBuilder: failed to create VkFramebuffer (%d)\n", res );
+		Com_Error( ERR_FATAL, "CFrameBufferBuilder: failed to create VkFramebuffer %s (%d)\n", name, res );
 	}
 }
 

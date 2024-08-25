@@ -1864,6 +1864,7 @@ public:
 	int							height;
 	int							depthBufferIndex;
 	int							attachmentCount;
+	char						name[MAX_QPATH];
 	VkAttachmentDescription		attachmentDescriptions[TR_MAX_FRAMEBUFFER_IMAGES];
 	VkClearValue				clearValues[TR_MAX_FRAMEBUFFER_IMAGES];
 	image_t						*externalImages[TR_MAX_FRAMEBUFFER_IMAGES];
@@ -1872,6 +1873,7 @@ public:
 	CFrameBufferBuilder();
 
 	void reset();
+	void setName( const char *name );
 	void addColorAttachment( VkFormat format, bool clear = false, const VkClearColorValue &clearValue = { 0.f, 0.f, 0.f, 1.f } );
 	void addColorAttachment( image_t *image, bool clear = false, const VkClearColorValue &clearValue = { 0.f, 0.f, 0.f, 1.f } );
 	void addDepthStencilAttachment( VkFormat format, bool clear = false, const VkClearDepthStencilValue &clearValue = { 0.f, 0 } );

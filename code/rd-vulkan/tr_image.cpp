@@ -1940,6 +1940,7 @@ static void R_CreateTransientImages( void ) {
 	frameBufferBuilder.height = glConfig.vidHeight;
 	frameBufferBuilder.addColorAttachment( VK_FORMAT_B8G8R8A8_UNORM );
 	frameBufferBuilder.addDepthStencilAttachment( VK_FORMAT_D24_UNORM_S8_UINT );
+	frameBufferBuilder.setName( "sceneFrameBuffer" );
 	frameBufferBuilder.build( &tres.sceneFrameBuffer );
 
 	// Create sky fog image
@@ -1947,6 +1948,7 @@ static void R_CreateTransientImages( void ) {
 	frameBufferBuilder.width = glConfig.vidWidth;
 	frameBufferBuilder.height = glConfig.vidHeight;
 	frameBufferBuilder.addColorAttachment( tres.sceneFrameBuffer->images->i ); // color
+	frameBufferBuilder.setName( "skyFogFrameBuffer" );
 	frameBufferBuilder.build( &tres.skyFogFrameBuffer );
 
 	// Create antialiasing image
@@ -1954,6 +1956,7 @@ static void R_CreateTransientImages( void ) {
 	frameBufferBuilder.width = glConfig.vidWidth;
 	frameBufferBuilder.height = glConfig.vidHeight;
 	frameBufferBuilder.addColorAttachment( tres.sceneFrameBuffer->images->i->internalFormat );
+	frameBufferBuilder.setName( "antialiasingFrameBuffer" );
 	frameBufferBuilder.build( &tres.antialiasingFrameBuffer );
 
 #if 0
@@ -1979,6 +1982,7 @@ static void R_CreateTransientImages( void ) {
 	frameBufferBuilder.build( &tr.glowBlurFrameBuffer );
 #endif
 
+	frameBufferBuilder.setName( "postProcessFrameBuffer" );
 	frameBufferBuilder.build( &tres.postProcessFrameBuffer );
 
 	// create a temporary image for distortion effect
