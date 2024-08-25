@@ -1070,11 +1070,12 @@ static void R_LoadFogs( lump_t *l, lump_t *brushesLump, lump_t *sidesLump, world
 	count = l->filelen / sizeof( *fogs );
 
 	// create fog strucutres for them
-	worldData.numfogs = count + 1;
+	worldData.numfogs = count;
 	fogsSize = ( worldData.numfogs + 1 ) * sizeof( *out );
 	worldData.fogs = (fog_t *)R_Hunk_Alloc( fogsSize, qtrue );
 	worldData.globalFog = -1;
-	out = worldData.fogs + 1;
+	out = worldData.fogs;
+	count++; // count global fog
 
 	// Copy the global fog from the main world into the bsp instance
 	if( index ) {
@@ -1082,7 +1083,6 @@ static void R_LoadFogs( lump_t *l, lump_t *brushesLump, lump_t *sidesLump, world
 			// Use the nightvision fog slot
 			worldData.fogs[worldData.numfogs] = tr.world->fogs[tr.world->globalFog];
 			worldData.globalFog = worldData.numfogs;
-			worldData.numfogs++;
 		}
 	}
 
@@ -1102,7 +1102,7 @@ static void R_LoadFogs( lump_t *l, lump_t *brushesLump, lump_t *sidesLump, world
 	}
 	sidesCount = sidesLump->filelen / sizeof( *sides );
 
-	for( i = 0; i < count; i++, fogs++ ) {
+	for( i = 0; i < worldData.numfogs; i++, fogs++ ) {
 		out->originalBrushNumber = LittleLong( fogs->brushNum );
 		if( out->originalBrushNumber == -1 ) {
 			if( index ) {
@@ -1110,7 +1110,6 @@ static void R_LoadFogs( lump_t *l, lump_t *brushesLump, lump_t *sidesLump, world
 			}
 			VectorSet( out->bounds[0].m, MIN_WORLD_COORD, MIN_WORLD_COORD, MIN_WORLD_COORD );
 			VectorSet( out->bounds[1].m, MAX_WORLD_COORD, MAX_WORLD_COORD, MAX_WORLD_COORD );
-			worldData.globalFog = i + 1;
 		}
 		else {
 			if( (unsigned)out->originalBrushNumber >= (unsigned)brushesCount ) {
@@ -1200,6 +1199,7 @@ static void R_LoadFogs( lump_t *l, lump_t *brushesLump, lump_t *sidesLump, world
 		out->colorInt = 0x00000000;
 		out->tcScale = 0.0f;
 		out->hasSurface = qfalse;
+		worldData.globalFog = worldData.numfogs;
 	}
 
 	// create a gpu buffer for fogs
