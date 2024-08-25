@@ -1,3 +1,4 @@
+
 #define VS_Main VS_ShadeMain
 #include "tr_shade.hlsl"
 #undef VS_Main
@@ -33,7 +34,7 @@ shadeVertex_t VS_Main( vertex_t v ) {
 	}
 
 	v.position.xyz = position;
-	v.normal.xyz = normal;
+	v.normal.xyz = normalize( normal );
 
 	return VS_ShadeMain( v );
 }

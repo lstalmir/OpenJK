@@ -1,3 +1,4 @@
+
 #ifndef TR_COMMON_HLSL_
 #define TR_COMMON_HLSL_
 

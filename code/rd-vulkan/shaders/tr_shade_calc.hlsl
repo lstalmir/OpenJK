@@ -1,3 +1,4 @@
+
 #include "tr_common.hlsl"
 #include "tr_noise.hlsl"
 
@@ -1029,11 +1030,11 @@ void RB_CalcDiffuseColor( float3 normal, inout float4 color ) {
 	directedLight = tr_model.directedLight.xyz;
 	lightDir = tr_model.lightDir.xyz;
 
-	incoming = dot( normal, lightDir );
-	if( incoming <= 0 ) {
-		color = ambientLightColor;
-		return;
-	}
+	incoming = saturate(1 - dot(normal, lightDir));
+	//if( incoming <= 0 ) {
+	//	color = ambientLightColor;
+	//	return;
+	//}
 
 	color.rgb = saturate( ambientLight + incoming * directedLight );
 	color.a = 1;

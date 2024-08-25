@@ -1,3 +1,4 @@
+
 #include "tr_shade_calc.hlsl"
 
 #ifdef TR_WIREFRAME
@@ -32,7 +33,7 @@ shadeVertex_t VS_Main( vertex_t v ) {
 	o.texcoord1 = stageVars.texcoords[1];
 
 	o.entPosition = position.xyz;
-	o.entNormal = normal.xyz;
+	o.entNormal = normalize( normal.xyz );
 
 	VS_ApplyViewTransform( position );
 	o.position = position;

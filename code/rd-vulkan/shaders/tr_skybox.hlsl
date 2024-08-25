@@ -1,3 +1,4 @@
+
 #define TR_TEXTURE0_T TextureCube
 #include "tr_shade_calc.hlsl"
 

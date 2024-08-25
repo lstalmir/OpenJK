@@ -1,3 +1,4 @@
+
 #include "tr_common.hlsl"
 
 #if defined( BLUR_COMBINE_PASS )

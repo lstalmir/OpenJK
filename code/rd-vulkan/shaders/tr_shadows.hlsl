@@ -1,3 +1,4 @@
+
 #include "tr_common.hlsl"
 
 typedef struct shadowInput_s {

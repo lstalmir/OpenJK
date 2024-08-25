@@ -56,6 +56,7 @@ if (WIN32)
         if (${ARGS_STAGE} EQUAL "VS")
             list (APPEND DXC_COMMAND -fvk-invert-y)
         endif ()
+        list (APPEND DXC_COMMAND $<$<CONFIG:Debug>:-Zi>)
 
         add_custom_command (TARGET ${ARGS_TARGET} PRE_BUILD
             COMMAND ${CMAKE_CXX_COMPILER} -nologo -P "${ARGS_FILE}" -Fi${PREPROCESSED_FILE} ${Macros}

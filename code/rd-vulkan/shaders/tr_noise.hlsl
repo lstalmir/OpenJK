@@ -1,3 +1,4 @@
+
 #ifndef TR_NOISE_HLSL_
 #define TR_NOISE_HLSL_
 
