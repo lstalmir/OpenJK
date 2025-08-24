@@ -160,6 +160,7 @@ CPipelineBuilder::CPipelineBuilder() {
 	pipelineCreateInfo.pDynamicState = &dynamic;
 	pipelineCreateInfo.pTessellationState = NULL;
 
+	shaderStageCount = 0;
 	memset( shaderStages, 0, sizeof( shaderStages ) );
 
 	// set default states

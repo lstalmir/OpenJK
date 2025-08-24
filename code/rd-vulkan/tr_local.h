@@ -78,7 +78,7 @@ typedef struct name_s {
 
 	inline name_s( const char *name ) {
 		tr_dbg( Q_strncpyz( c_str, name, MAX_QPATH ) );
-		hash = generateHashValue( c_str );
+		hash = generateHashValue( name );
 	}
 
 	inline name_s( const name_s &name ) {

@@ -1315,7 +1315,7 @@ static float4 ComputeColor( float3 position, float3 normal, float4 vertexColor, 
 	//
 	// fog adjustment for colors to fade out as fog increases
 	//
-	if( tr_shader.fogNum ) {
+	if( tr_shader.fogNum != -1 ) {
 		switch( tr_shader.adjustColorsForFog ) {
 		case ACFF_MODULATE_RGB:
 			RB_CalcModulateColorsByFog( position, color );

@@ -3111,8 +3111,7 @@ static shader_t *FinishShader( void ) {
 		//
 		// determine sort order and fog color adjustment
 		//
-		if ( ( pStage->stateBits & ( GLS_SRCBLEND_BITS | GLS_DSTBLEND_BITS ) ) &&
-			 ( stages[0].stateBits & ( GLS_SRCBLEND_BITS | GLS_DSTBLEND_BITS ) ) ) {
+		if ( pStage->stateBits & ( GLS_SRCBLEND_BITS | GLS_DSTBLEND_BITS ) ) {
 			int blendSrcBits = pStage->stateBits & GLS_SRCBLEND_BITS;
 			int blendDstBits = pStage->stateBits & GLS_DSTBLEND_BITS;
 
@@ -3125,17 +3124,17 @@ static shader_t *FinishShader( void ) {
 			// modulate, additive
 			if ( ( ( blendSrcBits == GLS_SRCBLEND_ONE ) && ( blendDstBits == GLS_DSTBLEND_ONE ) ) ||
 				( ( blendSrcBits == GLS_SRCBLEND_ZERO ) && ( blendDstBits == GLS_DSTBLEND_ONE_MINUS_SRC_COLOR ) ) ) {
-				pStage->adjustColorsForFog = ACFF_MODULATE_RGB;
+				pStage->shaderData.adjustColorsForFog = tr_shader::ACFF_MODULATE_RGB;
 			}
 			// strict blend
 			else if ( ( blendSrcBits == GLS_SRCBLEND_SRC_ALPHA ) && ( blendDstBits == GLS_DSTBLEND_ONE_MINUS_SRC_ALPHA ) )
 			{
-				pStage->adjustColorsForFog = ACFF_MODULATE_ALPHA;
+				pStage->shaderData.adjustColorsForFog = tr_shader::ACFF_MODULATE_ALPHA;
 			}
 			// premultiplied alpha
 			else if ( ( blendSrcBits == GLS_SRCBLEND_ONE ) && ( blendDstBits == GLS_DSTBLEND_ONE_MINUS_SRC_ALPHA ) )
 			{
-				pStage->adjustColorsForFog = ACFF_MODULATE_RGBA;
+				pStage->shaderData.adjustColorsForFog = tr_shader::ACFF_MODULATE_RGBA;
 			} else {
 				// we can't adjust this one correctly, so it won't be exactly correct in fog
 			}

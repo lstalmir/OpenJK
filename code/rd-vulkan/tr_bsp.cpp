@@ -1075,7 +1075,6 @@ static void R_LoadFogs( lump_t *l, lump_t *brushesLump, lump_t *sidesLump, world
 	worldData.fogs = (fog_t *)R_Hunk_Alloc( fogsSize, qtrue );
 	worldData.globalFog = -1;
 	out = worldData.fogs;
-	count++; // count global fog
 
 	// Copy the global fog from the main world into the bsp instance
 	if( index ) {
@@ -1083,7 +1082,12 @@ static void R_LoadFogs( lump_t *l, lump_t *brushesLump, lump_t *sidesLump, world
 			// Use the nightvision fog slot
 			worldData.fogs[worldData.numfogs] = tr.world->fogs[tr.world->globalFog];
 			worldData.globalFog = worldData.numfogs;
+			count++;
 		}
+	}
+	else {
+		// Initialize the global fog
+		count++;
 	}
 
 	if( !count ) {

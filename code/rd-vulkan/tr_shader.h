@@ -488,13 +488,13 @@ typedef bool qboolean32;
 	typedef struct {
 		fogParms_t parms;
 
-		int originalBrushNumber;
-		float3 bounds[2];
-
+		float4 bounds[2];
 		float4 surface;
 
 		uint colorInt; // in packed byte format
 		float tcScale; // texture coordinate vector scales
+
+		int originalBrushNumber;
 
 		// for clipping distance in fog when outside
 		qboolean32 hasSurface;
@@ -593,8 +593,6 @@ typedef bool qboolean32;
 	} textureBundle_t;
 
 	typedef struct shaderStage_s {
-		textureBundle_t bundle[NUM_TEXTURE_BUNDLES];
-
 		waveForm_t rgbWave;
 		waveForm_t alphaWave;
 
@@ -612,6 +610,8 @@ typedef bool qboolean32;
 
 		int numDeforms;
 		deformStage_t deforms[TR_MAX_SHADER_DEFORMS];
+
+		textureBundle_t bundle[NUM_TEXTURE_BUNDLES];
 
 	} shaderStage_t;
 
