@@ -23,6 +23,14 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 
 #include "../server/exe_headers.h"
 
+#ifdef _DEBUG
+#	define VMA_DEBUG_LOG( format, ... )                 \
+		do {                                             \
+			ri.Printf( PRINT_ALL, format, __VA_ARGS__ ); \
+			ri.Printf( PRINT_ALL, "\n" );                \
+		} while( false )
+#endif
+
 #define VMA_IMPLEMENTATION
 #include "tr_local.h"
 #include "tr_common.h"
