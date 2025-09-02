@@ -1118,13 +1118,14 @@ byte *RB_ReadPixels( int x, int y, int width, int height, size_t *offset, int *p
 	buffer = (byte *)R_Malloc( padlinelen * height, TAG_TEMP_WORKSPACE, qfalse );
 
 	for( int yy = 0; yy < height; ++yy ) {
-		srcOffset = (y + yy) * subresourceLayout.rowPitch + (x * 4);
+		srcOffset = (height - (y + yy)) * subresourceLayout.rowPitch + (x * 4);
 		dstOffset = yy * padlinelen + (x * 3);
 
 		for( int xx = 0; xx < width; ++xx ) {
-			buffer[dstOffset] = mappedScreenshotImage[srcOffset];
+			// convert from BGR to RGB
+			buffer[dstOffset] = mappedScreenshotImage[srcOffset + 2];
 			buffer[dstOffset + 1] = mappedScreenshotImage[srcOffset + 1];
-			buffer[dstOffset + 2] = mappedScreenshotImage[srcOffset + 2];
+			buffer[dstOffset + 2] = mappedScreenshotImage[srcOffset];
 			dstOffset += 3;
 			srcOffset += 4;
 		}
