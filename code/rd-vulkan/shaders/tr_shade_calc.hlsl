@@ -1146,6 +1146,34 @@ void RB_CalcDisintegrateVertDeform( inout float3 position, float3 normal ) {
 
 /*
 ===============
+AlphaTest
+===============
+*/
+static void AlphaTest( float alpha ) {
+	switch( r_spec & TR_SHADER_SPEC_ATEST_BITS ) {
+		case 0:
+			break;
+		case TR_SHADER_SPEC_ATEST_GT_0:
+			if( alpha <= 0 )
+				discard;
+			break;
+		case TR_SHADER_SPEC_ATEST_LT_80:
+			if( alpha >= 0.5 )
+				discard;
+			break;
+		case TR_SHADER_SPEC_ATEST_GE_80:
+			if( alpha < 0.5 )
+				discard;
+			break;
+		case TR_SHADER_SPEC_ATEST_GE_C0:
+			if( alpha < 0.75 )
+				discard;
+			break;
+	}
+}
+
+/*
+===============
 ComputeColors
 ===============
 */

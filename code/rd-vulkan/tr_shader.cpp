@@ -3160,6 +3160,10 @@ static shader_t *FinishShader( void ) {
 				}
 			}
 		}
+		else if ( !shader.sort )
+		{
+			shader.sort = SS_OPAQUE;
+		}
 
 		//rww - begin hw fog
 		if ((pStage->stateBits & (GLS_SRCBLEND_BITS|GLS_DSTBLEND_BITS)) == (GLS_SRCBLEND_ONE|GLS_DSTBLEND_ONE))

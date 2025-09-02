@@ -51,6 +51,8 @@ float4 PS_Main( shadeVertex_t i )
 	return i.color;
 #endif
 	float4 color = ComputeColor( i.entPosition, i.entNormal, i.color, 0, 0 );
-	float4 tex_0 = tr_texture_0.Sample( tr_sampler_0, i.texcoord0 );
-	return color * tex_0;
+	color *= tr_texture_0.Sample(tr_sampler_0, i.texcoord0);
+	if( r_spec & TR_SHADER_SPEC_ATEST_BITS )
+		AlphaTest( color.a );
+	return color;
 }

@@ -223,6 +223,8 @@ void CPipelineBuilder::reset( bool setDefaults ) {
 		depthStencil.front.compareMask = depthStencil.back.compareMask = 0xff;
 		depthStencil.front.writeMask = depthStencil.back.writeMask = 0xff;
 		depthStencil.front.reference = depthStencil.back.reference = 0;
+		depthStencil.minDepthBounds = 0.f;
+		depthStencil.maxDepthBounds = 1.f;
 
 		// rasterization
 		rasterization.pNext = NULL;
