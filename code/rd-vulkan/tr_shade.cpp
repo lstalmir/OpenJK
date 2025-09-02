@@ -157,6 +157,7 @@ void R_BindAnimatedImage( const textureBundle_t *bundle, int loc = 0 ) {
 	if ( bundle->isVideoMap ) {
 		ri.CIN_RunCinematic( bundle->videoMapHandle );
 		ri.CIN_UploadCinematic( bundle->videoMapHandle );
+		VK_BindImage( tres.scratchImage[bundle->videoMapHandle], loc );
 		return;
 	}
 
