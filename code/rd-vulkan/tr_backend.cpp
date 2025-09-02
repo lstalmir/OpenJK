@@ -420,18 +420,27 @@ void VK_SetDebugObjectName( uint64_t object, VkObjectType type, const char *name
 }
 
 /*
+** VK_SetDebugLabelInfo
+*/
+static void VK_SetDebugLabelInfo( VkDebugUtilsLabelEXT *labelInfo, const char *name, uint32_t color ) {
+	labelInfo->sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT;
+	labelInfo->pNext = nullptr;
+	labelInfo->pLabelName = name;
+	labelInfo->color[0] = ( color & 0xFF ) / 255.f;
+	labelInfo->color[1] = ( ( color >> 8 ) & 0xFF ) / 255.f;
+	labelInfo->color[2] = ( ( color >> 16 ) & 0xFF ) / 255.f;
+	labelInfo->color[3] = ( color >> 24 ) / 255.f;
+}
+
+/*
 ** RB_InsertDebugMarker
 */
 void RB_InsertDebugMarker( const char *name, uint32_t color ) {
 #if defined( _DEBUG )
 	if( vkState.pfnInsertDebugUtilsLabel && backEndData ) {
-		VkDebugUtilsLabelEXT labelInfo = {};
-		labelInfo.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT;
-		labelInfo.pLabelName = name;
-		labelInfo.color[0] = ( color & 0xFF ) / 255.f;
-		labelInfo.color[1] = ( ( color >> 8 ) & 0xFF ) / 255.f;
-		labelInfo.color[2] = ( ( color >> 16 ) & 0xFF ) / 255.f;
-		labelInfo.color[3] = ( color >> 24 ) / 255.f;
+
+		VkDebugUtilsLabelEXT labelInfo;
+		VK_SetDebugLabelInfo( &labelInfo, name, color );
 
 		vkState.pfnInsertDebugUtilsLabel( backEndData->cmdbuf, &labelInfo );
 	}
@@ -446,13 +455,8 @@ void RB_BeginDebugRegion( const char *name, uint32_t color ) {
 	if( vkState.pfnBeginDebugUtilsLabel && backEndData ) {
 		assert( vkState.pfnEndDebugUtilsLabel );
 
-		VkDebugUtilsLabelEXT labelInfo = {};
-		labelInfo.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_LABEL_EXT;
-		labelInfo.pLabelName = name;
-		labelInfo.color[0] = ( color & 0xFF ) / 255.f;
-		labelInfo.color[1] = ( ( color >> 8 ) & 0xFF ) / 255.f;
-		labelInfo.color[2] = ( ( color >> 16 ) & 0xFF ) / 255.f;
-		labelInfo.color[3] = ( color >> 24 ) / 255.f;
+		VkDebugUtilsLabelEXT labelInfo;
+		VK_SetDebugLabelInfo( &labelInfo, name, color );
 
 		vkState.pfnBeginDebugUtilsLabel( backEndData->cmdbuf, &labelInfo );
 	}
