@@ -522,6 +522,7 @@ static void InitVulkanInstance( void ) {
 		vkState.pfnSetDebugObjectName = VK_GetProcAddress<PFN_vkSetDebugUtilsObjectNameEXT>( "vkSetDebugUtilsObjectNameEXT", REQUIRED );
 		vkState.pfnBeginDebugUtilsLabel = VK_GetProcAddress<PFN_vkCmdBeginDebugUtilsLabelEXT>( "vkCmdBeginDebugUtilsLabelEXT", REQUIRED );
 		vkState.pfnEndDebugUtilsLabel = VK_GetProcAddress<PFN_vkCmdEndDebugUtilsLabelEXT>( "vkCmdEndDebugUtilsLabelEXT", REQUIRED );
+		vkState.pfnInsertDebugUtilsLabel = VK_GetProcAddress<PFN_vkCmdInsertDebugUtilsLabelEXT>( "vkCmdInsertDebugUtilsLabelEXT", REQUIRED );
 
 		vkState.pfnCreateDebugMessenger = VK_GetProcAddress<PFN_vkCreateDebugUtilsMessengerEXT>( "vkCreateDebugUtilsMessengerEXT" );
 		vkState.pfnDestroyDebugMessenger = VK_GetProcAddress<PFN_vkDestroyDebugUtilsMessengerEXT>( "vkDestroyDebugUtilsMessengerEXT" );

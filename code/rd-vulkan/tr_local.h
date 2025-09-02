@@ -1143,6 +1143,7 @@ typedef struct {
 	PFN_vkSetDebugUtilsObjectNameEXT	pfnSetDebugObjectName;
 	PFN_vkCmdBeginDebugUtilsLabelEXT	pfnBeginDebugUtilsLabel;
 	PFN_vkCmdEndDebugUtilsLabelEXT		pfnEndDebugUtilsLabel;
+	PFN_vkCmdInsertDebugUtilsLabelEXT	pfnInsertDebugUtilsLabel;
 	PFN_vkCreateDebugUtilsMessengerEXT	pfnCreateDebugMessenger;
 	PFN_vkDestroyDebugUtilsMessengerEXT	pfnDestroyDebugMessenger;
 
@@ -1607,6 +1608,7 @@ inline void VK_SetDebugObjectName( T object, VkObjectType type, const char *name
 	VK_SetDebugObjectName( (uint64_t)object, type, name );
 }
 
+void RB_InsertDebugMarker( const char *name, uint32_t color = 0xFFFFFFFF );
 void RB_BeginDebugRegion( const char *name, uint32_t color = 0xFFFFFFFF );
 void RB_EndDebugRegion( void );
 
