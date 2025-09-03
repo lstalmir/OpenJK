@@ -894,19 +894,21 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 					RB_EndDebugRegion();
 				}
 
-				if( !didShadowPass && shader && shader->sort > SS_BANNER ) {
-					RB_ShadowFinish();
-					didShadowPass = true;
-				}
+				if( !g_bRenderGlowingObjects ) {
+					if( !didShadowPass && shader && shader->sort > SS_BANNER ) {
+						RB_ShadowFinish();
+						didShadowPass = true;
+					}
 
-				if( !didFogPass && shader && shader->sort > SS_FOG ) {
-					RB_SkyFogFinish();
-					didFogPass = true;
-				}
+					if( !didFogPass && shader && shader->sort > SS_FOG ) {
+						RB_SkyFogFinish();
+						didFogPass = true;
+					}
 
-				if( !didAntiAliasing && shader && shader->sort > SS_BLEND0 ) {
-					RB_DrawAntialiasing();
-					didAntiAliasing = true;
+					if( !didAntiAliasing && shader && shader->sort > SS_BLEND0 ) {
+						RB_DrawAntialiasing();
+						didAntiAliasing = true;
+					}
 				}
 			}
 
@@ -1076,21 +1078,27 @@ void RB_RenderDrawSurfList( drawSurf_t *drawSurfs, int numDrawSurfs ) {
 	// flush any pending surface draws
 	RB_EndSurface();
 
-	if( tr_stencilled && !tr_distortionPrePost ) { // draw in the stencil buffer's cutout
-		RB_DistortionFill();
+	if( oldShader != NULL ) {
+		RB_EndDebugRegion();
 	}
-	if( !didShadowPass ) {
-		// darken down any stencil shadows
-		RB_ShadowFinish();
-		didShadowPass = true;
-	}
-	if( !didFogPass ) {
-		RB_SkyFogFinish();
-		didFogPass = true;
-	}
-	if( !didAntiAliasing ) {
-		RB_DrawAntialiasing();
-		didAntiAliasing = true;
+
+	if( !g_bRenderGlowingObjects ) {
+		if( tr_stencilled && !tr_distortionPrePost ) { // draw in the stencil buffer's cutout
+			RB_DistortionFill();
+		}
+		if( !didShadowPass ) {
+			// darken down any stencil shadows
+			RB_ShadowFinish();
+			didShadowPass = true;
+		}
+		if( !didFogPass ) {
+			RB_SkyFogFinish();
+			didFogPass = true;
+		}
+		if( !didAntiAliasing ) {
+			RB_DrawAntialiasing();
+			didAntiAliasing = true;
+		}
 	}
 
 	// add light flares on lights that aren't obscured
@@ -1435,21 +1443,23 @@ const void *RB_DrawSurfs( const void *data ) {
 	// Render dynamic glowing/flaring objects.
 	if( !( backEnd.refdef.rdflags & RDF_NOWORLDMODEL ) && g_bDynamicGlowSupported && r_DynamicGlow->integer ) {
 
+		RB_BeginDebugRegion( "RenderGlowingObjects" );
+
 		// Render the glowing objects.
 		g_bRenderGlowingObjects = true;
 		RB_RenderDrawSurfList( cmd->drawSurfs, cmd->numDrawSurfs );
 		g_bRenderGlowingObjects = false;
 
-		// Resize the viewport to the blur texture size.
-		RB_SetDepthRange( 0 );
-		RB_SetViewportSize( 0, 0, r_DynamicGlowWidth->integer, r_DynamicGlowHeight->integer );
-		RB_SetViewportState();
+		RB_EndDebugRegion();
+		RB_BeginDebugRegion( "DrawGlow" );
 
 		// Blur the scene.
 		RB_BlurGlowTexture();
 
 		// Draw the glow additively over the screen.
 		RB_DrawGlowOverlay();
+
+		RB_EndDebugRegion();
 	}
 
 	return (const void *)( cmd + 1 );
@@ -1770,6 +1780,11 @@ static inline void RB_BlurGlowTexture() {
 	R_BindFrameBuffer( tres.glowBlurFrameBuffer );
 	R_SetPipelineState( &vkState.glowBlurPipeline );
 
+	// Resize the viewport to the blur texture size.
+	RB_SetDepthRange( 0 );
+	RB_SetViewportSize( 0, 0, r_DynamicGlowWidth->integer, r_DynamicGlowHeight->integer );
+	RB_SetViewportState();
+
 	VK_BindImage( glow );
 
 	vkCmdPushConstants( backEndData->cmdbuf, backEndData->pipelineState->layout->handle, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof( fBlurWeight ), fBlurWeight );
@@ -1849,8 +1864,13 @@ static inline void RB_DrawGlowOverlay() {
 	VK_SetImageLayout( glow, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_ACCESS_SHADER_READ_BIT );
 
 	// additively render the glow texture
-	R_BindFrameBuffer( tres.postProcessFrameBuffer );
+	R_BindFrameBuffer( tres.sceneFrameBuffer );
 	R_SetPipelineState( &vkState.glowCombinePipeline );
+
+	// Resize the viewport to the blur texture size.
+	RB_SetDepthRange( 0 );
+	RB_SetViewportSize( 0, 0, tres.sceneFrameBuffer->width, tres.sceneFrameBuffer->height );
+	RB_SetViewportState();
 
 	VK_BindImage( glow );
 

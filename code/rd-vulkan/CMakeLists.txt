@@ -230,6 +230,8 @@ if(BuildSPRdVulkan OR BuildJK2SPRdVulkan)
 
 		# Compile shaders as a pre-build step
 		set(DXC_OUTPUT_DIR "${SPRDVulkanShadersOutputDirectory}")
+		add_dxc_command(TARGET ${ProjectName} FILE "${SPDir}/rd-vulkan/shaders/tr_blur.hlsl" SPIRV STAGE VS)
+		add_dxc_command(TARGET ${ProjectName} FILE "${SPDir}/rd-vulkan/shaders/tr_blur.hlsl" SPIRV STAGE PS)
 		add_dxc_command(TARGET ${ProjectName} FILE "${SPDir}/rd-vulkan/shaders/tr_blur_combine.hlsl" SPIRV STAGE VS)
 		add_dxc_command(TARGET ${ProjectName} FILE "${SPDir}/rd-vulkan/shaders/tr_blur_combine.hlsl" SPIRV STAGE PS)
 		add_dxc_command(TARGET ${ProjectName} FILE "${SPDir}/rd-vulkan/shaders/tr_dissolve.hlsl" SPIRV STAGE VS)

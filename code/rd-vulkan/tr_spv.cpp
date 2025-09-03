@@ -24,6 +24,8 @@ along with this program; if not, see <http://www.gnu.org/licenses/>.
 
 #include "tr_local.h"
 
+#include "tr_blur_VS.h"
+#include "tr_blur_PS.h"
 #include "tr_blur_combine_VS.h"
 #include "tr_blur_combine_PS.h"
 #include "tr_wireframe_VS.h"
@@ -146,13 +148,14 @@ void SPV_InitGlowShaders( void ) {
 
 #if 0
 	// setup the pipeline shader stages
-	pipelineBuilder.setShader( VK_SHADER_STAGE_VERTEX_BIT, g_spvGlowVShader );
-	pipelineBuilder.setShader( VK_SHADER_STAGE_FRAGMENT_BIT, g_spvGlowPShader );
+	pipelineBuilder.setShader( VK_SHADER_STAGE_VERTEX_BIT, tr_blur_VS );
+	pipelineBuilder.setShader( VK_SHADER_STAGE_FRAGMENT_BIT, tr_blur_PS );
 #endif
 
 	// setup the depth state
 	pipelineBuilder.depthStencil.depthTestEnable = VK_FALSE;
 	pipelineBuilder.depthStencil.depthWriteEnable = VK_FALSE;
+	pipelineBuilder.rasterization.cullMode = VK_CULL_MODE_NONE;
 
 	// setup the color blend state
 	VkPipelineColorBlendAttachmentState attachmentBlend = {};
@@ -163,7 +166,7 @@ void SPV_InitGlowShaders( void ) {
 
 #if 0
 	// create the blur pipeline
-	pipelineBuilder.build( &tr.glowBlurPipeline );
+	pipelineBuilder.build( &vkState.glowBlurPipeline );
 #endif
 
 	// create the combine pipeline layout

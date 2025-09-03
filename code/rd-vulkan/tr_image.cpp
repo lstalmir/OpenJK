@@ -1964,9 +1964,9 @@ static void R_CreateTransientImages( void ) {
 	frameBufferBuilder.reset();
 	frameBufferBuilder.width = glConfig.vidWidth;
 	frameBufferBuilder.height = glConfig.vidHeight;
-	frameBufferBuilder.addColorAttachment( VK_FORMAT_B8G8R8A8_UNORM );
-	frameBufferBuilder.addDepthStencilAttachment( tr.sceneFrameBuffer->images[tr.sceneFrameBuffer->depthBufferIndex].i );
-	frameBufferBuilder.build( &tr.glowFrameBuffer );
+	frameBufferBuilder.addColorAttachment( VK_FORMAT_B8G8R8A8_UNORM, true );
+	frameBufferBuilder.addDepthStencilAttachment( tres.sceneFrameBuffer->images[tres.sceneFrameBuffer->depthBufferIndex].i );
+	frameBufferBuilder.build( &tres.glowFrameBuffer );
 
 	// Create the minimized scene blur image
 	if( r_DynamicGlowWidth->integer > glConfig.vidWidth ) {
@@ -1979,7 +1979,7 @@ static void R_CreateTransientImages( void ) {
 	frameBufferBuilder.width = r_DynamicGlowWidth->integer;
 	frameBufferBuilder.height = r_DynamicGlowHeight->integer;
 	frameBufferBuilder.addColorAttachment( VK_FORMAT_B8G8R8A8_UNORM );
-	frameBufferBuilder.build( &tr.glowBlurFrameBuffer );
+	frameBufferBuilder.build( &tres.glowBlurFrameBuffer );
 #endif
 
 	frameBufferBuilder.setName( "postProcessFrameBuffer" );

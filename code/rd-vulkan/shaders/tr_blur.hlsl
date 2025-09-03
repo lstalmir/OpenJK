@@ -1,7 +1,6 @@
 
 #include "tr_common.hlsl"
 
-#if defined( BLUR_COMBINE_PASS )
 typedef struct blurParms_s {
 	float2			texelOffset0;
 	float2			texelOffset1;
@@ -27,7 +26,7 @@ typedef struct blurVertex_s {
 [[vk::push_constant]]
 blurParms_t			tr_blur;
 
-Texture2D			tr_blurImage : register( t1, space4 );
+Texture2D			tr_blurImage : register( t0, TR_TEXTURE_SPACE_0 );
 
 
 blurVertex_t VS_Main( blurInput_t i ) {
@@ -37,20 +36,20 @@ blurVertex_t VS_Main( blurInput_t i ) {
 	// construct a full-screen quad
 	VS_FullScreenQuad( i.vindex, o.position, baseTex );
 
-	o.tex0 = baseTex + tr_blur.texelOffset0;
-	o.tex1 = baseTex + tr_blur.texelOffset1;
-	o.tex2 = baseTex + tr_blur.texelOffset2;
-	o.tex3 = baseTex + tr_blur.texelOffset3;
+	o.tex0 = baseTex;
+	//o.tex0 = baseTex + tr_blur.texelOffset0;
+	//o.tex1 = baseTex + tr_blur.texelOffset1;
+	//o.tex2 = baseTex + tr_blur.texelOffset2;
+	//o.tex3 = baseTex + tr_blur.texelOffset3;
 	return o;
 }
 
 float4 PS_Main( blurVertex_t i )
 	: SV_Target {
-	float4 result = 0;
-	result += tr_blur.weight * tr_blurImage.Sample( tr_linearClampSampler, i.tex0 );
-	result += tr_blur.weight * tr_blurImage.Sample( tr_linearClampSampler, i.tex1 );
-	result += tr_blur.weight * tr_blurImage.Sample( tr_linearClampSampler, i.tex2 );
-	result += tr_blur.weight * tr_blurImage.Sample( tr_linearClampSampler, i.tex3 );
-	return result;
+	//float4 result = 0;
+	//result += tr_blur.weight * tr_blurImage.Sample( tr_linearClampSampler, i.tex0 );
+	//result += tr_blur.weight * tr_blurImage.Sample( tr_linearClampSampler, i.tex1 );
+	//result += tr_blur.weight * tr_blurImage.Sample( tr_linearClampSampler, i.tex2 );
+	//result += tr_blur.weight * tr_blurImage.Sample( tr_linearClampSampler, i.tex3 );
+	return tr_blurImage.Sample(tr_linearClampSampler, i.tex0);
 }
-#endif
