@@ -187,3 +187,8 @@ pip-log.txt
 ## CLion
 #############
 .idea
+
+#############
+## CMake
+#############
+cmake_build/
